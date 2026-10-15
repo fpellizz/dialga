@@ -19,7 +19,8 @@
 | Branch | Contenuto | Commit |
 |---|---|---|
 | `feature/bootstrap` | CI, scheletro dell'engine, asset del brand | `7efcd62`, non pushato |
-| `feature/spike-tauri-sidecar` | Spike dell'architettura: engine `serve` + API + check, frontend `web/`, shell `desktop/` | Non committato |
+| `feature/spike-tauri-sidecar` | Spike dell'architettura: engine `serve` + API + check, frontend `web/`, shell `desktop/` | Unito in `main` (PR #2) |
+| `feature/v0.1-foundations` | v0.1, prima parte: configurazione dei target, CLI `check`/`config` (testo/JSON), controllo dell'account, connessione `external`/`direct`. Provato dal vivo su `mssql-dev` | In corso |
 
 Lo **spike** è validato dal vivo su `mssql-dev`:
 - l'engine fa da sidecar con token su stdin;
@@ -51,7 +52,9 @@ Lo **spike** è validato dal vivo su `mssql-dev`:
 | `ci/build-engine.sh` | Cross-build della CLI (`dist`) o del sidecar Tauri (`sidecar`), condiviso dalle due CI |
 | `ci/tauri-placeholders.sh` | File finti richiesti da `tauri-build` nei job di check (mai nei rilasci) |
 | `engine/` | Modulo `github.com/decisyon/dialga/engine` (Go 1.26), dettaglio sotto |
-| `engine/cmd/dialga` | `serve` (API locale per la shell), `version`, `help` |
+| `engine/cmd/dialga` | CLI (cobra): `check [target]`, `config path\|validate\|show`, `serve` (API locale per la shell), `version`. Opzioni globali `--config`, `--output text\|json`. Exit code: 0 OK, 1 errore, 2 controllo non superato |
+| `engine/internal/config` | Configurazione dei target (`apiVersion: v1`), lettura stretta (chiavi sconosciute = errore), default e validazione. Percorso `os.UserConfigDir()/dialga/config.yaml`. La password è solo un riferimento: `prompt`, `env:VAR`; `keyring` e `secretsmanager:<ARN>` previsti, non ancora attivi |
+| `docs/config.example.yaml` | Esempio commentato, con soli segnaposto |
 | `engine/internal/api` | HTTP su 127.0.0.1, porta casuale, token Bearer a tempo costante, controllo di Host e Origin (CORS). `GET /api/v1/health`, `POST /api/v1/checks` (SSE) |
 | `engine/internal/check` | STS, RDS, tunnel, login SQL con TLS verificato, DB e task |
 | `engine/internal/rdsca` | Bundle CA RDS incorporato (`global-bundle.pem`) |

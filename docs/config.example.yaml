@@ -1,0 +1,38 @@
+# Dialga configuration: copy to the path printed by `dialga config path`
+# (~/.config/dialga/config.yaml on Linux) and replace the placeholders.
+# Check it with `dialga config validate`; `dialga config show` prints it
+# with the defaults applied. Unknown keys are errors.
+apiVersion: v1
+targets:
+  # Target name: lower case letters, digits and "-".
+  dev-sql:
+    # Account guard: every command stops if aws_profile points elsewhere.
+    account_id: "123456789012"
+    region: eu-west-1
+    aws_profile: default
+    # RDS DB instance identifier (not the endpoint).
+    instance: my-sqlserver
+    # Bucket readable by the role of the SQLSERVER_BACKUP_RESTORE option.
+    bucket: my-sqlserver-backups
+    # Optional, these are the defaults.
+    prefixes:
+      import: import
+      export: export
+    # true: every change asks to retype the target name (production).
+    protected: false
+    # Native backup/restore tasks run in parallel on the instance (RDS max: 2).
+    max_tasks: 2
+    sql:
+      user: admin
+      # Where the password comes from, never the password itself:
+      #   prompt                    ask on the terminal (or DIALGA_SQL_PASSWORD)
+      #   env:VAR                   read the environment variable VAR
+      #   keyring                   OS keychain (planned)
+      #   secretsmanager:<ARN>      AWS Secrets Manager (planned)
+      password: prompt
+    connect:
+      # external: a tunnel already open on 127.0.0.1:local_port
+      # direct:   the RDS endpoint itself (inside the VPC)
+      # tunnel:   Dialga opens the SSM tunnel (v0.4)
+      mode: external
+      local_port: 11433

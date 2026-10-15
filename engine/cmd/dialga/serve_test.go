@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"strings"
 	"testing"
 )
@@ -28,15 +27,5 @@ func TestReadToken(t *testing.T) {
 				t.Fatalf("readToken() = %q, %v; want %q, wantErr %v", got, err, tc.want, tc.wantErr)
 			}
 		})
-	}
-}
-
-func TestRunVersionAndUnknown(t *testing.T) {
-	var out, errOut bytes.Buffer
-	if code := run([]string{"version"}, nil, &out, &errOut); code != 0 || !strings.HasPrefix(out.String(), "dialga ") {
-		t.Fatalf("version: code %d, out %q", code, out.String())
-	}
-	if code := run([]string{"nope"}, nil, &out, &errOut); code != 1 {
-		t.Fatalf("unknown command: code %d, want 1", code)
 	}
 }
