@@ -14,12 +14,19 @@
 - **Piano** (fuori repo, nome di lavoro precedente `mssql-rds-xfer`): `~/Claudio/AWS/Sales/mssql-import/piano-app-mssql-rds-xfer.md`.
 - **Riferimento funzionale:** gli script bash collaudati e il runbook in `~/Claudio/AWS/Sales/mssql-import/` (`mssql-import.sh`, `mssql-bak-inspect.sh`, `runbook-import-db-mssql-dev.md`, mock `test/mock-rds.sql`).
 
-**Stato al 2026-10-15:** sul branch `feature/bootstrap` ci sono:
-- la CI (Bitbucket + GitHub Actions per la v2);
-- lo scheletro dell'engine (`version`, `internal/validate` con test);
-- gli asset del brand.
+**Stato al 2026-10-15:**
 
-Non ci sono ancora `web/` né `desktop/`.
+| Branch | Contenuto | Commit |
+|---|---|---|
+| `feature/bootstrap` | CI, scheletro dell'engine, asset del brand | `7efcd62`, non pushato |
+| `feature/spike-tauri-sidecar` | Spike dell'architettura: engine `serve` + API + check, frontend `web/`, shell `desktop/` | Non committato |
+
+Lo **spike** è validato dal vivo su `mssql-dev`:
+- l'engine fa da sidecar con token su stdin;
+- l'API su 127.0.0.1 respinge le richieste senza token (401), da origini estranee (403) e con host falsi (403);
+- il check in streaming (SSE) passa 5/5 in circa 4 s;
+- il **login SQL avviene con il certificato RDS verificato** attraverso il tunnel. Le prove contrarie falliscono come devono: hostname sbagliato e radici di sistema;
+- la UI nel browser (Vite dev + engine con `DIALGA_DEV=1`) mostra il flusso completo.
 
 ## Decisioni prese
 
@@ -29,6 +36,8 @@ Non ci sono ancora `web/` né `desktop/`.
 | UI | Decisyon Design System (`DecisyonDesignSystem_06d538`): shadcn stile Nova su **Base UI** (non Radix), Geist, Lucide, primario `#5b8210` |
 | Lingua | **Inglese di default**, italiano selezionabile (i18next). Copy secondo le regole del DS: sentence case, imperativi, tono neutro |
 | Piattaforme v1 | **Linux**: pacchetti deb e rpm; CLI cross-compilata per tutti gli OS. Installer Windows/macOS → v2.0 |
+| React | **18.3, non 19**: il bundle del Decisyon Design System si aggancia a React 18 come globale |
+| Password SQL | Per ora solo dall'ambiente dell'engine (`DIALGA_SQL_PASSWORD`, fallback `SQLCMDPASSWORD`), mai nelle richieste API. Portachiavi dell'OS dalla v0.1 |
 | Firma dei pacchetti | v2.0 |
 | GitHub | Mirror e workflow pronti ma **spenti** fino alla v2.0 |
 
@@ -41,7 +50,15 @@ Non ci sono ancora `web/` né `desktop/`.
 | `.github/workflows/release.yml` | Percorso di rilascio **v2.0**: bundle per i tre OS → release GitHub in bozza |
 | `ci/build-engine.sh` | Cross-build della CLI (`dist`) o del sidecar Tauri (`sidecar`), condiviso dalle due CI |
 | `ci/tauri-placeholders.sh` | File finti richiesti da `tauri-build` nei job di check (mai nei rilasci) |
-| `engine/` | Modulo `github.com/decisyon/dialga/engine` (Go 1.26). `cmd/dialga` (per ora solo `version`/`help`); `internal/validate` (`DBName`, `S3Key`: le regole di `valid_db`/`valid_key` di `mssql-import.sh`) |
+| `engine/` | Modulo `github.com/decisyon/dialga/engine` (Go 1.26), dettaglio sotto |
+| `engine/cmd/dialga` | `serve` (API locale per la shell), `version`, `help` |
+| `engine/internal/api` | HTTP su 127.0.0.1, porta casuale, token Bearer a tempo costante, controllo di Host e Origin (CORS). `GET /api/v1/health`, `POST /api/v1/checks` (SSE) |
+| `engine/internal/check` | STS, RDS, tunnel, login SQL con TLS verificato, DB e task |
+| `engine/internal/rdsca` | Bundle CA RDS incorporato (`global-bundle.pem`) |
+| `engine/internal/validate` | `DBName`, `S3Key`: le regole di `valid_db`/`valid_key` di `mssql-import.sh` |
+| `package.json`, `pnpm-workspace.yaml` | Workspace pnpm (`pnpm@12.11.2`) con `web` e `desktop`. pnpm 12 applica un'età minima di rilascio: le eccezioni per Tauri 2.12.x le ha aggiunte pnpm stesso (`minimumReleaseAgeExclude`) |
+| `web/` | React 18 + TS 7 + Vite 8 + Biome + Vitest. `src/engine.ts` (URL e token dalla shell, o `VITE_ENGINE_*` in dev), `src/api.ts` + `src/sse.ts` (fetch e SSE con header Bearer), `src/App.tsx` (schermata "Check an instance"), `src/styles/ds-tokens.css` (copia dei token del DS) |
+| `desktop/` | Shell Tauri v2. `src-tauri/src/main.rs`: avvia il sidecar, passa il token su stdin, comando `engine_info`, chiude l'engine all'uscita. CSP `connect-src` limitato a `127.0.0.1`; al frontend solo `core:default`. Bundle deb/rpm |
 | `docs/brand/` | `decisyon-symbol.svg` (dal DS), `decisyon-mark-1024.png` (sorgente per `tauri icon`), `decisyon-logo.jpg` (dal sito, solo riferimento) |
 
 ## Contratto di layout atteso dalle pipeline
@@ -79,9 +96,24 @@ Pacchetti non firmati fino alla v2.0.
 ## Comandi locali
 
 ```bash
+# engine
 cd engine && gofmt -l . && go vet ./... && go test -race ./...
-go run ./engine/cmd/dialga version                  # dalla radice: dialga dev
-bash ci/build-engine.sh dist 0.0.1-dev /tmp/dialga-dist   # cross-build di prova
+bash ci/build-engine.sh dist 0.0.1-dev /tmp/dialga-dist        # cross-build di prova
+
+# pnpm non è installato: wrapper usa e getta (solo cache utente)
+mkdir -p /tmp/pnpm-shim && printf '#!/bin/sh\nexec npx --yes pnpm@12.11.2 "$@"\n' >/tmp/pnpm-shim/pnpm && chmod +x /tmp/pnpm-shim/pnpm
+export PATH=/tmp/pnpm-shim:$PATH && pnpm install
+
+# web: gli stessi script della CI
+pnpm -C web run lint && pnpm -C web run typecheck && pnpm -C web run test && pnpm -C web run build
+
+# app desktop: sidecar per l'host, poi build (deb/rpm in desktop/src-tauri/target/release/bundle/)
+bash ci/build-engine.sh sidecar dev x86_64-unknown-linux-gnu
+pnpm -C desktop tauri build --bundles deb,rpm
+
+# Il login SQL del check legge la password dall'ambiente dell'engine (che la eredita dall'app):
+#   read -rs DIALGA_SQL_PASSWORD && export DIALGA_SQL_PASSWORD && desktop/src-tauri/target/release/dialga-desktop
+# UI nel browser: engine con DIALGA_DEV=1, poi VITE_ENGINE_URL/VITE_ENGINE_TOKEN per `pnpm -C web dev`
 ```
 
 - Prerequisiti GUI su Fedora: `webkit2gtk4.1-devel`, `libxdo-devel`, `libappindicator-gtk3-devel`, `librsvg2-devel`, `openssl-devel` (presenti).

@@ -1,0 +1,185 @@
+/* Copied from the Decisyon Design System (DecisyonDesignSystem_06d538, version 1791887975-312e,
+   https://claude.ai/artifact/Gqg3mSjAaRgJ7YAtFoxPSZ) on 2026-10-15. Do not edit: refresh from the DS. */
+/* Decisyon Design System — generated from tokens.json */
+:root, [data-theme="light"] {
+  --neutral-50: oklch(0.985 0 0);
+  --neutral-100: oklch(0.97 0 0);
+  --neutral-200: oklch(0.922 0 0);
+  --neutral-300: oklch(0.87 0 0);
+  --neutral-400: oklch(0.708 0 0);
+  --neutral-500: oklch(0.556 0 0);
+  --neutral-600: oklch(0.439 0 0);
+  --neutral-700: oklch(0.371 0 0);
+  --neutral-800: oklch(0.269 0 0);
+  --neutral-900: oklch(0.205 0 0);
+  --neutral-950: oklch(0.145 0 0);
+  --white: #ffffff;
+  --black: #000000;
+  --primary: #5b8210;
+  --primary-foreground: #ffffff;
+  --brand: #88b116;
+  --brand-fg: #5b8210;
+  --background: var(--white);
+  --foreground: var(--neutral-950);
+  --card: var(--white);
+  --card-foreground: var(--neutral-950);
+  --popover: var(--white);
+  --popover-foreground: var(--neutral-950);
+  --secondary: var(--neutral-100);
+  --secondary-foreground: var(--neutral-950);
+  --muted: var(--neutral-100);
+  --muted-foreground: var(--neutral-500);
+  --accent: var(--neutral-100);
+  --accent-foreground: var(--neutral-900);
+  --border: var(--neutral-200);
+  --input: var(--neutral-200);
+  --ring: var(--primary);
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --canvas: hsl(210 40% 98%);
+  --pane: oklch(0.982 0 0);
+  --pane-accent: oklch(0.93 0 0);
+  --sidebar: var(--canvas);
+  --sidebar-foreground: var(--neutral-950);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent-foreground: var(--neutral-900);
+  --sidebar-border: var(--neutral-200);
+  --sidebar-ring: var(--primary);
+  --chart-1: var(--primary);
+  --chart-2: var(--brand);
+  --chart-3: #0284c7;
+  --chart-4: #d97706;
+  --chart-5: #7c3aed;
+  --success: #059669;
+  --success-foreground: #047857;
+  --success-muted: #ecfdf5;
+  --success-border: #a7f3d0;
+  --success-ring: #d1fae5;
+  --warning: #d97706;
+  --warning-foreground: #92400e;
+  --warning-foreground-strong: #b45309;
+  --warning-muted: #fffbeb;
+  --warning-border: #fde68a;
+  --warning-ring: #fef3c7;
+  --alert: #ea580c;
+  --alert-foreground: #9a3412;
+  --alert-muted: #fff7ed;
+  --alert-border: #fed7aa;
+  --info: #0284c7;
+  --info-foreground: #0369a1;
+  --info-muted: #f0f9ff;
+  --info-border: #bae6fd;
+  --ai: #8b5cf6;
+  --ai-default: #8b5cf6;
+  --ai-foreground: #7c3aed;
+  --ai-muted: #f5f3ff;
+  --ai-border: #ddd6fe;
+  --shadow-xs: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+}
+[data-theme="dark"] {
+  --primary: #6f9c14;
+  --primary-foreground: #ffffff;
+  --brand: #9cc31a;
+  --brand-fg: #a7d22a;
+  --background: var(--neutral-950);
+  --foreground: var(--neutral-50);
+  --card: var(--neutral-900);
+  --card-foreground: var(--neutral-50);
+  --popover: var(--neutral-800);
+  --popover-foreground: var(--neutral-50);
+  --secondary: var(--neutral-800);
+  --secondary-foreground: var(--neutral-50);
+  --muted: var(--neutral-800);
+  --muted-foreground: var(--neutral-400);
+  --accent: var(--neutral-700);
+  --accent-foreground: var(--neutral-50);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: var(--primary);
+  --destructive: #f87171;
+  --destructive-foreground: #ffffff;
+  --canvas: var(--neutral-950);
+  --pane: oklch(0.175 0 0);
+  --pane-accent: oklch(0.235 0 0);
+  --sidebar: var(--neutral-900);
+  --sidebar-foreground: var(--neutral-50);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent-foreground: var(--neutral-50);
+  --sidebar-border: var(--neutral-700);
+  --sidebar-ring: var(--primary);
+  --chart-1: var(--primary);
+  --chart-2: var(--brand);
+}
+:root {
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-2-5: 10px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --control-h-xs: 24px;
+  --control-h-sm: 28px;
+  --control-h: 32px;
+  --control-h-lg: 36px;
+  --shell-header-h: 52px;
+  --shell-context-h: 44px;
+  --shell-gap: 10px;
+  --shell-pad: 10px;
+  --list-w: 272px;
+  --radius: 0.625rem;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 14px;
+  --radius-full: 9999px;
+  --text-mini: 12px;
+  --text-small: 14px;
+  --text-base: 16px;
+  --text-lg: 18px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+  --text-4xl: 36px;
+  --fw-light: 300;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+  --lh-tight: 1.2;
+  --lh-snug: 1.4;
+  --lh-normal: 1.5;
+  --lh-relaxed: 1.6;
+  --tracking-tight: -0.01em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.025em;
+  --tracking-eyebrow: 0.14em;
+  --font-sans: 'Geist', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Geist Mono', 'Roboto Mono', ui-monospace, monospace;
+}
+.ds-heading-4 { font-family: var(--font-sans); font-size: 20px; font-weight: 600; line-height: 1.3; }
+.ds-paragraph-lg { font-family: var(--font-sans); font-size: 18px; font-weight: 400; line-height: 1.5; }
+.ds-paragraph-lg-m { font-family: var(--font-sans); font-size: 18px; font-weight: 500; line-height: 1.5; }
+.ds-paragraph-lg-b { font-family: var(--font-sans); font-size: 18px; font-weight: 600; line-height: 1.5; }
+.ds-paragraph { font-family: var(--font-sans); font-size: 16px; font-weight: 400; line-height: 1.5; }
+.ds-paragraph-m { font-family: var(--font-sans); font-size: 16px; font-weight: 500; line-height: 1.5; }
+.ds-paragraph-b { font-family: var(--font-sans); font-size: 16px; font-weight: 600; line-height: 1.5; }
+.ds-small { font-family: var(--font-sans); font-size: 14px; font-weight: 400; line-height: 1.5; }
+.ds-small-m { font-family: var(--font-sans); font-size: 14px; font-weight: 500; line-height: 1.5; }
+.ds-small-b { font-family: var(--font-sans); font-size: 14px; font-weight: 600; line-height: 1.5; }
+.ds-mini { font-family: var(--font-sans); font-size: 12px; font-weight: 400; line-height: 1.4; }
+.ds-mini-m { font-family: var(--font-sans); font-size: 12px; font-weight: 500; line-height: 1.4; }
+.ds-mini-b { font-family: var(--font-sans); font-size: 12px; font-weight: 600; line-height: 1.4; }
+.ds-eyebrow { font-family: var(--font-sans); font-size: 12px; font-weight: 600; letter-spacing: 0.14em; }
+.ds-mono { font-family: var(--font-mono); font-size: 12px; font-weight: 400; line-height: 1.4; }

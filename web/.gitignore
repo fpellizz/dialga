@@ -1,0 +1,3 @@
+# Read by git and by Biome (vcs.useIgnoreFile looks for it next to biome.json).
+dist/
+node_modules/
