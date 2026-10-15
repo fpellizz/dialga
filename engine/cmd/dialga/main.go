@@ -24,20 +24,20 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 	switch args[0] {
 	case "version", "--version", "-v":
-		fmt.Fprintf(stdout, "dialga %s\n", version)
+		_, _ = fmt.Fprintf(stdout, "dialga %s\n", version)
 		return 0
 	case "help", "--help", "-h":
 		usage(stdout)
 		return 0
 	default:
-		fmt.Fprintf(stderr, "dialga: unknown or not yet implemented command %q\n", args[0])
+		_, _ = fmt.Fprintf(stderr, "dialga: unknown or not yet implemented command %q\n", args[0])
 		usage(stderr)
 		return 1
 	}
 }
 
 func usage(w io.Writer) {
-	fmt.Fprint(w, `Usage: dialga <command>
+	_, _ = fmt.Fprint(w, `Usage: dialga <command>
 
 Commands:
   version   Print the version

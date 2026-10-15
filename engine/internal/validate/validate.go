@@ -46,7 +46,7 @@ func S3Key(key string) error {
 	case strings.HasPrefix(key, "/"):
 		return fmt.Errorf("invalid S3 key %q: it must not start with /", key)
 	case strings.Contains(key, ".."):
-		return fmt.Errorf("invalid S3 key %q: it must not contain ..", key)
+		return fmt.Errorf("invalid S3 key %q: parent directory references are not allowed", key)
 	}
 	return nil
 }
