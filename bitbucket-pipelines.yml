@@ -1,0 +1,337 @@
+# =====================================================================
+#  dialga · Bitbucket Pipelines
+#
+#  Bitbucket is the source of truth and, for v1, the whole release path:
+#  lint + tests, the engine CLI cross-built for every OS (pure Go), the
+#  Linux desktop bundles (deb, rpm) and their upload to the repository
+#  Downloads. v1 targets Linux only (decision of 2026-10-15).
+#
+#  Windows and macOS desktop bundles arrive with v2.0 and need native
+#  runners: GitHub Actions on a mirror of this repo
+#  (.github/workflows/release.yml), fed by the "Mirror" step below. The
+#  mirror stays off until its variables are set.
+#
+#  Repository variables (Repository settings -> Pipelines -> Variables):
+#    BITBUCKET_DOWNLOADS_TOKEN  SECURED. Repository access token with
+#                               "Repositories: Write"; empty = release
+#                               files stay pipeline artifacts only
+#    GITHUB_MIRROR_REPO         v2.0: owner/repo on GitHub; empty = off
+#    GITHUB_MIRROR_TOKEN        v2.0, SECURED. Fine-grained PAT limited to
+#                               that repo, "Contents: write" and
+#                               "Workflows: write" (GitHub refuses pushes
+#                               that touch .github/workflows without it)
+#
+#  When jobs run:
+#    push, any other branch -> checks (engine, web, desktop, secrets)
+#    pull request           -> checks + engine integration tests
+#    push to main           -> checks + integration + engine dist + mirror
+#    tag v* (e.g. v0.1.0)   -> checks + integration + engine dist + Linux
+#                              bundles, then the MANUAL upload to Downloads
+#    custom (Run pipeline)  -> "integration", "release-dry-run" (dist and
+#                              bundles, no upload), "mirror-to-github"
+#
+#  Every step skips itself while its part of the monorepo (engine/,
+#  web/, desktop/) does not exist yet. Layout contract: CLAUDE.md.
+#  Engine build logic lives in ci/build-engine.sh, shared with GitHub.
+# =====================================================================
+
+definitions:
+  caches:
+    gomod:
+      key:
+        files:
+          - engine/go.sum
+      path: /go/pkg/mod
+    gobuild:
+      key:
+        files:
+          - engine/go.sum
+      path: /root/.cache/go-build
+    pnpm:
+      key:
+        files:
+          - pnpm-lock.yaml
+      path: .pnpm-store
+    cargo:
+      key:
+        files:
+          - desktop/src-tauri/Cargo.lock
+      path: /usr/local/cargo/registry
+    cargo-target:
+      key:
+        files:
+          - desktop/src-tauri/Cargo.lock
+      path: desktop/src-tauri/target
+    cargo-home:
+      key:
+        files:
+          - desktop/src-tauri/Cargo.lock
+      path: /root/.cargo/registry
+
+  services:
+    docker:
+      # SQL Server needs at least 2 GB inside the testcontainers.
+      memory: 4096
+
+  steps:
+    - step: &engine-test
+        name: "Engine · go vet + go test -race"
+        image: golang:1.26
+        caches:
+          - gomod
+          - gobuild
+        script:
+          - if [ ! -f engine/go.mod ]; then echo "engine/ not there yet - skip"; exit 0; fi
+          - cd engine
+          - go mod download
+          - go vet ./...
+          - go test -race -count=1 ./...
+          - go build ./...
+
+    - step: &engine-lint
+        name: "Engine · golangci-lint"
+        image: golang:1.26
+        caches:
+          - gomod
+          - gobuild
+        script:
+          - if [ ! -f engine/go.mod ]; then echo "engine/ not there yet - skip"; exit 0; fi
+          # Built with the image's Go toolchain, so it always accepts the
+          # Go version declared in engine/go.mod (a prebuilt binary may not).
+          - go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
+          - cd engine
+          - golangci-lint run ./...
+
+    - step: &engine-integration
+        name: "Engine · integration tests (SQL Server + rds_* mock + MinIO)"
+        image: golang:1.26
+        size: 2x
+        services:
+          - docker
+        caches:
+          - gomod
+          - gobuild
+          - docker
+        script:
+          - if [ ! -f engine/go.mod ]; then echo "engine/ not there yet - skip"; exit 0; fi
+          # The Bitbucket docker service forbids privileged containers, so
+          # testcontainers must run without its Ryuk reaper.
+          - export TESTCONTAINERS_RYUK_DISABLED=true
+          - cd engine
+          - go test -tags integration -count=1 -timeout 30m ./...
+
+    - step: &engine-dist
+        name: "Engine · cross-build CLI (linux/windows/darwin x amd64/arm64)"
+        image: golang:1.26
+        caches:
+          - gomod
+          - gobuild
+        script:
+          - if [ ! -f engine/go.mod ]; then echo "engine/ not there yet - skip"; exit 0; fi
+          - apt-get update -qq && apt-get install -y -qq zip
+          - |
+            if [ -n "${BITBUCKET_TAG:-}" ]; then
+              VERSION="${BITBUCKET_TAG#v}"
+            else
+              VERSION="dev-${BITBUCKET_COMMIT:0:7}"
+            fi
+            bash ci/build-engine.sh dist "$VERSION" dist/engine
+            # The Linux sidecar for the desktop bundle step, when there is one.
+            if [ -f desktop/src-tauri/tauri.conf.json ]; then
+              bash ci/build-engine.sh sidecar "$VERSION" x86_64-unknown-linux-gnu
+            fi
+          - ls -l dist/engine
+        artifacts:
+          - dist/engine/**
+          - desktop/src-tauri/binaries/**
+
+    - step: &desktop-linux
+        name: "Desktop · Linux bundles (deb, rpm)"
+        image: node:24
+        size: 2x
+        caches:
+          - pnpm
+          - cargo-home
+          - cargo-target
+        script:
+          - if [ ! -f desktop/src-tauri/tauri.conf.json ]; then echo "desktop/ not there yet - skip"; exit 0; fi
+          - test -x desktop/src-tauri/binaries/dialga-x86_64-unknown-linux-gnu || { echo "sidecar missing - this step runs after Engine dist"; exit 1; }
+          # The bundles carry the version of tauri.conf.json: on a tag it must match.
+          - |
+            if [ -n "${BITBUCKET_TAG:-}" ]; then
+              declared=$(node -p "require('./desktop/src-tauri/tauri.conf.json').version")
+              if [ "$declared" != "${BITBUCKET_TAG#v}" ]; then
+                echo "tauri.conf.json version is '$declared', tag is '$BITBUCKET_TAG': bump it before tagging"
+                exit 1
+              fi
+            fi
+          - apt-get update -qq && apt-get install -y -qq
+              build-essential pkg-config file rpm libssl-dev libxdo-dev
+              libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+          - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+          - . "$HOME/.cargo/env"
+          - export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+          - corepack enable
+          - pnpm config set store-dir .pnpm-store
+          - pnpm install --frozen-lockfile
+          # beforeBuildCommand in tauri.conf.json builds web/ first.
+          - pnpm -C desktop tauri build --bundles deb,rpm
+          - mkdir -p dist/desktop
+          - find desktop/src-tauri/target/release/bundle \( -name '*.deb' -o -name '*.rpm' \) -exec cp {} dist/desktop/ \;
+          - ls -l dist/desktop
+        artifacts:
+          - dist/desktop/**
+
+    - step: &publish-downloads
+        name: "Release · upload to Bitbucket Downloads"
+        trigger: manual
+        image: alpine:3
+        script:
+          - |
+            if [ -z "${BITBUCKET_DOWNLOADS_TOKEN:-}" ]; then
+              echo "BITBUCKET_DOWNLOADS_TOKEN not set - release files stay pipeline artifacts."
+              exit 0
+            fi
+            apk add --no-cache curl >/dev/null
+            mkdir -p dist/release
+            for d in dist/engine dist/desktop; do
+              if [ -d "$d" ]; then cp "$d"/* dist/release/; fi
+            done
+            rm -f dist/release/SHA256SUMS.engine
+            (cd dist/release && sha256sum -- * >SHA256SUMS && cat SHA256SUMS)
+            # The token goes to curl through a header file (printf is a shell
+            # builtin): never on a command line.
+            umask 077
+            printf 'Authorization: Bearer %s\n' "$BITBUCKET_DOWNLOADS_TOKEN" >/tmp/auth.hdr
+            for f in dist/release/*; do
+              echo "upload $(basename "$f")"
+              curl -sS --fail-with-body -o /dev/null -H @/tmp/auth.hdr -F "files=@$f" \
+                "https://api.bitbucket.org/2.0/repositories/${BITBUCKET_REPO_FULL_NAME}/downloads"
+            done
+            rm -f /tmp/auth.hdr
+
+    - step: &web-test
+        name: "Web · lint + typecheck + test + build"
+        image: node:24
+        caches:
+          - pnpm
+        script:
+          - if [ ! -f web/package.json ]; then echo "web/ not there yet - skip"; exit 0; fi
+          # pnpm version comes from "packageManager" in the root package.json.
+          - export COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+          - corepack enable
+          - pnpm config set store-dir .pnpm-store
+          - pnpm install --frozen-lockfile
+          - pnpm -C web run lint
+          - pnpm -C web run typecheck
+          - pnpm -C web run test
+          - pnpm -C web run build
+
+    - step: &desktop-check
+        name: "Desktop · cargo fmt + clippy + test"
+        image: rust:1
+        size: 2x
+        caches:
+          - cargo
+          - cargo-target
+        script:
+          - if [ ! -f desktop/src-tauri/Cargo.toml ]; then echo "desktop/ not there yet - skip"; exit 0; fi
+          - apt-get update -qq && apt-get install -y -qq
+              build-essential pkg-config file libssl-dev libxdo-dev
+              libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+          - rustup component add clippy rustfmt
+          # tauri-build wants the frontend dist and the sidecar binary at
+          # compile time: lay down placeholders (never used for releases).
+          - bash ci/tauri-placeholders.sh
+          - cd desktop/src-tauri
+          - cargo fmt --all -- --check
+          - cargo clippy --all-targets --locked -- -D warnings
+          - cargo test --locked
+
+    - step: &secret-scan
+        name: "Secrets · gitleaks (full history)"
+        image: zricethezav/gitleaks:v8.30.1
+        clone:
+          depth: full
+        script:
+          # The clone belongs to another uid than the image user: mark it safe.
+          - export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*'
+          - gitleaks git --redact --verbose .
+
+    - step: &mirror-github
+        name: "Mirror to GitHub (feeds the desktop release workflow)"
+        image: alpine/git:latest
+        clone:
+          depth: full
+        script:
+          - |
+            if [ -z "${GITHUB_MIRROR_REPO:-}" ] || [ -z "${GITHUB_MIRROR_TOKEN:-}" ]; then
+              echo "GITHUB_MIRROR_REPO / GITHUB_MIRROR_TOKEN not set - mirror disabled."
+              exit 0
+            fi
+            # The token reaches git through a credential helper that reads it
+            # from the environment: never in a URL or on a command line.
+            git config --global credential.helper \
+              '!f() { echo username=x-access-token; echo "password=${GITHUB_MIRROR_TOKEN}"; }; f'
+            URL="https://github.com/${GITHUB_MIRROR_REPO}.git"
+            if [ -n "${BITBUCKET_TAG:-}" ]; then
+              git push "$URL" "refs/tags/${BITBUCKET_TAG}:refs/tags/${BITBUCKET_TAG}"
+            else
+              # No --force: if the mirror diverged (someone pushed to GitHub
+              # directly) fail loudly instead of overwriting it.
+              git push "$URL" "HEAD:refs/heads/${BITBUCKET_BRANCH}"
+            fi
+
+pipelines:
+  default:
+    - parallel:
+        - step: *engine-test
+        - step: *engine-lint
+        - step: *web-test
+        - step: *desktop-check
+        - step: *secret-scan
+
+  pull-requests:
+    "**":
+      - parallel:
+          - step: *engine-test
+          - step: *engine-lint
+          - step: *web-test
+          - step: *desktop-check
+          - step: *secret-scan
+      - step: *engine-integration
+
+  branches:
+    main:
+      - parallel:
+          - step: *engine-test
+          - step: *engine-lint
+          - step: *web-test
+          - step: *desktop-check
+          - step: *secret-scan
+      - step: *engine-integration
+      - step: *engine-dist
+      - step: *mirror-github
+
+  tags:
+    "v*":
+      - parallel:
+          - step: *engine-test
+          - step: *engine-lint
+          - step: *web-test
+          - step: *desktop-check
+          - step: *secret-scan
+      - step: *engine-integration
+      - step: *engine-dist
+      - step: *desktop-linux
+      - step: *publish-downloads
+      - step: *mirror-github
+
+  custom:
+    integration:
+      - step: *engine-integration
+    release-dry-run:
+      - step: *engine-dist
+      - step: *desktop-linux
+    mirror-to-github:
+      - step: *mirror-github

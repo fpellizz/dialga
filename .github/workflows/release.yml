@@ -1,0 +1,253 @@
+name: release
+
+# v2.0 RELEASE PATH, idle for now. v1 targets Linux only and is released
+# from Bitbucket (bitbucket-pipelines.yml: deb + rpm + CLI to Downloads).
+# This workflow adds the Windows and macOS desktop bundles in v2.0, once
+# the Bitbucket -> GitHub mirror is enabled (decision of 2026-10-15).
+#
+# Builds every distributable and, on a v* tag, creates a DRAFT GitHub
+# release with all of them: publishing stays a manual, deliberate step.
+#
+#   tag vX.Y.Z (pushed by the Bitbucket mirror step) -> build + draft release
+#   workflow_dispatch                                -> build only (artifacts)
+#
+# Outputs:
+#   engine CLI    6 archives (linux/windows/darwin x amd64/arm64)
+#   desktop app   deb + rpm + AppImage, NSIS installer, dmg (Tauri bundles,
+#                 each with the engine sidecar for its target)
+#   SHA256SUMS    over everything above
+#
+# UNSIGNED until v2.0 (decision of 2026-10-15). macOS bundles get only an
+# ad-hoc signature (APPLE_SIGNING_IDENTITY="-"), so Gatekeeper asks for
+# confirmation at first launch; Windows SmartScreen does the same.
+#
+# Before tagging: the version in desktop/src-tauri/tauri.conf.json must
+# equal the tag (checked by the "meta" job).
+#
+# Repository variables (Settings -> Secrets and variables -> Variables):
+#   ENABLE_LINUX_ARM64=true   also build the Linux arm64 desktop bundles
+#                             (needs the ubuntu-22.04-arm hosted runner)
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  APP: dialga
+  NODE_VERSION: "24"
+
+jobs:
+  meta:
+    name: version + build matrix
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      is_tag: ${{ steps.meta.outputs.is_tag }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+      engine: ${{ steps.meta.outputs.engine }}
+      desktop: ${{ steps.meta.outputs.desktop }}
+      desktop_matrix: ${{ steps.meta.outputs.desktop_matrix }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: meta
+        env:
+          ENABLE_LINUX_ARM64: ${{ vars.ENABLE_LINUX_ARM64 }}
+        run: |
+          is_tag=false prerelease=false
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            is_tag=true
+            version="${GITHUB_REF_NAME#v}"
+            if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              echo "::error::tag '$GITHUB_REF_NAME' is not vMAJOR.MINOR.PATCH[-prerelease]"
+              exit 1
+            fi
+            if [[ "$version" == *-* ]]; then prerelease=true; fi
+          else
+            version="dev-${GITHUB_SHA::7}"
+          fi
+
+          engine=false desktop=false
+          if [[ -f engine/go.mod ]]; then engine=true; fi
+          if [[ -f desktop/src-tauri/tauri.conf.json ]]; then desktop=true; fi
+
+          # The installers carry the version declared in tauri.conf.json:
+          # on a tag it must match, or they would lie about what they are.
+          if [[ "$is_tag" == true && "$desktop" == true ]]; then
+            declared=$(jq -r '.version // empty' desktop/src-tauri/tauri.conf.json)
+            if [[ "$declared" != "$version" ]]; then
+              echo "::error::tauri.conf.json version is '$declared', tag is '$version': bump it before tagging"
+              exit 1
+            fi
+          fi
+
+          # name, hosted runner, Rust target, Tauri bundles. Windows arm64 and
+          # macOS x64 are cross-compiled on the x64 / arm64 runner.
+          matrix='[
+            {"name":"linux-x64",     "runner":"ubuntu-22.04",   "target":"x86_64-unknown-linux-gnu", "bundles":"deb,rpm,appimage"},
+            {"name":"windows-x64",   "runner":"windows-latest", "target":"x86_64-pc-windows-msvc",   "bundles":"nsis"},
+            {"name":"windows-arm64", "runner":"windows-latest", "target":"aarch64-pc-windows-msvc",  "bundles":"nsis"},
+            {"name":"macos-arm64",   "runner":"macos-latest",   "target":"aarch64-apple-darwin",     "bundles":"dmg"},
+            {"name":"macos-x64",     "runner":"macos-latest",   "target":"x86_64-apple-darwin",      "bundles":"dmg"}
+          ]'
+          if [[ "$ENABLE_LINUX_ARM64" == true ]]; then
+            matrix=$(jq '. + [{"name":"linux-arm64","runner":"ubuntu-22.04-arm","target":"aarch64-unknown-linux-gnu","bundles":"deb,rpm,appimage"}]' <<<"$matrix")
+          fi
+
+          {
+            echo "version=$version"
+            echo "is_tag=$is_tag"
+            echo "prerelease=$prerelease"
+            echo "engine=$engine"
+            echo "desktop=$desktop"
+            echo "desktop_matrix=$(jq -c . <<<"$matrix")"
+          } | tee -a "$GITHUB_OUTPUT"
+
+  engine:
+    name: engine CLI (6 targets)
+    needs: meta
+    if: needs.meta.outputs.engine == 'true'
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: engine/go.mod
+          cache-dependency-path: engine/go.sum
+      - run: bash ci/build-engine.sh dist "$VERSION" dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: engine
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  desktop:
+    name: desktop (${{ matrix.name }})
+    needs: meta
+    if: needs.meta.outputs.desktop == 'true'
+    strategy:
+      # One platform failing must not hide the bundles of the others.
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.meta.outputs.desktop_matrix) }}
+    runs-on: ${{ matrix.runner }}
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+      TARGET: ${{ matrix.target }}
+      BUNDLES: ${{ matrix.bundles }}
+      # linuxdeploy (AppImage) without FUSE.
+      APPIMAGE_EXTRACT_AND_RUN: "1"
+      # Ad-hoc signature only, until real signing in v2.0 (see header).
+      APPLE_SIGNING_IDENTITY: "-"
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Linux system dependencies (Tauri v2)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config file libssl-dev libxdo-dev \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: engine/go.mod
+          cache-dependency-path: engine/go.sum
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+          key: ${{ matrix.target }}
+
+      - run: pnpm install --frozen-lockfile
+
+      # The real engine, built for this bundle's target, as Tauri sidecar.
+      - name: engine sidecar
+        run: bash ci/build-engine.sh sidecar "$VERSION" "$TARGET"
+
+      # beforeBuildCommand in tauri.conf.json builds web/ first.
+      - name: tauri build
+        run: pnpm -C desktop tauri build --target "$TARGET" --bundles "$BUNDLES"
+
+      - name: collect bundles
+        run: |
+          mkdir -p dist
+          find "desktop/src-tauri/target/$TARGET/release/bundle" -type f \
+            \( -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \
+               -o -name '*-setup.exe' -o -name '*.dmg' \) -exec cp {} dist/ \;
+          ls -l dist
+          if [[ -z "$(ls -A dist)" ]]; then
+            echo "::error::no bundle produced for $TARGET"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: desktop-${{ matrix.name }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: draft GitHub release
+    needs: [meta, engine, desktop]
+    if: >-
+      !cancelled() && needs.meta.outputs.is_tag == 'true' &&
+      !contains(needs.*.result, 'failure')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+      PRERELEASE: ${{ needs.meta.outputs.prerelease }}
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: checksums
+        working-directory: dist
+        run: |
+          rm -f SHA256SUMS.engine
+          if [[ -z "$(ls -A .)" ]]; then
+            echo "::error::nothing to release"
+            exit 1
+          fi
+          sha256sum -- * >SHA256SUMS
+          cat SHA256SUMS
+
+      # Draft only: review it and press "Publish" on GitHub. Re-runs replace
+      # the assets of the existing draft instead of failing.
+      - name: create or update the draft release
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            flags=(--draft --verify-tag --generate-notes --title "$APP $TAG")
+            if [[ "$PRERELEASE" == true ]]; then flags+=(--prerelease); fi
+            gh release create "$TAG" "${flags[@]}" dist/*
+          fi

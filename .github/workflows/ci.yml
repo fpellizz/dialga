@@ -1,0 +1,194 @@
+name: ci
+
+# Checks on push and pull request. On the GitHub mirror, pushes arrive
+# from Bitbucket (main and tags, see bitbucket-pipelines.yml); the branch
+# filters also cover a GitHub-first workflow.
+#
+# Unlike Bitbucket, GitHub has Windows and macOS runners: the engine unit
+# tests run on all three operating systems here.
+#
+# Each job runs only when its part of the monorepo exists (engine/, web/,
+# desktop/): see the "layout" job and CLAUDE.md.
+
+on:
+  push:
+    branches: [main, "feature/**", "fix/**", "chore/**"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  GOLANGCI_LINT_VERSION: v2.14.0
+  GITLEAKS_VERSION: 8.30.1
+  NODE_VERSION: "24"
+
+jobs:
+  layout:
+    name: layout
+    runs-on: ubuntu-latest
+    outputs:
+      engine: ${{ steps.detect.outputs.engine }}
+      web: ${{ steps.detect.outputs.web }}
+      desktop: ${{ steps.detect.outputs.desktop }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: detect
+        run: |
+          has() { if [[ -f "$1" ]]; then echo true; else echo false; fi; }
+          {
+            echo "engine=$(has engine/go.mod)"
+            echo "web=$(has web/package.json)"
+            echo "desktop=$(has desktop/src-tauri/Cargo.toml)"
+          } | tee -a "$GITHUB_OUTPUT"
+
+  # --------------------------------------------------------------------
+  # Engine (Go)
+  # --------------------------------------------------------------------
+  engine:
+    name: engine (${{ matrix.os }})
+    needs: layout
+    if: needs.layout.outputs.engine == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: engine/go.mod
+          cache-dependency-path: engine/go.sum
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: |
+          # -race needs cgo: use it where a C toolchain is guaranteed.
+          if [[ "$RUNNER_OS" == Linux ]]; then
+            go test -race -count=1 ./...
+          else
+            go test -count=1 ./...
+          fi
+      - name: go build
+        run: go build ./...
+
+  engine-lint:
+    name: engine lint (golangci-lint)
+    needs: layout
+    if: needs.layout.outputs.engine == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: engine/go.mod
+          cache-dependency-path: engine/go.sum
+      - uses: golangci/golangci-lint-action@v9
+        with:
+          version: ${{ env.GOLANGCI_LINT_VERSION }}
+          working-directory: engine
+
+  engine-integration:
+    name: engine integration (SQL Server + rds_* mock + MinIO)
+    needs: [layout, engine]
+    if: >-
+      needs.layout.outputs.engine == 'true' &&
+      (github.event_name != 'push' || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+        working-directory: engine
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: engine/go.mod
+          cache-dependency-path: engine/go.sum
+      - name: go test -tags integration
+        run: go test -tags integration -count=1 -timeout 30m ./...
+
+  # --------------------------------------------------------------------
+  # Web frontend (React + TS)
+  # --------------------------------------------------------------------
+  web:
+    name: web (lint + typecheck + test + build)
+    needs: layout
+    if: needs.layout.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # pnpm version from "packageManager" in the root package.json.
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -C web run lint
+      - run: pnpm -C web run typecheck
+      - run: pnpm -C web run test
+      - run: pnpm -C web run build
+
+  # --------------------------------------------------------------------
+  # Desktop shell (Tauri v2, Rust)
+  # --------------------------------------------------------------------
+  desktop:
+    name: desktop (cargo fmt + clippy + test)
+    needs: layout
+    if: needs.layout.outputs.desktop == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: Linux system dependencies (Tauri v2)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config file libssl-dev libxdo-dev \
+            libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      # tauri-build wants the frontend dist and the sidecar at compile time.
+      - run: bash ci/tauri-placeholders.sh
+      - name: cargo fmt + clippy + test
+        working-directory: desktop/src-tauri
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --all-targets --locked -- -D warnings
+          cargo test --locked
+
+  # --------------------------------------------------------------------
+  # Secrets in the git history
+  # --------------------------------------------------------------------
+  secrets:
+    name: secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      # The container user differs from the checkout owner: mark it safe.
+      - name: gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
+            "zricethezav/gitleaks:v${GITLEAKS_VERSION}" git --redact --verbose /repo
