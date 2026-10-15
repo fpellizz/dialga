@@ -1,0 +1,5 @@
+# Findings already in the git history that are known false positives.
+# Format: <commit>:<file>:<rule>:<line> (the "Fingerprint" gitleaks prints).
+
+# Throwaway API token of the engine unit tests (now built with strings.Repeat).
+99b8217887e96eea37e8050ef0c987b250bfdeac:engine/internal/api/server_test.go:generic-api-key:10

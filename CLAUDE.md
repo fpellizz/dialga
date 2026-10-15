@@ -121,8 +121,8 @@ pnpm -C desktop tauri build --bundles deb,rpm
 
 ## Da verificare al primo run delle pipeline
 
-- Cache con `key.files` su file non ancora esistenti (attesa: cache saltata, non errore).
-- ENTRYPOINT dell'immagine `zricethezav/gitleaks` in Bitbucket.
+- ~~Cache con `key.files` su file non ancora esistenti~~ **Verificato il 2026-10-15:** se il file chiave manca, Bitbucket **fa fallire lo step** (`agent.cache.key-failure`), non salta la cache. Oggi `engine/go.sum`, `pnpm-lock.yaml` e `desktop/src-tauri/Cargo.lock` esistono; vanno sempre committati.
+- ~~ENTRYPOINT dell'immagine `zricethezav/gitleaks`~~ **Verificato:** funziona in Bitbucket. I falsi positivi già nella storia vanno in `.gitleaksignore` (fingerprint `commit:file:regola:riga`); nei test non si scrivono token come stringhe letterali.
 - Step desktop Linux: immagine `node:24` (Debian) + rustup + dipendenze webkit; verificare tempi e cache con il primo `desktop/`.
 - Validazione locale già fatta: YAML, `actionlint` 0 errori, `build-engine.sh` provato su un modulo fittizio e sullo scheletro reale.
 
