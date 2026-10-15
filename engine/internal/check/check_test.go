@@ -20,6 +20,9 @@ func TestRequestValidate(t *testing.T) {
 		{"port zero", func(r *Request) { r.LocalPort = 0 }, true},
 		{"port too high", func(r *Request) { r.LocalPort = 70000 }, true},
 		{"login with semicolon", func(r *Request) { r.SQLUser = "god;x" }, true},
+		{"expected account", func(r *Request) { r.ExpectedAccount = "123456789012" }, false},
+		{"expected account too short", func(r *Request) { r.ExpectedAccount = "12345" }, true},
+		{"direct needs no local port", func(r *Request) { r.Direct = true; r.LocalPort = 0 }, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

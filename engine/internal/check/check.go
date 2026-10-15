@@ -37,6 +37,12 @@ type Request struct {
 	Instance  string `json:"instance"`
 	LocalPort int    `json:"localPort"`
 	SQLUser   string `json:"sqlUser"`
+	// ExpectedAccount, when set, fails the AWS step on any other account
+	// (the profile points somewhere else: stop before touching anything).
+	ExpectedAccount string `json:"expectedAccount,omitempty"`
+	// Direct connects to the RDS endpoint itself (inside the VPC) instead
+	// of the tunnel on 127.0.0.1:LocalPort.
+	Direct bool `json:"direct,omitempty"`
 }
 
 var (
@@ -44,6 +50,7 @@ var (
 	regionPattern   = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-[0-9]$`)
 	instancePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9-]{0,62}$`)
 	loginPattern    = regexp.MustCompile(`^[A-Za-z0-9._@-]{1,128}$`)
+	accountPattern  = regexp.MustCompile(`^[0-9]{12}$`)
 )
 
 // Validate rejects values that could not name a real target.
@@ -55,10 +62,12 @@ func (r Request) Validate() error {
 		return fmt.Errorf("invalid AWS region %q", r.Region)
 	case !instancePattern.MatchString(r.Instance):
 		return fmt.Errorf("invalid RDS instance identifier %q", r.Instance)
-	case r.LocalPort < 1 || r.LocalPort > 65535:
+	case !r.Direct && (r.LocalPort < 1 || r.LocalPort > 65535):
 		return fmt.Errorf("invalid local port %d", r.LocalPort)
 	case !loginPattern.MatchString(r.SQLUser):
 		return fmt.Errorf("invalid SQL login %q", r.SQLUser)
+	case r.ExpectedAccount != "" && !accountPattern.MatchString(r.ExpectedAccount):
+		return fmt.Errorf("invalid expected account %q", r.ExpectedAccount)
 	}
 	return nil
 }
@@ -91,7 +100,7 @@ type step struct {
 var (
 	stepAWS      = step{"aws", "AWS credentials"}
 	stepInstance = step{"instance", "RDS instance"}
-	stepTunnel   = step{"tunnel", "Tunnel"}
+	stepTunnel   = step{"tunnel", "Connection"}
 	stepSQL      = step{"sql", "SQL Server login (TLS verified)"}
 	stepTasks    = step{"tasks", "Databases and native backup tasks"}
 )
@@ -125,7 +134,16 @@ func Run(ctx context.Context, req Request, sqlPassword string, emit Emitter) boo
 		skip(stepTasks, "needs a SQL session")
 		return false
 	}
-	end(stepAWS, OK, fmt.Sprintf("profile %s · account %s", req.Profile, aws.ToString(ident.Account)))
+	account := aws.ToString(ident.Account)
+	if req.ExpectedAccount != "" && account != req.ExpectedAccount {
+		end(stepAWS, Failed, fmt.Sprintf("profile %s points to account %s, expected %s", req.Profile, account, req.ExpectedAccount))
+		skip(stepInstance, "wrong AWS account")
+		skip(stepTunnel, "wrong AWS account")
+		skip(stepSQL, "wrong AWS account")
+		skip(stepTasks, "wrong AWS account")
+		return false
+	}
+	end(stepAWS, OK, fmt.Sprintf("profile %s · account %s", req.Profile, account))
 
 	start(stepInstance)
 	out, err := rds.NewFromConfig(cfg).DescribeDBInstances(ctx, &rds.DescribeDBInstancesInput{
@@ -152,16 +170,28 @@ func Run(ctx context.Context, req Request, sqlPassword string, emit Emitter) boo
 	}
 
 	start(stepTunnel)
-	addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(req.LocalPort))
-	conn, err := (&net.Dialer{Timeout: 3 * time.Second}).DialContext(ctx, "tcp", addr)
+	endpointPort := int(aws.ToInt32(db.Endpoint.Port))
+	if endpointPort == 0 {
+		endpointPort = 1433
+	}
+	addr := sqlAddr(req, endpoint, endpointPort)
+	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "tcp", addr)
 	if err != nil {
-		end(stepTunnel, Failed, "nothing listening on "+addr+": open the SSM tunnel")
-		skip(stepSQL, "needs the tunnel")
+		if req.Direct {
+			end(stepTunnel, Failed, "cannot reach "+addr+": run inside the VPC or use a tunnel")
+		} else {
+			end(stepTunnel, Failed, "nothing listening on "+addr+": open the SSM tunnel")
+		}
+		skip(stepSQL, "needs a connection")
 		skip(stepTasks, "needs a SQL session")
 		return false
 	}
 	_ = conn.Close()
-	end(stepTunnel, OK, addr+" → "+endpoint+":1433")
+	if req.Direct {
+		end(stepTunnel, OK, "direct · "+addr)
+	} else {
+		end(stepTunnel, OK, fmt.Sprintf("tunnel %s → %s:%d", addr, endpoint, endpointPort))
+	}
 
 	start(stepSQL)
 	if sqlPassword == "" {
@@ -169,7 +199,7 @@ func Run(ctx context.Context, req Request, sqlPassword string, emit Emitter) boo
 		skip(stepTasks, "needs a SQL session")
 		return false
 	}
-	sqlDB, err := openSQL(req, endpoint, sqlPassword)
+	sqlDB, err := openSQL(req, addr, endpoint, sqlPassword)
 	if err != nil {
 		end(stepSQL, Failed, err.Error())
 		skip(stepTasks, "needs a SQL session")
@@ -200,9 +230,18 @@ func Run(ctx context.Context, req Request, sqlPassword string, emit Emitter) boo
 	return instanceOK
 }
 
-// openSQL connects through the local tunnel and verifies the server
-// certificate against the RDS roots for the endpoint name.
-func openSQL(req Request, endpoint, password string) (*sql.DB, error) {
+// sqlAddr is where the engine opens the TDS connection: the local tunnel
+// port, or the RDS endpoint itself with Direct.
+func sqlAddr(req Request, endpoint string, endpointPort int) string {
+	if req.Direct {
+		return net.JoinHostPort(endpoint, strconv.Itoa(endpointPort))
+	}
+	return net.JoinHostPort("127.0.0.1", strconv.Itoa(req.LocalPort))
+}
+
+// openSQL connects to addr and verifies the server certificate against the
+// RDS roots for the endpoint name, so the check holds through a tunnel too.
+func openSQL(req Request, addr, endpoint, password string) (*sql.DB, error) {
 	pool, err := rdsca.Pool()
 	if err != nil {
 		return nil, err
@@ -210,7 +249,7 @@ func openSQL(req Request, endpoint, password string) (*sql.DB, error) {
 	u := &url.URL{
 		Scheme: "sqlserver",
 		User:   url.UserPassword(req.SQLUser, password),
-		Host:   net.JoinHostPort("127.0.0.1", strconv.Itoa(req.LocalPort)),
+		Host:   addr,
 	}
 	q := url.Values{}
 	q.Set("database", "master")
