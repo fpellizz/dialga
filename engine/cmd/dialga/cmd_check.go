@@ -35,7 +35,7 @@ Exit status: 0 all checks passed, 2 some check failed, 1 error.`,
 			if err != nil {
 				return err
 			}
-			req, err := checkRequest(t)
+			req, err := check.RequestFor(t)
 			if err != nil {
 				return err
 			}
@@ -59,44 +59,14 @@ Exit status: 0 all checks passed, 2 some check failed, 1 error.`,
 	return cmd
 }
 
-// checkRequest maps a configured target onto the engine check.
-func checkRequest(t config.Target) (check.Request, error) {
-	if t.Connect.Mode == config.ModeTunnel {
-		return check.Request{}, errors.New("connect.mode tunnel arrives in v0.4: open the tunnel yourself and use mode external")
-	}
-	req := check.Request{
-		Profile:         t.AWSProfile,
-		Region:          t.Region,
-		Instance:        t.Instance,
-		LocalPort:       t.Connect.LocalPort,
-		SQLUser:         t.SQL.User,
-		ExpectedAccount: t.AccountID,
-		Direct:          t.Connect.Mode == config.ModeDirect,
-	}
-	return req, req.Validate()
-}
-
-// sqlPassword resolves sql.password. DIALGA_SQL_PASSWORD answers "prompt"
-// without a terminal (scripts, CI).
+// sqlPassword resolves sql.password; with "prompt" and no DIALGA_SQL_PASSWORD
+// it asks on the terminal.
 func (a *app) sqlPassword(t config.Target) (string, error) {
-	src, err := t.SQL.PasswordSource()
-	if err != nil {
-		return "", err
-	}
-	switch src.Kind {
-	case config.PasswordEnv:
-		if v := a.getenv(src.Ref); v != "" {
-			return v, nil
-		}
-		return "", fmt.Errorf("environment variable %s is empty", src.Ref)
-	case config.PasswordPrompt:
-		if v := a.getenv("DIALGA_SQL_PASSWORD"); v != "" {
-			return v, nil
-		}
+	password, err := check.PasswordFromEnv(t, a.getenv)
+	if errors.Is(err, check.ErrPromptNeeded) {
 		return a.readPassword(fmt.Sprintf("SQL password for %s on %s: ", t.SQL.User, t.Instance))
-	default:
-		return "", fmt.Errorf("password source %q is not supported yet", src.Kind)
 	}
+	return password, err
 }
 
 // checkReport prints the steps as they end (text) or one document at the end (json).

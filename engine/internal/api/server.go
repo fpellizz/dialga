@@ -7,6 +7,10 @@
 //   - the Host header must be a loopback name (DNS rebinding) and a
 //     browser Origin, when present, must be in the allowlist (CORS).
 //
+// The configuration file is read on every request, so edits show up without
+// restarting the app. Passwords never travel in requests or responses: the
+// engine takes them from its own environment.
+//
 // Long operations stream their progress as Server-Sent Events over the
 // response of a POST, read with fetch() (EventSource cannot send headers).
 package api
@@ -18,14 +22,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/decisyon/dialga/engine/internal/check"
+	"github.com/decisyon/dialga/engine/internal/config"
 )
 
 // DefaultOrigins are the webview origins of the Tauri shell: Linux/macOS
@@ -37,9 +44,13 @@ type Options struct {
 	Token          string
 	AllowedOrigins []string
 	Version        string
-	// SQLPassword is read from the engine environment, never from requests.
-	SQLPassword string
-	Log         *slog.Logger
+	// ConfigPath is the targets file, read on every request.
+	ConfigPath string
+	// Getenv resolves the SQL password references (default os.Getenv).
+	Getenv func(string) string
+	// RunCheck runs a check (default check.Run; tests replace it).
+	RunCheck func(context.Context, check.Request, string, check.Emitter) bool
+	Log      *slog.Logger
 }
 
 // Server is the HTTP API of the engine.
@@ -48,7 +59,29 @@ type Server struct {
 	mux  *http.ServeMux
 }
 
-// New builds a server; Token must not be empty.
+// TargetSummary is a target as the GUI sees it: no password reference.
+type TargetSummary struct {
+	Name        string `json:"name"`
+	Instance    string `json:"instance"`
+	Region      string `json:"region"`
+	Profile     string `json:"profile"`
+	AccountID   string `json:"accountId"`
+	Bucket      string `json:"bucket"`
+	SQLUser     string `json:"sqlUser"`
+	ConnectMode string `json:"connectMode"`
+	LocalPort   int    `json:"localPort,omitempty"`
+	Protected   bool   `json:"protected"`
+}
+
+// TargetList is the answer of GET /api/v1/targets. A missing file is not an
+// error (first run): Targets is empty and ConfigPath says where to create it.
+type TargetList struct {
+	ConfigPath string          `json:"configPath"`
+	Error      string          `json:"error,omitempty"`
+	Targets    []TargetSummary `json:"targets"`
+}
+
+// New builds a server; Token must be at least 32 characters.
 func New(opts Options) (*Server, error) {
 	if len(opts.Token) < 32 {
 		return nil, errors.New("api: token too short")
@@ -56,9 +89,16 @@ func New(opts Options) (*Server, error) {
 	if opts.Log == nil {
 		opts.Log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
+	if opts.Getenv == nil {
+		opts.Getenv = os.Getenv
+	}
+	if opts.RunCheck == nil {
+		opts.RunCheck = check.Run
+	}
 	s := &Server{opts: opts, mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /api/v1/health", s.health)
-	s.mux.HandleFunc("POST /api/v1/checks", s.runCheck)
+	s.mux.HandleFunc("GET /api/v1/targets", s.listTargets)
+	s.mux.HandleFunc("POST /api/v1/targets/{name}/checks", s.checkTarget)
 	return s, nil
 }
 
@@ -83,7 +123,7 @@ func Serve(ctx context.Context, opts Options, ready io.Writer) error {
 		_ = ln.Close()
 		return err
 	}
-	s.opts.Log.Info("api listening", "addr", ln.Addr().String())
+	s.opts.Log.Info("api listening", "addr", ln.Addr().String(), "config", opts.ConfigPath)
 
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
@@ -136,20 +176,49 @@ func (s *Server) authorized(r *http.Request) bool {
 	return ok && subtle.ConstantTimeCompare([]byte(got), []byte(s.opts.Token)) == 1
 }
 
-func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
+func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "version": s.opts.Version})
+	_ = json.NewEncoder(w).Encode(v)
 }
 
-func (s *Server) runCheck(w http.ResponseWriter, r *http.Request) {
-	var req check.Request
-	dec := json.NewDecoder(io.LimitReader(r.Body, 4096))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&req); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
+func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, map[string]string{"status": "ok", "version": s.opts.Version})
+}
+
+func (s *Server) listTargets(w http.ResponseWriter, _ *http.Request) {
+	resp := TargetList{ConfigPath: s.opts.ConfigPath, Targets: []TargetSummary{}}
+	cfg, err := config.Load(s.opts.ConfigPath)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		// First run: no file yet.
+	case err != nil:
+		resp.Error = err.Error()
+	default:
+		for _, name := range cfg.Names() {
+			t := cfg.Targets[name]
+			resp.Targets = append(resp.Targets, TargetSummary{
+				Name: name, Instance: t.Instance, Region: t.Region, Profile: t.AWSProfile,
+				AccountID: t.AccountID, Bucket: t.Bucket, SQLUser: t.SQL.User,
+				ConnectMode: t.Connect.Mode, LocalPort: t.Connect.LocalPort, Protected: t.Protected,
+			})
+		}
+	}
+	writeJSON(w, resp)
+}
+
+func (s *Server) checkTarget(w http.ResponseWriter, r *http.Request) {
+	cfg, err := config.Load(s.opts.ConfigPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	}
-	if err := req.Validate(); err != nil {
+	name, t, err := cfg.Target(r.PathValue("name"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	req, err := check.RequestFor(t)
+	if err != nil {
 		http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 		return
 	}
@@ -168,8 +237,13 @@ func (s *Server) runCheck(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
 		flusher.Flush()
 	}
-	s.opts.Log.Info("check started", "instance", req.Instance, "profile", req.Profile)
-	passed := check.Run(r.Context(), req, s.opts.SQLPassword, func(e check.Event) { send("step", e) })
+	// Without a password the SQL steps are skipped; say why up front.
+	password, perr := check.PasswordFromEnv(t, s.opts.Getenv)
+	if perr != nil {
+		send("notice", map[string]string{"message": "SQL login will be skipped: " + perr.Error()})
+	}
+	s.opts.Log.Info("check started", "target", name, "instance", t.Instance)
+	passed := s.opts.RunCheck(r.Context(), req, password, func(e check.Event) { send("step", e) })
 	send("done", map[string]bool{"ok": passed})
-	s.opts.Log.Info("check finished", "instance", req.Instance, "ok", passed)
+	s.opts.Log.Info("check finished", "target", name, "ok", passed)
 }

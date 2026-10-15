@@ -116,7 +116,11 @@ func (a *app) serveCmd() *cobra.Command {
 		Short: "Run the local API for the desktop shell (session token on stdin)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if code := serve(a.stdin, cmd.OutOrStdout(), cmd.ErrOrStderr()); code != 0 {
+			path, err := a.configFile()
+			if err != nil {
+				return err
+			}
+			if code := serve(a.stdin, cmd.OutOrStdout(), cmd.ErrOrStderr(), path); code != 0 {
 				return exitError{code}
 			}
 			return nil
