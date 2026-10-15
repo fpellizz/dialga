@@ -1,27 +1,78 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/decisyon/dialga/engine/internal/check"
 )
 
 // testToken is built, not written as a literal, so secret scanners do not
 // mistake this throwaway test value for a real API key.
 var testToken = strings.Repeat("0123456789abcdef", 2)
 
-func newTestServer(t *testing.T) http.Handler {
+const testConfig = `apiVersion: v1
+targets:
+  dev-sql:
+    account_id: "123456789012"
+    region: eu-west-1
+    aws_profile: default
+    instance: dev-sqlserver
+    bucket: dev-sqlserver-backups
+    sql: { user: admin, password: "env:TEST_SQL_PASSWORD" }
+    connect: { mode: external, local_port: 11433 }
+`
+
+type fakeCheck struct {
+	req      check.Request
+	password string
+}
+
+func (f *fakeCheck) run(_ context.Context, req check.Request, password string, emit check.Emitter) bool {
+	f.req, f.password = req, password
+	emit(check.Event{Step: "aws", Label: "AWS credentials", Status: check.Running})
+	emit(check.Event{Step: "aws", Label: "AWS credentials", Status: check.OK})
+	return true
+}
+
+// newTestServer serves configDoc (nil: no file) with a faked check.
+func newTestServer(t *testing.T, configDoc *string, env map[string]string) (http.Handler, *fakeCheck) {
 	t.Helper()
-	s, err := New(Options{Token: testToken, AllowedOrigins: DefaultOrigins, Version: "test"})
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if configDoc != nil {
+		if err := os.WriteFile(path, []byte(*configDoc), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fake := &fakeCheck{}
+	s, err := New(Options{
+		Token: testToken, AllowedOrigins: DefaultOrigins, Version: "test", ConfigPath: path,
+		Getenv: func(k string) string { return env[k] }, RunCheck: fake.run,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return s.Handler()
+	return s.Handler(), fake
+}
+
+func do(h http.Handler, method, path string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, path, nil)
+	req.Host = "127.0.0.1:5000"
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
 }
 
 func TestGuard(t *testing.T) {
-	h := newTestServer(t)
+	doc := testConfig
+	h, _ := newTestServer(t, &doc, nil)
 	tests := []struct {
 		name       string
 		method     string
@@ -63,23 +114,73 @@ func TestGuard(t *testing.T) {
 	}
 }
 
-func TestCheckRejectsBadRequest(t *testing.T) {
-	h := newTestServer(t)
-	for name, body := range map[string]string{
-		"not json":      "{",
-		"unknown field": `{"profile":"sales","password":"x"}`,
-		"invalid value": `{"profile":"sales","region":"us-east-1","instance":"1bad","localPort":11433,"sqlUser":"god"}`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodPost, "/api/v1/checks", strings.NewReader(body))
-			req.Host = "127.0.0.1:5000"
-			req.Header.Set("Authorization", "Bearer "+testToken)
-			rec := httptest.NewRecorder()
-			h.ServeHTTP(rec, req)
-			if rec.Code < 400 || rec.Code > 499 {
-				t.Fatalf("status = %d, want 4xx", rec.Code)
-			}
-		})
+func TestListTargets(t *testing.T) {
+	doc := testConfig
+	h, _ := newTestServer(t, &doc, nil)
+	rec := do(h, http.MethodGet, "/api/v1/targets")
+	var list TargetList
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &list) != nil {
+		t.Fatalf("status %d, body %s", rec.Code, rec.Body)
+	}
+	if len(list.Targets) != 1 || list.Targets[0].Name != "dev-sql" || list.Targets[0].AccountID != "123456789012" || list.Error != "" {
+		t.Fatalf("list %+v", list)
+	}
+	if strings.Contains(rec.Body.String(), "TEST_SQL_PASSWORD") {
+		t.Fatal("the password reference leaked into the target list")
+	}
+}
+
+func TestListTargetsFirstRunAndInvalid(t *testing.T) {
+	h, _ := newTestServer(t, nil, nil)
+	var list TargetList
+	rec := do(h, http.MethodGet, "/api/v1/targets")
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &list) != nil || len(list.Targets) != 0 || list.Error != "" || list.ConfigPath == "" {
+		t.Fatalf("first run: status %d, body %s", rec.Code, rec.Body)
+	}
+	bad := strings.Replace(testConfig, "mode: external", "mode: vpn", 1)
+	h, _ = newTestServer(t, &bad, nil)
+	rec = do(h, http.MethodGet, "/api/v1/targets")
+	if json.Unmarshal(rec.Body.Bytes(), &list) != nil || !strings.Contains(list.Error, "connect.mode") {
+		t.Fatalf("invalid config: body %s", rec.Body)
+	}
+}
+
+func TestCheckTargetStreams(t *testing.T) {
+	doc := testConfig
+	h, fake := newTestServer(t, &doc, map[string]string{"TEST_SQL_PASSWORD": "s3cret"})
+	rec := do(h, http.MethodPost, "/api/v1/targets/dev-sql/checks")
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || !strings.Contains(body, "event: step") || !strings.Contains(body, `"ok":true`) {
+		t.Fatalf("status %d, body %s", rec.Code, body)
+	}
+	if strings.Contains(body, "event: notice") || fake.password != "s3cret" || fake.req.ExpectedAccount != "123456789012" {
+		t.Fatalf("password %q, request %+v, body %s", fake.password, fake.req, body)
+	}
+}
+
+func TestCheckTargetNoticeWithoutPassword(t *testing.T) {
+	doc := testConfig
+	h, fake := newTestServer(t, &doc, nil)
+	rec := do(h, http.MethodPost, "/api/v1/targets/dev-sql/checks")
+	if !strings.Contains(rec.Body.String(), "event: notice") || fake.password != "" {
+		t.Fatalf("body %s", rec.Body)
+	}
+}
+
+func TestCheckTargetErrors(t *testing.T) {
+	doc := testConfig
+	h, _ := newTestServer(t, &doc, nil)
+	if rec := do(h, http.MethodPost, "/api/v1/targets/nope/checks"); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown target: status %d", rec.Code)
+	}
+	tunnel := strings.Replace(testConfig, "mode: external", "mode: tunnel", 1)
+	h, _ = newTestServer(t, &tunnel, nil)
+	if rec := do(h, http.MethodPost, "/api/v1/targets/dev-sql/checks"); rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("tunnel mode: status %d", rec.Code)
+	}
+	h, _ = newTestServer(t, nil, nil)
+	if rec := do(h, http.MethodPost, "/api/v1/targets/dev-sql/checks"); rec.Code != http.StatusConflict {
+		t.Fatalf("missing config: status %d", rec.Code)
 	}
 }
 

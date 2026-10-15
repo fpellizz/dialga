@@ -18,9 +18,10 @@
 
 | Branch | Contenuto | Commit |
 |---|---|---|
-| `feature/bootstrap` | CI, scheletro dell'engine, asset del brand | `7efcd62`, non pushato |
-| `feature/spike-tauri-sidecar` | Spike dell'architettura: engine `serve` + API + check, frontend `web/`, shell `desktop/` | Unito in `main` (PR #2) |
-| `feature/v0.1-foundations` | v0.1, prima parte: configurazione dei target, CLI `check`/`config` (testo/JSON), controllo dell'account, connessione `external`/`direct`. Provato dal vivo su `mssql-dev` | In corso |
+| `feature/bootstrap` | CI, scheletro dell'engine, asset del brand | Unito in `main` (PR #1) |
+| `feature/spike-tauri-sidecar` | Spike dell'architettura: engine `serve` + API + check, frontend `web/`, shell `desktop/` | Unito in `main` (PR #2, fix gitleaks PR #3) |
+| `feature/v0.1-foundations` | v0.1, prima parte: configurazione dei target, CLI `check`/`config` (testo/JSON), controllo dell'account, connessione `external`/`direct`. Provato dal vivo su `mssql-dev` | Unito in `main` (PR #4) |
+| `feature/v0.1-foundations` | v0.1, seconda parte: API dei target (`GET /api/v1/targets`, check per target), GUI con sidebar e schermata Instances, EN/IT. Provata dal vivo nel browser (Vite + engine) | In corso |
 
 Lo **spike** è validato dal vivo su `mssql-dev`:
 - l'engine fa da sidecar con token su stdin;
@@ -33,12 +34,12 @@ Lo **spike** è validato dal vivo su `mssql-dev`:
 
 | Tema | Decisione (2026-10-15) |
 |---|---|
-| Stack | Engine Go + API locale (HTTP + SSE), shell Tauri v2 con l'engine come sidecar, frontend React 19 + TS |
+| Stack | Engine Go + API locale (HTTP + SSE), shell Tauri v2 con l'engine come sidecar, frontend React 18.3 + TS |
 | UI | Decisyon Design System (`DecisyonDesignSystem_06d538`): shadcn stile Nova su **Base UI** (non Radix), Geist, Lucide, primario `#5b8210` |
-| Lingua | **Inglese di default**, italiano selezionabile (i18next). Copy secondo le regole del DS: sentence case, imperativi, tono neutro |
+| Lingua | **Inglese di default**, italiano selezionabile dalla sidebar (scelta in `localStorage` `dialga.lang`). Dizionari tipizzati in `web/src/i18n.tsx`, senza librerie. Copy secondo le regole del DS: sentence case, imperativi, tono neutro |
 | Piattaforme v1 | **Linux**: pacchetti deb e rpm; CLI cross-compilata per tutti gli OS. Installer Windows/macOS → v2.0 |
 | React | **18.3, non 19**: il bundle del Decisyon Design System si aggancia a React 18 come globale |
-| Password SQL | Per ora solo dall'ambiente dell'engine (`DIALGA_SQL_PASSWORD`, fallback `SQLCMDPASSWORD`), mai nelle richieste API. Portachiavi dell'OS dalla v0.1 |
+| Password SQL | Mai nelle richieste API né nelle risposte. La config di ogni target dice da dove arriva (`sql.password`): `env:VAR`, oppure `prompt` = `DIALGA_SQL_PASSWORD` dall'ambiente (la CLI su terminale la chiede). Portachiavi dell'OS previsto (`keyring`) |
 | Firma dei pacchetti | v2.0 |
 | GitHub | Mirror e workflow pronti ma **spenti** fino alla v2.0 |
 
@@ -55,12 +56,12 @@ Lo **spike** è validato dal vivo su `mssql-dev`:
 | `engine/cmd/dialga` | CLI (cobra): `check [target]`, `config path\|validate\|show`, `serve` (API locale per la shell), `version`. Opzioni globali `--config`, `--output text\|json`. Exit code: 0 OK, 1 errore, 2 controllo non superato |
 | `engine/internal/config` | Configurazione dei target (`apiVersion: v1`), lettura stretta (chiavi sconosciute = errore), default e validazione. Percorso `os.UserConfigDir()/dialga/config.yaml`. La password è solo un riferimento: `prompt`, `env:VAR`; `keyring` e `secretsmanager:<ARN>` previsti, non ancora attivi |
 | `docs/config.example.yaml` | Esempio commentato, con soli segnaposto |
-| `engine/internal/api` | HTTP su 127.0.0.1, porta casuale, token Bearer a tempo costante, controllo di Host e Origin (CORS). `GET /api/v1/health`, `POST /api/v1/checks` (SSE) |
-| `engine/internal/check` | STS, RDS, tunnel, login SQL con TLS verificato, DB e task |
+| `engine/internal/api` | HTTP su 127.0.0.1, porta casuale, token Bearer a tempo costante, controllo di Host e Origin (CORS). La config si rilegge a ogni richiesta. `GET /api/v1/health`; `GET /api/v1/targets` (elenco senza riferimenti alla password; file assente = elenco vuoto, file non valido = campo `error`); `POST /api/v1/targets/{name}/checks` (SSE `notice`/`step`/`done`; 409 senza config, 404 target sconosciuto, 422 modalità `tunnel`) |
+| `engine/internal/check` | STS, RDS, tunnel, login SQL con TLS verificato, DB e task. `target.go`: da target configurato a richiesta di check (`RequestFor`) e password dall'ambiente (`PasswordFromEnv`, `ErrPromptNeeded`) |
 | `engine/internal/rdsca` | Bundle CA RDS incorporato (`global-bundle.pem`) |
 | `engine/internal/validate` | `DBName`, `S3Key`: le regole di `valid_db`/`valid_key` di `mssql-import.sh` |
 | `package.json`, `pnpm-workspace.yaml` | Workspace pnpm (`pnpm@12.11.2`) con `web` e `desktop`. pnpm 12 applica un'età minima di rilascio: le eccezioni per Tauri 2.12.x le ha aggiunte pnpm stesso (`minimumReleaseAgeExclude`) |
-| `web/` | React 18 + TS 7 + Vite 8 + Biome + Vitest. `src/engine.ts` (URL e token dalla shell, o `VITE_ENGINE_*` in dev), `src/api.ts` + `src/sse.ts` (fetch e SSE con header Bearer), `src/App.tsx` (schermata "Check an instance"), `src/styles/ds-tokens.css` (copia dei token del DS) |
+| `web/` | React 18 + TS 7 + Vite 8 + Biome + Vitest. `src/engine.ts` (URL e token dalla shell, o `VITE_ENGINE_*` in dev), `src/api.ts` + `src/sse.ts` (fetch e SSE con header Bearer: `listTargets`, `checkTarget`), `src/i18n.tsx` (EN/IT), `src/App.tsx` (layout sidebar + pagina), `src/Sidebar.tsx` (navigazione: Instances attiva, Import/Export/Activity "Soon"; lingua; stato dell'engine), `src/InstancesPage.tsx` (schede dei target, skeleton, empty state con il percorso della config, errori della config, check con `src/StepList.tsx`), `src/styles/ds-tokens.css` (copia dei token del DS, da non modificare) + `src/styles/app.css` |
 | `desktop/` | Shell Tauri v2. `src-tauri/src/main.rs`: avvia il sidecar, passa il token su stdin, comando `engine_info`, chiude l'engine all'uscita. CSP `connect-src` limitato a `127.0.0.1`; al frontend solo `core:default`. Bundle deb/rpm |
 | `docs/brand/` | `decisyon-symbol.svg` (dal DS), `decisyon-mark-1024.png` (sorgente per `tauri icon`), `decisyon-logo.jpg` (dal sito, solo riferimento) |
 
@@ -114,9 +115,15 @@ pnpm -C web run lint && pnpm -C web run typecheck && pnpm -C web run test && pnp
 bash ci/build-engine.sh sidecar dev x86_64-unknown-linux-gnu
 pnpm -C desktop tauri build --bundles deb,rpm
 
-# Il login SQL del check legge la password dall'ambiente dell'engine (che la eredita dall'app):
+# L'app legge i target da `dialga config path`; la password SQL arriva dall'ambiente dell'engine
+# (che la eredita dall'app) secondo sql.password del target, es. con "prompt":
 #   read -rs DIALGA_SQL_PASSWORD && export DIALGA_SQL_PASSWORD && desktop/src-tauri/target/release/dialga-desktop
-# UI nel browser: engine con DIALGA_DEV=1, poi VITE_ENGINE_URL/VITE_ENGINE_TOKEN per `pnpm -C web dev`
+
+# UI nel browser: engine con DIALGA_DEV=1 (token di almeno 32 caratteri sulla prima riga di stdin,
+# stdin aperto), poi Vite con URL e token dell'engine
+head -c 48 /dev/urandom | base64 | tr -d '/+=\n' > token && echo >> token && chmod 600 token
+( cat token; sleep infinity ) | DIALGA_DEV=1 dialga --config <config.yaml> serve   # stampa {"event":"ready","port":N,...}
+VITE_ENGINE_URL=http://127.0.0.1:<N> VITE_ENGINE_TOKEN=$(tr -d '\n' < token) pnpm -C web dev   # http://localhost:1420
 ```
 
 - Prerequisiti GUI su Fedora: `webkit2gtk4.1-devel`, `libxdo-devel`, `libappindicator-gtk3-devel`, `librsvg2-devel`, `openssl-devel` (presenti).

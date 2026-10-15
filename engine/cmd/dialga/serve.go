@@ -29,11 +29,14 @@ const devOrigin = "http://localhost:1420"
 //  3. the engine exits when stdin closes (the shell is gone) or on
 //     SIGINT/SIGTERM.
 //
+// The targets come from configPath, read on every request. SQL passwords
+// follow each target's sql.password (env:VAR, or DIALGA_SQL_PASSWORD for
+// "prompt"): the engine inherits them from the desktop app's environment.
+//
 // Environment:
 //
-//	DIALGA_SQL_PASSWORD  SQL password for the checks (fallback: SQLCMDPASSWORD)
-//	DIALGA_DEV=1         also allow the Vite dev server origin
-func serve(stdin io.Reader, stdout, stderr io.Writer) int {
+//	DIALGA_DEV=1  also allow the Vite dev server origin
+func serve(stdin io.Reader, stdout, stderr io.Writer, configPath string) int {
 	log := slog.New(slog.NewTextHandler(stderr, nil))
 	reader := bufio.NewReader(stdin)
 	token, err := readToken(reader)
@@ -56,16 +59,12 @@ func serve(stdin io.Reader, stdout, stderr io.Writer) int {
 	if os.Getenv("DIALGA_DEV") == "1" {
 		origins = append(origins, devOrigin)
 	}
-	password := os.Getenv("DIALGA_SQL_PASSWORD")
-	if password == "" {
-		password = os.Getenv("SQLCMDPASSWORD")
-	}
-
 	err = api.Serve(ctx, api.Options{
 		Token:          token,
 		AllowedOrigins: origins,
 		Version:        version,
-		SQLPassword:    password,
+		ConfigPath:     configPath,
+		Getenv:         os.Getenv,
 		Log:            log,
 	}, stdout)
 	if err != nil {
