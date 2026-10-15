@@ -2,6 +2,7 @@
 dist/
 target/
 desktop/src-tauri/binaries/
+desktop/src-tauri/gen/
 web/dist/
 
 # Dependencies and caches

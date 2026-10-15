@@ -1,0 +1,250 @@
+/* App styles on top of the Decisyon Design System tokens (ds-tokens.css). */
+
+:root {
+  color-scheme: light;
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  background: var(--canvas);
+  color: var(--foreground);
+  -webkit-font-smoothing: antialiased;
+}
+
+.topbar {
+  height: var(--shell-header-h);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--background);
+}
+.logo {
+  width: 18px;
+  height: 24px;
+}
+.product {
+  font-weight: 600;
+}
+.crumb {
+  color: var(--muted-foreground);
+}
+.spacer {
+  flex: 1;
+}
+.engine {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+}
+.dot-wait {
+  background: var(--warning);
+}
+.dot-off {
+  background: var(--destructive);
+}
+
+.content {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.card {
+  padding: 20px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
+}
+h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.lead {
+  margin: 4px 0 16px;
+  color: var(--muted-foreground);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px 16px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.field label {
+  font-weight: 500;
+}
+.field input {
+  height: var(--control-h-lg);
+  padding: 0 10px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-md);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+}
+.field input:focus-visible {
+  outline: none;
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--ring) 25%, transparent);
+}
+.hint {
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--control-h);
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 150ms;
+}
+.btn-primary {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+.btn-primary:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--primary) 88%, black);
+}
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.btn:focus-visible {
+  outline: 3px solid color-mix(in oklab, var(--ring) 30%, transparent);
+  outline-offset: 2px;
+}
+
+.banner {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.banner-ok {
+  color: var(--success);
+  background: color-mix(in oklab, var(--success) 12%, transparent);
+  border: 1px solid color-mix(in oklab, var(--success) 35%, transparent);
+}
+.banner-fail {
+  color: var(--destructive);
+  background: color-mix(in oklab, var(--destructive) 10%, transparent);
+  border: 1px solid color-mix(in oklab, var(--destructive) 35%, transparent);
+}
+
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+.step:first-child {
+  border-top: none;
+}
+.step > svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.step-body {
+  flex: 1;
+  min-width: 0;
+}
+.step-label {
+  font-weight: 500;
+}
+.step-detail {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--muted-foreground);
+  overflow-wrap: anywhere;
+}
+.badge {
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border: 1px solid currentColor;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 500;
+}
+.badge-running,
+.tone-info {
+  color: var(--info);
+}
+.badge-ok,
+.tone-success {
+  color: var(--success);
+}
+.badge-failed,
+.tone-destructive {
+  color: var(--destructive);
+}
+.badge-skipped,
+.tone-muted {
+  color: var(--muted-foreground);
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation: none;
+  }
+}

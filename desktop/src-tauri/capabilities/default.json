@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Main window: core APIs only. The engine runs from Rust, so the shell plugin is not exposed to the frontend.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

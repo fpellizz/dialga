@@ -1,6 +1,6 @@
 // Command dialga imports and exports SQL Server databases on Amazon
-// RDS through S3. This is the bootstrap skeleton: only "version" works; the
-// other commands of the plan land in v0.1.0 and later.
+// RDS through S3. Bootstrap/spike stage: "serve" runs the local API for the
+// desktop shell; the CLI commands of the plan land in v0.1.0 and later.
 package main
 
 import (
@@ -14,10 +14,10 @@ import (
 var version = "dev"
 
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
-func run(args []string, stdout, stderr io.Writer) int {
+func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
 		usage(stderr)
 		return 1
@@ -26,6 +26,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "version", "--version", "-v":
 		_, _ = fmt.Fprintf(stdout, "dialga %s\n", version)
 		return 0
+	case "serve":
+		return serve(stdin, stdout, stderr)
 	case "help", "--help", "-h":
 		usage(stdout)
 		return 0
@@ -40,6 +42,7 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprint(w, `Usage: dialga <command>
 
 Commands:
+  serve     Run the local API for the desktop shell (session token on stdin)
   version   Print the version
   help      Show this help
 `)
