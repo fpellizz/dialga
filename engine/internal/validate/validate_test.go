@@ -1,0 +1,63 @@
+package validate
+
+import (
+	"strings"
+	"testing"
+)
+
+func TestDBName(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{"simple", "app_db", false},
+		{"digits and dash", "crm-2026", false},
+		{"leading underscore", "_staging", false},
+		{"max length", strings.Repeat("a", 100), false},
+		{"too long", strings.Repeat("a", 101), true},
+		{"empty", "", true},
+		{"leading dash", "-app", true},
+		{"space", "app db", true},
+		{"quote", "app'db", true},
+		{"bracket", "app]db", true},
+		{"dot", "app.db", true},
+		{"system master", "master", true},
+		{"system case-insensitive", "MSDB", true},
+		{"rds admin db", "rdsadmin", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := DBName(tc.input)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("DBName(%q) error = %v, wantErr %v", tc.input, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestS3Key(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{"import prefix", "import/app_db.bak", false},
+		{"striped backup", "import/app_part*.bak", false},
+		{"export with timestamp", "export/app_db_20261015-152922.bak", false},
+		{"root object", "app_db.bak", false},
+		{"empty", "", true},
+		{"space", "import/app db.bak", true},
+		{"single quote", "import/app'db.bak", true},
+		{"leading slash", "/import/app_db.bak", true},
+		{"parent dir", "import/../secret.bak", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := S3Key(tc.input)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("S3Key(%q) error = %v, wantErr %v", tc.input, err, tc.wantErr)
+			}
+		})
+	}
+}
