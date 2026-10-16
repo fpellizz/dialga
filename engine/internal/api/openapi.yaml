@@ -1,0 +1,233 @@
+openapi: 3.1.0
+info:
+  title: Dialga engine local API
+  version: v1
+  description: |
+    The HTTP API the Dialga engine ("dialga serve") offers to the desktop shell.
+
+    It listens on 127.0.0.1 only, on a random port. Every request needs the
+    per-session bearer token the shell passes to the engine on stdin; the Host
+    header must be a loopback name and a browser Origin, when present, must be
+    in the allowlist. The configuration file is read on every request.
+
+    SQL passwords never travel in requests or responses: the engine takes them
+    from its own environment, as sql.password of each target says.
+
+    Long operations stream Server-Sent Events over the response, read with
+    fetch() (EventSource cannot send the Authorization header).
+servers:
+  - url: http://127.0.0.1:{port}
+    variables:
+      port:
+        default: "0"
+        description: Printed by the engine on stdout ({"event":"ready","port":N}).
+security:
+  - bearer: []
+paths:
+  /api/v1/health:
+    get:
+      summary: Engine status and version
+      responses:
+        "200":
+          description: The engine answers.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v1/openapi.yaml:
+    get:
+      summary: This contract
+      responses:
+        "200":
+          description: The OpenAPI document.
+          content:
+            application/yaml:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v1/targets:
+    get:
+      summary: The configured targets
+      description: |
+        A missing configuration file is not an error (first run): targets is
+        empty and configPath says where to create it. An invalid file comes
+        back in the error field, with no targets.
+      responses:
+        "200":
+          description: The targets, without password references.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TargetList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v1/targets/{name}/checks:
+    post:
+      summary: Run the read-only checks of a target
+      description: |
+        Streams the checks as Server-Sent Events:
+        "notice" (Notice) warnings before the steps, "step" (StepEvent) every
+        time a step starts or ends, then one "done" (Done).
+      parameters:
+        - $ref: "#/components/parameters/TargetName"
+      responses:
+        "200":
+          description: The event stream.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "422":
+          description: The target cannot be checked yet (connect.mode tunnel).
+          content:
+            text/plain:
+              schema: { type: string }
+  /api/v1/targets/{name}/tasks:
+    get:
+      summary: The native backup/restore tasks of a target, newest first
+      description: Each call opens its own SQL session; RDS keeps 36 days of history.
+      parameters:
+        - $ref: "#/components/parameters/TargetName"
+        - name: db
+          in: query
+          description: Only the tasks of this database.
+          schema: { type: string, pattern: "^[A-Za-z0-9_][A-Za-z0-9_-]{0,99}$" }
+        - name: limit
+          in: query
+          description: Maximum number of tasks.
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+      responses:
+        "200":
+          description: The tasks.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskList" }
+        "400":
+          description: Invalid db or limit.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "422":
+          description: No SQL password in the engine environment, or connect.mode tunnel.
+          content:
+            text/plain:
+              schema: { type: string }
+        "502":
+          description: AWS or SQL Server did not answer (credentials, tunnel, login).
+          content:
+            text/plain:
+              schema: { type: string }
+components:
+  securitySchemes:
+    bearer:
+      type: http
+      scheme: bearer
+      description: The session token (32 characters at least) the shell generated.
+  parameters:
+    TargetName:
+      name: name
+      in: path
+      required: true
+      description: Target name from the configuration.
+      schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,62}$" }
+  responses:
+    Unauthorized:
+      description: Missing or wrong bearer token.
+      content:
+        text/plain:
+          schema: { type: string }
+    Forbidden:
+      description: Host not a loopback name, or Origin not allowed.
+      content:
+        text/plain:
+          schema: { type: string }
+    UnknownTarget:
+      description: No target with that name in the configuration.
+      content:
+        text/plain:
+          schema: { type: string }
+    NoConfiguration:
+      description: The configuration file is missing or invalid.
+      content:
+        text/plain:
+          schema: { type: string }
+  schemas:
+    Health:
+      type: object
+      required: [status, version]
+      properties:
+        status: { type: string, const: ok }
+        version: { type: string }
+    TargetSummary:
+      type: object
+      description: A configured target as the GUI sees it; no password reference.
+      required: [name, instance, region, profile, accountId, bucket, sqlUser, connectMode, protected]
+      properties:
+        name: { type: string }
+        instance: { type: string, description: RDS DB instance identifier. }
+        region: { type: string }
+        profile: { type: string, description: AWS profile. }
+        accountId: { type: string, pattern: "^[0-9]{12}$" }
+        bucket: { type: string }
+        sqlUser: { type: string }
+        connectMode: { type: string, enum: [external, direct, tunnel] }
+        localPort: { type: integer, description: Port of the open tunnel (external mode). }
+        protected: { type: boolean, description: Every change asks to retype the target name. }
+    TargetList:
+      type: object
+      required: [configPath, targets]
+      properties:
+        configPath: { type: string }
+        error: { type: string, description: Why the configuration file is invalid. }
+        targets:
+          type: array
+          items: { $ref: "#/components/schemas/TargetSummary" }
+    StepEvent:
+      type: object
+      description: Data of a "step" event; also the events of an action plan.
+      required: [step, label, status]
+      properties:
+        step: { type: string, description: Stable step id (aws, instance, tunnel, sql, tasks). }
+        label: { type: string, description: English label; the GUI translates known step ids. }
+        status: { type: string, enum: [running, ok, failed, skipped] }
+        detail: { type: string }
+    Notice:
+      type: object
+      required: [message]
+      properties:
+        message: { type: string }
+    Done:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean, description: All steps passed. }
+    Task:
+      type: object
+      description: |
+        A row of msdb.dbo.rds_fn_task_status. Times are the server's wall
+        clock without a zone, formatted as 2006-01-02T15:04:05.
+      required: [id, type, database, percent, lifecycle]
+      properties:
+        id: { type: integer }
+        type: { type: string, examples: [RESTORE_DB, BACKUP_DB] }
+        database: { type: string }
+        percent: { type: integer, minimum: 0, maximum: 100 }
+        lifecycle: { type: string, enum: [CREATED, IN_PROGRESS, SUCCESS, ERROR, CANCEL_REQUESTED, CANCELLED] }
+        info: { type: string, description: The RDS task log. }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+        s3Object: { type: string, description: ARN of the .bak. }
+    TaskList:
+      type: object
+      required: [tasks]
+      properties:
+        tasks:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
