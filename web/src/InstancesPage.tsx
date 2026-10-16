@@ -13,6 +13,7 @@ import { AddInstanceDialog } from "./AddInstanceDialog";
 import {
   checkTarget,
   listTargets,
+  passwordNeeded,
   type StepEvent,
   type TargetList,
   type TargetSummary,
@@ -22,6 +23,8 @@ import { ErrorBanner, HintText } from "./Feedback";
 import { importHref } from "./ImportPage";
 import { useI18n } from "./i18n";
 import { OverviewStrip } from "./OverviewStrip";
+import { usePassword } from "./PasswordProvider";
+import { PasswordState } from "./PasswordState";
 import { StepList } from "./StepList";
 import { TasksPanel } from "./TasksPanel";
 import { TunnelIndicator } from "./TunnelIndicator";
@@ -46,19 +49,22 @@ export function InstancesPage({
   engineError: string;
 }) {
   const { t } = useI18n();
+  const { epoch } = usePassword();
   const [list, setList] = useState<TargetList | null>(null);
   const [loadError, setLoadError] = useState<unknown>(null);
   const [adding, setAdding] = useState(false);
   const [saved, setSaved] = useState("");
   const savedRef = useRef<HTMLDivElement>(null);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: epoch is the refresh trigger.
   const load = useCallback(() => {
     if (!engine) {
       return;
     }
     setLoadError(null);
     listTargets(engine).then(setList, setLoadError);
-  }, [engine]);
+    // epoch: a password saved or forgotten changes what the cards say.
+  }, [engine, epoch]);
 
   useEffect(load, [load]);
 
@@ -208,6 +214,20 @@ function TargetCard({ engine, target }: { engine: EngineInfo; target: TargetSumm
     }
   }
 
+  // The SQL password was saved after the check asked for it: check again.
+  const { epoch } = usePassword();
+  const seenEpoch = useRef(epoch);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: epoch is the trigger.
+  useEffect(() => {
+    if (epoch === seenEpoch.current) {
+      return;
+    }
+    seenEpoch.current = epoch;
+    if (passwordNeeded(state.error)) {
+      void run();
+    }
+  }, [epoch]);
+
   const failed = state.steps.filter((s) => s.status === "failed").length;
   const warnings = state.steps.filter((s) => s.status === "warning").length;
   let result = "";
@@ -253,6 +273,7 @@ function TargetCard({ engine, target }: { engine: EngineInfo; target: TargetSumm
         <dd className="mono">{target.bucket}</dd>
         <dt>{t("target.connection")}</dt>
         <dd>{connection}</dd>
+        <PasswordState engine={engine} target={target} />
       </dl>
 
       {target.connectMode === "tunnel" && <TunnelIndicator engine={engine} target={target.name} />}

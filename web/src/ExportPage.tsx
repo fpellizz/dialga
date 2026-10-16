@@ -6,6 +6,7 @@ import {
   listDatabases,
   listTargets,
   type Overview,
+  passwordNeeded,
   type TargetList,
 } from "./api";
 import {
@@ -38,6 +39,7 @@ import {
 import { type ExportItemRun, tally } from "./exportRun";
 import { ErrorBanner, HintText } from "./Feedback";
 import { type MessageKey, useI18n } from "./i18n";
+import { usePassword } from "./PasswordProvider";
 import { Wizard } from "./Wizard";
 
 const STEPS = ["databases", "options", "windows", "preview", "progress", "result"] as const;
@@ -64,6 +66,7 @@ export function ExportPage({
   engineError: string;
 }) {
   const { t } = useI18n();
+  const { epoch } = usePassword();
   const [step, setStep] = useState<StepId>("databases");
   const [targets, setTargets] = useState<TargetList | null>(null);
   const [targetsError, setTargetsError] = useState<unknown>(null);
@@ -115,6 +118,7 @@ export function ExportPage({
     };
   }, [engine]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: epoch is the refresh trigger.
   useEffect(() => {
     if (!engine || !target) {
       return;
@@ -139,7 +143,7 @@ export function ExportPage({
       (e: unknown) => !controller.signal.aborted && setDbError(e),
     );
     return () => controller.abort();
-  }, [engine, target]);
+  }, [engine, target, epoch]);
 
   // Stops following on leave: the RDS tasks go on.
   useEffect(() => () => abort.current?.abort(), []);
@@ -194,6 +198,21 @@ export function ExportPage({
       setPreviewError(e);
     }
   }, [engine, target, selected, keys, download, targets, t]);
+
+  // The SQL password was saved after a step asked for it: that step runs again.
+  const seenEpoch = useRef(epoch);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: epoch is the trigger.
+  useEffect(() => {
+    if (epoch === seenEpoch.current) {
+      return;
+    }
+    seenEpoch.current = epoch;
+    if (step === "windows" && passwordNeeded(overviewError)) {
+      void readOverview();
+    } else if (step === "preview" && passwordNeeded(previewError)) {
+      void runPreviews();
+    }
+  }, [epoch]);
 
   function goTo(next: StepId) {
     setStepError(null);

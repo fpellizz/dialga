@@ -25,6 +25,21 @@ export interface TargetSummary {
   /** S3 key prefixes of the target: uploads to restore, exports. */
   importPrefix: string;
   exportPrefix: string;
+  /** Where the SQL password comes from and whether the engine has it now. */
+  password?: PasswordInfo;
+}
+
+export type PasswordSource = "prompt" | "env" | "keyring" | "secretsmanager";
+
+/** The SQL password of a target as the engine exposes it: never the value. */
+export interface PasswordInfo {
+  source: PasswordSource;
+  /** The engine can resolve the password now. */
+  available: boolean;
+  /** A system keyring is usable. */
+  canRemember: boolean;
+  /** The environment variable, when the engine says it. */
+  envVar?: string;
 }
 
 /** GET /api/v1/targets: an empty list with no error means "no configuration yet". */
@@ -85,8 +100,41 @@ export class ApiError extends Error {
   }
 }
 
+/** 428: the call needs the SQL password of a target the engine does not have yet. */
+export class PasswordNeededError extends ApiError {
+  readonly target: string;
+
+  constructor(target: string, message: string) {
+    super(428, message);
+    this.name = "PasswordNeededError";
+    this.target = target;
+  }
+}
+
+const NEEDED = /^SQL password needed for target (.+)$/;
+
+/**
+ * The target whose SQL password a failed call needs, or null. Errors kept as
+ * text lose their class: the engine's message says the same.
+ */
+export function passwordNeeded(error: unknown): string | null {
+  if (error instanceof PasswordNeededError) {
+    return error.target;
+  }
+  const message = error instanceof Error ? error.message : typeof error === "string" ? error : "";
+  return message.match(NEEDED)?.[1]?.trim() ?? null;
+}
+
 /** The ApiError of an engine answer that is not 2xx. */
 export async function failure(response: Response): Promise<ApiError> {
+  if (response.status === 428) {
+    const text = (await response.text()).trim();
+    const target = response.headers.get("Dialga-Password-Target") ?? text.match(NEEDED)?.[1] ?? "";
+    if (target) {
+      return new PasswordNeededError(target, text || `SQL password needed for target ${target}`);
+    }
+    return new ApiError(428, text || "HTTP 428");
+  }
   return new ApiError(response.status, (await response.text()).trim() || `HTTP ${response.status}`);
 }
 
@@ -96,6 +144,44 @@ export async function listTargets(engine: EngineInfo): Promise<TargetList> {
     throw await failure(response);
   }
   return (await response.json()) as TargetList;
+}
+
+function passwordURL(engine: EngineInfo, name: string): string {
+  return `${engine.url}/api/v1/targets/${encodeURIComponent(name)}/password`;
+}
+
+/**
+ * Gives the engine the SQL password of a target: it logs in with it first
+ * (422 with SQL Server's message when refused) and keeps it for the session,
+ * and in the system keyring with remember. The password only travels in the body.
+ */
+export async function setPassword(
+  engine: EngineInfo,
+  name: string,
+  password: string,
+  remember: boolean,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetch(`${passwordURL(engine, name)}?verify=1`, {
+    method: "PUT",
+    headers: { ...authHeaders(engine), "Content-Type": "application/json" },
+    body: JSON.stringify({ password, remember }),
+    signal,
+  });
+  if (!response.ok) {
+    throw await failure(response);
+  }
+}
+
+/** Makes the engine forget the SQL password of a target: memory and keyring. */
+export async function forgetPassword(engine: EngineInfo, name: string): Promise<void> {
+  const response = await fetch(passwordURL(engine, name), {
+    method: "DELETE",
+    headers: authHeaders(engine),
+  });
+  if (!response.ok) {
+    throw await failure(response);
+  }
 }
 
 /** The native tasks of a configured target, newest first. */
