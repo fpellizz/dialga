@@ -13,6 +13,7 @@ import { useI18n } from "./i18n";
 import { OverviewStrip } from "./OverviewStrip";
 import { StepList } from "./StepList";
 import { TasksPanel } from "./TasksPanel";
+import { TunnelIndicator } from "./TunnelIndicator";
 
 interface CheckState {
   running: boolean;
@@ -155,6 +156,8 @@ function TargetCard({ engine, target }: { engine: EngineInfo; target: TargetSumm
         <dt>{t("target.connection")}</dt>
         <dd>{connection}</dd>
       </dl>
+
+      {target.connectMode === "tunnel" && <TunnelIndicator engine={engine} target={target.name} />}
 
       <OverviewStrip engine={engine} target={target.name} />
 

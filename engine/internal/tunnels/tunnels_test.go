@@ -246,7 +246,7 @@ func TestOpenFailureIsSharedAndRetried(t *testing.T) {
 			t.Fatalf("waiter %d: %v", i, err)
 		}
 	}
-	if st := m.State(target); st.Status != tunnel.Closed || st.Detail != "no instance tagged Name=ssm-bridge" {
+	if st := m.State(target); st.Status != tunnel.Closed || !st.Failed || st.Detail != "no instance tagged Name=ssm-bridge" {
 		t.Fatalf("state %+v", st)
 	}
 	f.mu.Lock()

@@ -212,3 +212,102 @@ export async function getOverview(
   }
   return (await response.json()) as Overview;
 }
+
+export type TunnelStatus = "connecting" | "ready" | "reconnecting" | "closed";
+
+/** The engine's shared tunnel of a tunnel-mode target. */
+export interface TunnelState {
+  target: string;
+  status: TunnelStatus;
+  /** Port on 127.0.0.1. */
+  localPort?: number;
+  /** host:port of the RDS instance. */
+  endpoint?: string;
+  /** Instance id of the bridge of the session. */
+  bridge?: string;
+  /** The bridge and endpoint when ready, the failure when reconnecting or closed. */
+  detail?: string;
+  /** When status began; absent for a tunnel the engine never opened. */
+  since?: string;
+  /** SQL sessions going through it now. */
+  users: number;
+  /** Opened on request: no idle close. */
+  keepOpen: boolean;
+  /** Closed because the last attempt to open it failed. */
+  failed?: boolean;
+}
+
+function tunnelURL(engine: EngineInfo, name: string): string {
+  return `${engine.url}/api/v1/targets/${encodeURIComponent(name)}/tunnel`;
+}
+
+/** The shared tunnels of every tunnel-mode target, open or not. */
+export async function listTunnels(
+  engine: EngineInfo,
+  signal?: AbortSignal,
+): Promise<TunnelState[]> {
+  const response = await fetch(`${engine.url}/api/v1/tunnels`, {
+    headers: authHeaders(engine),
+    signal,
+  });
+  if (!response.ok) {
+    throw await failure(response);
+  }
+  return ((await response.json()) as { tunnels: TunnelState[] }).tunnels;
+}
+
+/** Opens the tunnel and keeps it open; resolves once it is ready. */
+export async function openTunnel(engine: EngineInfo, name: string): Promise<TunnelState> {
+  const response = await fetch(tunnelURL(engine, name), {
+    method: "POST",
+    headers: authHeaders(engine),
+  });
+  if (!response.ok) {
+    throw await failure(response);
+  }
+  return (await response.json()) as TunnelState;
+}
+
+/** Closes the tunnel now, even while sessions use it. */
+export async function closeTunnel(engine: EngineInfo, name: string): Promise<TunnelState> {
+  const response = await fetch(tunnelURL(engine, name), {
+    method: "DELETE",
+    headers: authHeaders(engine),
+  });
+  if (!response.ok) {
+    throw await failure(response);
+  }
+  return (await response.json()) as TunnelState;
+}
+
+/**
+ * Follows the state of the tunnel: the current one first, then every change.
+ * Resolves when the stream ends (the engine stopped), rejects when it fails.
+ */
+export async function watchTunnel(
+  engine: EngineInfo,
+  name: string,
+  onState: (state: TunnelState) => void,
+  signal: AbortSignal,
+): Promise<void> {
+  const response = await fetch(`${tunnelURL(engine, name)}/events`, {
+    headers: authHeaders(engine),
+    signal,
+  });
+  if (!response.ok || !response.body) {
+    throw await failure(response);
+  }
+  const parse = createSseParser((message) => {
+    if (message.event === "state") {
+      onState(JSON.parse(message.data) as TunnelState);
+    }
+  });
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) {
+      return;
+    }
+    parse(value);
+  }
+}

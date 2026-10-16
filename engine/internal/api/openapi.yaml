@@ -455,6 +455,7 @@ components:
         since: { type: string, format: date-time, description: When status began; absent for a tunnel this engine never opened. }
         users: { type: integer, minimum: 0, description: SQL sessions going through it now. }
         keepOpen: { type: boolean, description: Opened on request; no idle close. }
+        failed: { type: boolean, description: Closed because the last attempt to open it failed (see detail). }
     TunnelList:
       type: object
       required: [tunnels]

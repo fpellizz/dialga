@@ -137,7 +137,7 @@ func TestTunnelErrors(t *testing.T) {
 			t.Fatalf("%s %s: status %d, body %s", tc.method, tc.path, rec.Code, rec.Body)
 		}
 	}
-	if st := decodeTunnel(t, do(h, http.MethodGet, "/api/v1/targets/dev-sql/tunnel")); st.Status != "closed" || !strings.Contains(st.Detail, "no instance tagged") {
+	if st := decodeTunnel(t, do(h, http.MethodGet, "/api/v1/targets/dev-sql/tunnel")); st.Status != "closed" || !st.Failed || !strings.Contains(st.Detail, "no instance tagged") {
 		t.Fatalf("failure not reported: %+v", st)
 	}
 	s, _, _ = newTunnelServer(t, nil)

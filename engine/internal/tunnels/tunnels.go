@@ -67,6 +67,8 @@ type State struct {
 	Users int
 	// KeepOpen: opened on request, no idle close.
 	KeepOpen bool
+	// Failed: closed because the last attempt to open it failed (Detail says why).
+	Failed bool
 }
 
 // Manager owns the shared tunnels of one engine process.
@@ -363,7 +365,7 @@ func (m *Manager) startOpen(e *entry) int {
 		if err != nil {
 			cancel()
 			e.err = err
-			e.state = State{Status: tunnel.Closed, LocalPort: target.Connect.LocalPort, Since: time.Now(), Detail: err.Error()}
+			e.state = State{Status: tunnel.Closed, LocalPort: target.Connect.LocalPort, Since: time.Now(), Detail: err.Error(), Failed: true}
 			m.opts.Log.Warn("shared tunnel failed", "instance", target.Instance, "err", err)
 		} else {
 			e.tun = tun

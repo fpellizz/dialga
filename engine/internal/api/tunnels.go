@@ -43,6 +43,8 @@ type TunnelState struct {
 	Users int `json:"users"`
 	// KeepOpen: opened on request, it stays until closed (no idle close).
 	KeepOpen bool `json:"keepOpen"`
+	// Failed: closed because the last attempt to open it failed (see Detail).
+	Failed bool `json:"failed,omitempty"`
 }
 
 // TunnelList is the answer of GET /api/v1/tunnels: one entry per
@@ -54,7 +56,7 @@ type TunnelList struct {
 func tunnelState(name string, st tunnels.State) TunnelState {
 	out := TunnelState{
 		Target: name, Status: string(st.Status), LocalPort: st.LocalPort, Endpoint: st.Endpoint,
-		Bridge: st.Bridge, Detail: st.Detail, Users: st.Users, KeepOpen: st.KeepOpen,
+		Bridge: st.Bridge, Detail: st.Detail, Users: st.Users, KeepOpen: st.KeepOpen, Failed: st.Failed,
 	}
 	if !st.Since.IsZero() {
 		since := st.Since

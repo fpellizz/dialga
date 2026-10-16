@@ -6,6 +6,7 @@ import { InstancesPage } from "./InstancesPage";
 import { I18nProvider } from "./i18n";
 import { SettingsPage } from "./SettingsPage";
 import { type Page, Sidebar } from "./Sidebar";
+import { TunnelsProvider } from "./TunnelIndicator";
 import { applyTheme, loadThemePref, saveThemePref, type ThemePref } from "./theme";
 
 function pageFromHash(): Page {
@@ -46,16 +47,18 @@ export function App() {
 
   return (
     <I18nProvider>
-      <div className="layout">
-        <Sidebar page={page} engine={engine} engineError={engineError} />
-        <main className="main">
-          {page === "settings" && (
-            <SettingsPage engine={engine} theme={theme} onThemeChange={changeTheme} />
-          )}
-          {page === "databases" && <DatabasesPage engine={engine} engineError={engineError} />}
-          {page === "instances" && <InstancesPage engine={engine} engineError={engineError} />}
-        </main>
-      </div>
+      <TunnelsProvider>
+        <div className="layout">
+          <Sidebar page={page} engine={engine} engineError={engineError} />
+          <main className="main">
+            {page === "settings" && (
+              <SettingsPage engine={engine} theme={theme} onThemeChange={changeTheme} />
+            )}
+            {page === "databases" && <DatabasesPage engine={engine} engineError={engineError} />}
+            {page === "instances" && <InstancesPage engine={engine} engineError={engineError} />}
+          </main>
+        </div>
+      </TunnelsProvider>
     </I18nProvider>
   );
 }
