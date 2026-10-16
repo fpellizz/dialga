@@ -52,16 +52,23 @@ func PasswordFromEnv(t config.Target, getenv func(string) string) (string, error
 // closes the returned pool; with connect.mode tunnel that also closes the
 // tunnel, which otherwise ends with ctx.
 func Open(ctx context.Context, t config.Target, password string) (*sql.DB, error) {
+	db, _, err := OpenWithAWS(ctx, t, password)
+	return db, err
+}
+
+// OpenWithAWS is Open that also returns the AWS configuration it checked,
+// for the callers that reach S3 too.
+func OpenWithAWS(ctx context.Context, t config.Target, password string) (*sql.DB, aws.Config, error) {
 	cfg, inst, err := instance(ctx, t)
 	if err != nil {
-		return nil, err
+		return nil, aws.Config{}, err
 	}
 	addr := mssql.Addr(t.Connect.Mode == config.ModeDirect, t.Connect.LocalPort, inst.Endpoint, inst.Port)
 	var tun io.Closer
 	if t.Connect.Mode == config.ModeTunnel {
 		tn, err := tunnel.Open(ctx, cfg, TunnelTarget(t, inst, t.Connect.LocalPort), tunnel.Options{})
 		if err != nil {
-			return nil, fmt.Errorf("integrated tunnel: %w", err)
+			return nil, aws.Config{}, fmt.Errorf("integrated tunnel: %w", err)
 		}
 		addr, tun = tn.Addr(), tn
 	}
@@ -70,13 +77,13 @@ func Open(ctx context.Context, t config.Target, password string) (*sql.DB, error
 		if tun != nil {
 			_ = tun.Close()
 		}
-		return nil, err
+		return nil, aws.Config{}, err
 	}
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("SQL Server on %s: %w", addr, err)
+		return nil, aws.Config{}, fmt.Errorf("SQL Server on %s: %w", addr, err)
 	}
-	return db, nil
+	return db, cfg, nil
 }
 
 // OpenTunnel opens the integrated tunnel to the SQL Server of t on

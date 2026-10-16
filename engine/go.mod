@@ -15,6 +15,7 @@ require (
 	github.com/microsoft/go-mssqldb v1.11.2
 	github.com/spf13/cobra v1.10.2
 	github.com/testcontainers/testcontainers-go v0.44.0
+	github.com/testcontainers/testcontainers-go/modules/mssql v0.44.0
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/term v0.45.0
 )

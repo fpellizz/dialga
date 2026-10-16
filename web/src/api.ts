@@ -212,3 +212,120 @@ export async function getOverview(
   }
   return (await response.json()) as Overview;
 }
+
+/* First run and configuration (engine firstrun.go). */
+
+export interface InstallHint {
+  distro: "fedora" | "debian";
+  command: string;
+}
+
+/** A program the engine runs: session-manager-plugin or the container runtime. */
+export interface Prerequisite {
+  id: "session-manager-plugin" | "container-runtime";
+  program: string;
+  found: boolean;
+  path?: string;
+  version?: string;
+  /** Found but too old for what needs it (the integrated tunnel). */
+  outdated?: boolean;
+  purpose: string;
+  install: InstallHint[];
+}
+
+export interface AwsProfile {
+  name: string;
+  region?: string;
+}
+
+/** An RDS SQL Server instance a profile sees. */
+export interface DiscoveredInstance {
+  identifier: string;
+  endpoint?: string;
+  port?: number;
+  engine: string;
+  engineVersion: string;
+  class: string;
+  status: string;
+  masterUser?: string;
+  optionGroup?: string;
+  /** The option group has SQLSERVER_BACKUP_RESTORE. */
+  backupRestore: boolean;
+}
+
+export interface InstanceDiscovery {
+  profile: string;
+  region: string;
+  accountId: string;
+  instances: DiscoveredInstance[];
+}
+
+/** POST /api/v1/config/targets: never a password, only where to find it. */
+export interface TargetInput {
+  name: string;
+  accountId: string;
+  region: string;
+  profile: string;
+  instance: string;
+  bucket: string;
+  sqlUser: string;
+  /** "prompt" or "env:VAR". */
+  passwordSource: string;
+  connectMode: "external" | "direct" | "tunnel";
+  localPort?: number;
+  protected: boolean;
+  replace?: boolean;
+}
+
+async function getJSON<T>(engine: EngineInfo, path: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`${engine.url}${path}`, { headers: authHeaders(engine), signal });
+  if (!response.ok) {
+    throw await failure(response);
+  }
+  return (await response.json()) as T;
+}
+
+export async function getPrerequisites(engine: EngineInfo): Promise<Prerequisite[]> {
+  return (await getJSON<{ prerequisites: Prerequisite[] }>(engine, "/api/v1/prerequisites"))
+    .prerequisites;
+}
+
+export async function listProfiles(engine: EngineInfo): Promise<AwsProfile[]> {
+  return (await getJSON<{ profiles: AwsProfile[] }>(engine, "/api/v1/discovery/profiles")).profiles;
+}
+
+/** The SQL Server instances of a profile in a region, with the account it points to. */
+export function discoverInstances(
+  engine: EngineInfo,
+  profile: string,
+  region: string,
+  signal?: AbortSignal,
+): Promise<InstanceDiscovery> {
+  const query = new URLSearchParams({ profile, region });
+  return getJSON<InstanceDiscovery>(engine, `/api/v1/discovery/instances?${query}`, signal);
+}
+
+/** Adds a target to the configuration file (or replaces it with replace). */
+export async function saveTarget(engine: EngineInfo, input: TargetInput): Promise<TargetSummary> {
+  const response = await fetch(`${engine.url}/api/v1/config/targets`, {
+    method: "POST",
+    headers: { ...authHeaders(engine), "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    throw await failure(response);
+  }
+  return (await response.json()) as TargetSummary;
+}
+
+/** Removes a target; confirm repeats its name. */
+export async function removeTarget(engine: EngineInfo, name: string): Promise<void> {
+  const query = new URLSearchParams({ confirm: name });
+  const response = await fetch(
+    `${engine.url}/api/v1/config/targets/${encodeURIComponent(name)}?${query}`,
+    { method: "DELETE", headers: authHeaders(engine) },
+  );
+  if (!response.ok) {
+    throw await failure(response);
+  }
+}

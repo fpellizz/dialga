@@ -11,8 +11,10 @@ import (
 
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/core"
+	"github.com/decisyon/dialga/engine/internal/discover"
 	"github.com/decisyon/dialga/engine/internal/inspect"
 	"github.com/decisyon/dialga/engine/internal/mssql"
+	"github.com/decisyon/dialga/engine/internal/ops"
 )
 
 type openAPIDoc struct {
@@ -98,6 +100,26 @@ func TestOpenAPISchemasMatchTheGoTypes(t *testing.T) {
 		"InspectHeader":  {inspect.Header{}},
 		"InspectFile":    {inspect.DatabaseFile{}},
 		"InspectFinding": {inspect.Finding{}},
+		// native operations (ops.go)
+		"PlanAction":     {core.Action{}},
+		"Plan":           {core.Plan{}},
+		"PlanRequest":    {PlanRequest{}},
+		"ExecuteRequest": {ExecuteRequest{}},
+		"PlanPreview":    {PlanPreview{}},
+		"PlanDone":       {PlanDone{}},
+		"DatabaseInfo":   {mssql.DatabaseInfo{}},
+		"DatabaseFile":   {mssql.DatabaseFile{}},
+		"ObjectCount":    {mssql.ObjectCount{}},
+		"DatabaseReport": {ops.Report{}},
+		// First run and configuration (firstrun.go).
+		"InstallHint":        {discover.InstallHint{}},
+		"Prerequisite":       {discover.Prerequisite{}},
+		"PrerequisiteList":   {PrerequisiteList{}},
+		"AWSProfile":         {discover.Profile{}},
+		"ProfileList":        {ProfileList{}},
+		"DiscoveredInstance": {discover.Instance{}},
+		"InstanceDiscovery":  {discover.Instances{}},
+		"TargetInput":        {TargetInput{}},
 	}
 	schemas := loadSpec(t).Components.Schemas
 	for name, schema := range schemas {
