@@ -15,18 +15,28 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/decisyon/dialga/engine/internal/transfer"
 )
 
 var (
 	// ErrCancelled is the context cause a step sees when the user cancels.
 	ErrCancelled = errors.New("job cancelled")
 	// ErrInterrupted is the context cause a step sees when the engine stops.
-	ErrInterrupted = errors.New("the engine stopped")
+	// It is a transfer.ErrPaused too, so an upload it stops keeps its
+	// multipart upload for a resume instead of aborting it.
+	ErrInterrupted error = interruptedError{}
 
 	ErrNotFound = errors.New("job not found")
 	ErrEnded    = errors.New("job already ended")
 	ErrClosed   = errors.New("job manager closed")
 )
+
+type interruptedError struct{}
+
+func (interruptedError) Error() string { return "the engine stopped" }
+
+func (interruptedError) Is(target error) bool { return target == transfer.ErrPaused }
 
 // Defaults of Options.
 const (
@@ -57,7 +67,10 @@ type Options struct {
 	// SaveEvery throttles the journal writes of progress-only changes
 	// (default 2s); state changes are written at once.
 	SaveEvery time.Duration
-	Log       *slog.Logger
+	// Registry has the factories Resume rebuilds the steps with
+	// (default DefaultRegistry).
+	Registry *Registry
+	Log      *slog.Logger
 	// Now is the clock of the event times (default time.Now).
 	Now func() time.Time
 }
@@ -152,6 +165,9 @@ func New(opts Options) *Manager {
 		limits[res] = n
 	}
 	opts.Limits = limits
+	if opts.Registry == nil {
+		opts.Registry = DefaultRegistry
+	}
 	return &Manager{opts: opts, log: opts.Log, lim: newLimiter(), jobs: map[string]*run{}}
 }
 
@@ -211,7 +227,11 @@ func (m *Manager) Start(spec Spec) (Job, error) {
 	for _, it := range spec.Items {
 		item := Item{Name: it.Name, State: Queued, Steps: []StepInfo{}}
 		for _, st := range it.Steps {
-			item.Steps = append(item.Steps, StepInfo{ID: st.ID(), Title: st.Title(), Resource: st.Resource(), Status: StepPending})
+			info, err := stepInfo(st)
+			if err != nil {
+				return Job{}, fmt.Errorf("job: database %s: %w", it.Name, err)
+			}
+			item.Steps = append(item.Steps, info)
 		}
 		r.job.Items = append(r.job.Items, item)
 		r.steps = append(r.steps, slices.Clone(it.Steps))
@@ -244,6 +264,20 @@ func (m *Manager) Start(spec Spec) (Job, error) {
 	r.mu.Unlock()
 	go r.execute(ctx)
 	return snap, nil
+}
+
+// stepInfo is the journal entry of a new step; a Resumable one also records
+// its kind and params.
+func stepInfo(st Step) (StepInfo, error) {
+	info := StepInfo{ID: st.ID(), Title: st.Title(), Resource: st.Resource(), Status: StepPending}
+	if rs, ok := st.(Resumable); ok {
+		params, err := json.Marshal(rs.Params())
+		if err != nil {
+			return StepInfo{}, fmt.Errorf("step %s: params: %w", st.ID(), err)
+		}
+		info.Kind, info.Params = rs.Kind(), params
+	}
+	return info, nil
 }
 
 func newID(now time.Time) string {
@@ -499,15 +533,21 @@ type rate struct {
 
 func (r *run) execute(ctx context.Context) {
 	defer r.m.wg.Done()
-	// The first slot of every item is queued here, in item order.
+	// The first slot of every item is queued here, in item order. A
+	// resumed job has nil for the steps done (and for the items it keeps).
 	first := make([]*ticket, len(r.steps))
 	for i, steps := range r.steps {
-		if res := steps[0].Resource(); res != NoResource {
-			first[i] = r.m.lim.enqueue(r.poolKey(res), r.limit(res), priority{r.prio, i})
+		if s := slices.IndexFunc(steps, func(st Step) bool { return st != nil }); s >= 0 {
+			if res := steps[s].Resource(); res != NoResource {
+				first[i] = r.m.lim.enqueue(r.poolKey(res), r.limit(res), priority{r.prio, i})
+			}
 		}
 	}
 	var wg sync.WaitGroup
 	for i := range r.steps {
+		if r.steps[i] == nil {
+			continue // an item a resume keeps as it was
+		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -532,6 +572,9 @@ func (r *run) runItem(ctx context.Context, i int, first *ticket) {
 		}
 	}()
 	for s, step := range r.steps[i] {
+		if step == nil {
+			continue // done before a resume
+		}
 		if res := step.Resource(); res != held {
 			// Give back the slot before waiting for another: an item never
 			// holds one resource while it waits for the next.
@@ -542,7 +585,8 @@ func (r *run) runItem(ctx context.Context, i int, first *ticket) {
 			held = NoResource
 			if res != NoResource {
 				t := first
-				if s > 0 || t == nil {
+				first = nil // queued for the first step only
+				if t == nil {
 					t = r.m.lim.enqueue(r.poolKey(res), r.limit(res), priority{r.prio, i})
 				}
 				rel, err := t.wait(ctx, func() { r.stepWaiting(i, s) })
@@ -938,6 +982,9 @@ func (p *reporter) Task(ts TaskStatus) {
 		return
 	}
 	ts.Percent = clampPercent(ts.Percent)
+	if ts.ID != 0 {
+		it.Steps[p.step].TaskID = ts.ID
+	}
 	prev := it.Task
 	it.Task, it.Percent = &ts, ts.Percent
 	if ts.ID != 0 && !slices.Contains(it.TaskIDs, ts.ID) {
@@ -946,6 +993,16 @@ func (p *reporter) Task(ts TaskStatus) {
 	durable := prev == nil || prev.ID != ts.ID || prev.Lifecycle != ts.Lifecycle
 	r.emit(Event{Type: EventTaskStatus, Item: it.Name, Step: it.Step, Task: &ts}, durable)
 	r.save(durable)
+}
+
+func (p *reporter) LastTaskID() int {
+	p.r.mu.Lock()
+	defer p.r.mu.Unlock()
+	ids := p.r.job.Items[p.item].TaskIDs
+	if len(ids) == 0 {
+		return 0
+	}
+	return ids[len(ids)-1]
 }
 
 func (p *reporter) Upload(u UploadState) {
@@ -986,6 +1043,24 @@ func (p *reporter) Result(s string) {
 	it.Result = s
 	r.job.UpdatedAt = r.m.opts.Now()
 	r.save(false)
+}
+
+func (p *reporter) Checkpoint(params any) error {
+	data, err := json.Marshal(params)
+	if err != nil {
+		return fmt.Errorf("checkpoint of step %s: %w", p.r.steps[p.item][p.step].ID(), err)
+	}
+	r := p.r
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, ok := p.live(); !ok {
+		return nil
+	}
+	_, st := r.at(p.item, p.step)
+	st.Params = data
+	r.job.UpdatedAt = r.m.opts.Now()
+	r.save(true)
+	return nil
 }
 
 func clampPercent(p int) int { return min(max(p, 0), 100) }

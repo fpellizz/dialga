@@ -34,3 +34,19 @@ export function createSseParser(onMessage: (message: SseMessage) => void): (chun
     }
   };
 }
+
+/** Reads a text/event-stream body to its end, calling onMessage for every message. */
+export async function readEventStream(
+  body: NonNullable<Response["body"]>,
+  onMessage: (message: SseMessage) => void,
+): Promise<void> {
+  const parse = createSseParser(onMessage);
+  const reader = body.pipeThrough(new TextDecoderStream()).getReader();
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) {
+      return;
+    }
+    parse(value);
+  }
+}

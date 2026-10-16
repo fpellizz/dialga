@@ -148,3 +148,14 @@ func (j *journal) load() ([]Job, []error) {
 }
 
 func (j *journal) close() error { return j.unlock() }
+
+// ReadJournal reads the jobs in dir without taking the lock or changing a
+// file, so it works while an engine runs ("dialga jobs"). A job that has
+// not ended in a journal that no engine holds was interrupted: the next
+// engine to start marks it so. A missing dir means no jobs yet.
+func ReadJournal(dir string) ([]Job, []error) {
+	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	return (&journal{dir: dir}).load()
+}

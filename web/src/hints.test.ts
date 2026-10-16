@@ -73,6 +73,9 @@ describe("hintFor", () => {
   it("reads the status of an ApiError", () => {
     expect(errorHint(new ApiError(409, "invalid YAML"))).toEqual({ key: "hint.config" });
     expect(errorHint(new TypeError("Failed to fetch"))).toEqual({ key: "hint.engine" });
+    expect(errorHint(new ApiError(404, 'unknown target "x"'))).toEqual({
+      key: "hint.unknownTarget",
+    });
     expect(errorHint("plain text")).toBeUndefined();
   });
 

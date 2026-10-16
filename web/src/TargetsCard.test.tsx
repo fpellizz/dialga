@@ -61,7 +61,6 @@ describe("TargetsCard", () => {
     mockFetch({ [TARGETS]: answer });
     renderI18n(<TargetsCard engine={ENGINE} />);
     const banner = await within(card()).findByRole("alert");
-    // A configuration error keeps its lines; a failed request is one message.
     expect(banner.querySelector("pre, .banner-text")).toHaveTextContent(new RegExp(`^${message}$`));
     expect(screen.queryByText(/No targets yet/)).toBeNull();
   });
@@ -145,7 +144,7 @@ describe("TargetsCard", () => {
     );
     expect(confirmButton()).not.toHaveAttribute("aria-disabled");
     expect(confirmButton()).toBeEnabled();
-    // The live region stays, with nothing removed to announce.
+    // The live region of the confirmation is always there: nothing was removed.
     expect(within(card()).getByRole("status")).toBeEmptyDOMElement();
   });
 

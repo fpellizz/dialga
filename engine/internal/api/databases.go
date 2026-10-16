@@ -61,6 +61,11 @@ type Overview struct {
 	UserDatabases *int   `json:"userDatabases,omitempty"`
 	// ActiveTasks counts the native tasks queued, running or being cancelled.
 	ActiveTasks *int `json:"activeTasks,omitempty"`
+	// BackupWindow is the daily automated backup window (04:29-04:59) and
+	// MaintenanceWindow the weekly one (sun:05:00-sun:05:30), both UTC: a
+	// long export should not cross them.
+	BackupWindow      string `json:"backupWindow,omitempty"`
+	MaintenanceWindow string `json:"maintenanceWindow,omitempty"`
 }
 
 // databaseTarget resolves the target of the request, answering 409 (no
@@ -136,6 +141,7 @@ func (s *Server) targetOverview(w http.ResponseWriter, r *http.Request) {
 		AllocatedGiB: inst.AllocatedGiB, MaxAllocatedGiB: inst.MaxAllocatedGiB,
 		SQL: sqlResult.SQL, SQLDetail: sqlResult.SQLDetail,
 		UserDatabases: sqlResult.UserDatabases, ActiveTasks: sqlResult.ActiveTasks,
+		BackupWindow: inst.BackupWindow, MaintenanceWindow: inst.MaintenanceWindow,
 	}
 	if info.FreeErr != nil {
 		o.FreeError = "free space not read from CloudWatch: " + info.FreeErr.Error()

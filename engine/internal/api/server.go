@@ -89,6 +89,10 @@ type Options struct {
 	// OpenS3 opens the S3 client of a target for the transfers (default
 	// transfer.Open; tests replace it).
 	OpenS3 func(context.Context, config.Target) (transfer.Client, error)
+	// JobEnv builds what resumed steps run with (the pipeline's
+	// environment, handed to the step factories). Nil: POST
+	// /api/v1/jobs/{id}/resume answers 501.
+	JobEnv func(ctx context.Context, name string, t config.Target, password string) (any, error)
 }
 
 // Server is the HTTP API of the engine.
@@ -109,6 +113,9 @@ type TargetSummary struct {
 	ConnectMode string `json:"connectMode"`
 	LocalPort   int    `json:"localPort,omitempty"`
 	Protected   bool   `json:"protected"`
+	// ImportPrefix and ExportPrefix are the S3 key prefixes of the target.
+	ImportPrefix string `json:"importPrefix"`
+	ExportPrefix string `json:"exportPrefix"`
 }
 
 // TargetList is the answer of GET /api/v1/targets. A missing file is not an
@@ -316,12 +323,7 @@ func (s *Server) listTargets(w http.ResponseWriter, _ *http.Request) {
 		resp.Error = err.Error()
 	default:
 		for _, name := range cfg.Names() {
-			t := cfg.Targets[name]
-			resp.Targets = append(resp.Targets, TargetSummary{
-				Name: name, Instance: t.Instance, Region: t.Region, Profile: t.AWSProfile,
-				AccountID: t.AccountID, Bucket: t.Bucket, SQLUser: t.SQL.User,
-				ConnectMode: t.Connect.Mode, LocalPort: t.Connect.LocalPort, Protected: t.Protected,
-			})
+			resp.Targets = append(resp.Targets, summaryOf(name, cfg.Targets[name]))
 		}
 	}
 	writeJSON(w, resp)

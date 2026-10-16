@@ -25,6 +25,8 @@ export const DEV: TargetSummary = {
   connectMode: "external",
   localPort: 11433,
   protected: false,
+  importPrefix: "import",
+  exportPrefix: "export",
 };
 
 export const PROD: TargetSummary = {

@@ -161,7 +161,7 @@ describe("AddInstanceDialog", () => {
     );
 
     await discover();
-    // Busy is announced on the results it is loading, not on the button.
+    // The button says it; the instance list it fills is what is busy.
     expect(screen.getByRole("button", { name: "Discovering…" })).toBeInTheDocument();
     expect(screen.getByRole("group", { name: "Instance" })).toHaveAttribute("aria-busy", "true");
     expect(discoveries(fetch)).toEqual(["?profile=default&region=eu-west-1"]);
@@ -221,10 +221,9 @@ describe("AddInstanceDialog", () => {
     ).toBeInTheDocument();
 
     await discover();
-    // The engine's message first, then the what-to-do hint.
-    const alert = await within(dialog()).findByRole("alert");
-    expect(alert.querySelector(".banner-text")).toHaveTextContent(
-      /^operation error RDS: DescribeDBInstances, AccessDenied$/,
+    // The engine's message first, then what to do (ErrorBanner).
+    expect(await within(dialog()).findByRole("alert")).toHaveTextContent(
+      /^operation error RDS: DescribeDBInstances, AccessDenied/,
     );
   });
 
@@ -243,6 +242,11 @@ describe("AddInstanceDialog", () => {
     await discover();
     await screen.findByRole("textbox", { name: "S3 bucket" });
     await userEvent.click(screen.getByRole("radio", { name: "Environment variable" }));
+    // The integrated tunnel is the default: a port is asked for an open tunnel only.
+    expect(screen.getByRole("radio", { name: "Integrated tunnel" })).toBeChecked();
+    expect(within(dialog()).queryByRole("textbox", { name: "Local port" })).toBeNull();
+    await userEvent.click(screen.getByRole("radio", { name: "Open tunnel" }));
+    expect(field("Local port")).toHaveValue("11433");
     await userEvent.clear(field("Local port"));
     await userEvent.type(field("Local port"), "70000");
     await userEvent.clear(field("Target name"));
@@ -296,6 +300,7 @@ describe("AddInstanceDialog", () => {
     expect(within(dialog()).queryByRole("textbox", { name: "Local port" })).toBeNull();
 
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
+    // Busy, not disabled: the focus stays on the button.
     expect(screen.getByRole("button", { name: "Saving…" })).toHaveAttribute(
       "aria-disabled",
       "true",

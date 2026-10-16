@@ -61,7 +61,8 @@ func (f fakeDescribe) describe(context.Context, config.Target) (session.Instance
 
 var sampleInstance = session.InstanceInfo{
 	Instance: awsx.Instance{Status: "available", Engine: "sqlserver-se", EngineVersion: "14.00.3465.1.v1",
-		Class: "db.m6i.large", AllocatedGiB: 200, MaxAllocatedGiB: 1000},
+		Class: "db.m6i.large", AllocatedGiB: 200, MaxAllocatedGiB: 1000,
+		BackupWindow: "04:29-04:59", MaintenanceWindow: "sun:05:00-sun:05:30"},
 	FreeBytes: 104_475_983_462.4,
 }
 
@@ -149,6 +150,9 @@ func TestOverviewWithSQL(t *testing.T) {
 	if o.Target != "dev-sql" || o.Instance != "dev-sqlserver" || o.Status != "available" || o.Class != "db.m6i.large" ||
 		o.EngineVersion != "14.00.3465.1.v1" || o.AllocatedGiB != 200 || o.MaxAllocatedGiB != 1000 {
 		t.Fatalf("overview %+v", o)
+	}
+	if o.BackupWindow != "04:29-04:59" || o.MaintenanceWindow != "sun:05:00-sun:05:30" {
+		t.Fatalf("windows %q %q", o.BackupWindow, o.MaintenanceWindow)
 	}
 	if o.FreeBytes == nil || *o.FreeBytes != 104_475_983_462 || o.FreeError != "" {
 		t.Fatalf("free %v, error %q", o.FreeBytes, o.FreeError)

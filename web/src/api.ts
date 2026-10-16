@@ -22,6 +22,9 @@ export interface TargetSummary {
   connectMode: "external" | "direct" | "tunnel";
   localPort?: number;
   protected: boolean;
+  /** S3 key prefixes of the target: uploads to restore, exports. */
+  importPrefix: string;
+  exportPrefix: string;
 }
 
 /** GET /api/v1/targets: an empty list with no error means "no configuration yet". */
@@ -67,7 +70,7 @@ export function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function authHeaders(engine: EngineInfo): HeadersInit {
+export function authHeaders(engine: EngineInfo): HeadersInit {
   return { Authorization: `Bearer ${engine.token}` };
 }
 
@@ -82,7 +85,8 @@ export class ApiError extends Error {
   }
 }
 
-async function failure(response: Response): Promise<Error> {
+/** The ApiError of an engine answer that is not 2xx. */
+export async function failure(response: Response): Promise<ApiError> {
   return new ApiError(response.status, (await response.text()).trim() || `HTTP ${response.status}`);
 }
 
@@ -206,6 +210,10 @@ export interface Overview {
   userDatabases?: number;
   /** Native tasks queued, running or being cancelled. */
   activeTasks?: number;
+  /** Daily automated backup window, UTC: "04:29-04:59". */
+  backupWindow?: string;
+  /** Weekly maintenance window, UTC: "sun:05:00-sun:05:30". */
+  maintenanceWindow?: string;
 }
 
 /** The state of a configured target's RDS instance. */
@@ -240,6 +248,8 @@ export interface Prerequisite {
   version?: string;
   /** Found but too old for what needs it (the integrated tunnel). */
   outdated?: boolean;
+  /** Why it cannot be used although it may be there (engine text, English). */
+  error?: string;
   purpose: string;
   install: InstallHint[];
 }

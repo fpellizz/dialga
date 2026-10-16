@@ -510,6 +510,68 @@ paths:
               schema: { $ref: "#/components/schemas/JobList" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      summary: Plan or start an import or an export of databases
+      description: |
+        Runs the read-only pre-flight checks of every database (the upload or
+        the destination, the database, the native tasks), then starts one job:
+        import = upload, restore, wait, post (no post with noRecovery);
+        export = export, wait, download. The job runs in the engine: follow it
+        on /api/v1/jobs/{id}/events, stop it with /api/v1/jobs/{id}/cancel
+        (uploads are aborted, native tasks keep running). When the engine
+        stops, its uploads keep their parts for a resume.
+
+        With dryRun the answer is the plan (JobPlan) and nothing changes. Send
+        back the keys of the preview (items[].key: the default export key has a
+        timestamp) and its digest, so the job that starts is the one previewed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/JobRequest" }
+      responses:
+        "200":
+          description: The plan (dryRun); nothing was started.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobPlan" }
+        "201":
+          description: The job started; Location is its URL.
+          headers:
+            Location:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "400":
+          description: Invalid body, kind, items, paths or keys.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "412":
+          description: A pre-flight check failed (and skipFailing is off), or the digest differs from the plan.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobRefused" }
+        "422":
+          description: confirm does not match the confirmation of the plan, or no SQL password in the engine environment.
+          content:
+            text/plain:
+              schema: { type: string }
+        "502":
+          description: AWS or SQL Server did not answer during the pre-flight.
+          content:
+            text/plain:
+              schema: { type: string }
+        "503":
+          description: The engine is stopping.
+          content:
+            text/plain:
+              schema: { type: string }
   /api/v1/jobs/{id}:
     get:
       summary: One job, with its databases, steps and event log
@@ -581,6 +643,61 @@ paths:
         "404": { $ref: "#/components/responses/UnknownJob" }
         "409":
           description: The job already ended.
+          content:
+            text/plain:
+              schema: { type: string }
+  /api/v1/jobs/{id}/resume:
+    post:
+      summary: Resume an interrupted job
+      description: |
+        Runs an interrupted job again, under the same id, on its target as
+        configured now: the databases that ended and the steps that
+        succeeded are kept, the others are rebuilt from the journal (an
+        upload continues its multipart upload, a native task already queued
+        is followed, not queued again). The answer comes once the job is
+        queued; follow it with /events (a job.resumed event, then the rest).
+      parameters:
+        - $ref: "#/components/parameters/JobID"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResumeRequest" }
+      responses:
+        "202":
+          description: Resumed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "400":
+          description: The body is not a ResumeRequest.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownJob" }
+        "409":
+          description: The job is not interrupted, or the configuration file is missing or invalid.
+          content:
+            text/plain:
+              schema: { type: string }
+        "422":
+          description: |
+            Not resumable now: the target left the configuration or points at
+            another instance, the confirmation is missing or wrong (protected
+            target), no SQL password in the engine environment, or a step
+            cannot be rebuilt.
+          content:
+            text/plain:
+              schema: { type: string }
+        "501":
+          description: This engine has no import/export pipeline to rebuild the steps with.
+          content:
+            text/plain:
+              schema: { type: string }
+        "502":
+          description: AWS or SQL Server did not answer while preparing the steps.
           content:
             text/plain:
               schema: { type: string }
@@ -832,7 +949,7 @@ components:
     TargetSummary:
       type: object
       description: A configured target as the GUI sees it; no password reference.
-      required: [name, instance, region, profile, accountId, bucket, sqlUser, connectMode, protected]
+      required: [name, instance, region, profile, accountId, bucket, sqlUser, connectMode, protected, importPrefix, exportPrefix]
       properties:
         name: { type: string }
         instance: { type: string, description: RDS DB instance identifier. }
@@ -844,6 +961,8 @@ components:
         connectMode: { type: string, enum: [external, direct, tunnel] }
         localPort: { type: integer, description: "Port of the open tunnel (external mode), or of the integrated one (tunnel mode; absent: a free port)." }
         protected: { type: boolean, description: Every change asks to retype the target name. }
+        importPrefix: { type: string, description: S3 key prefix of the uploads to restore (default import). }
+        exportPrefix: { type: string, description: S3 key prefix of the exports (default export). }
     TargetList:
       type: object
       required: [configPath, targets]
@@ -947,6 +1066,8 @@ components:
         sqlDetail: { type: string, description: Why the SQL part is skipped or failed. }
         userDatabases: { type: integer, description: Present when sql is ok. }
         activeTasks: { type: integer, description: Native tasks queued, running or being cancelled; present when sql is ok. }
+        backupWindow: { type: string, description: "Daily automated backup window, UTC: 04:29-04:59.", examples: ["04:29-04:59"] }
+        maintenanceWindow: { type: string, description: "Weekly maintenance window, UTC: sun:05:00-sun:05:30.", examples: ["sun:05:00-sun:05:30"] }
     InspectRequest:
       type: object
       required: [paths]
@@ -1196,6 +1317,9 @@ components:
         outdated:
           type: boolean
           description: Found but too old (a Session Manager plugin not newer than 1.2.497.0 cannot run the integrated tunnel).
+        error:
+          type: string
+          description: Why the program cannot be used although it may be there (for example a docker daemon that does not answer).
         purpose: { type: string, description: What needs it (English; the GUI translates known ids). }
         install:
           type: array
@@ -1363,6 +1487,9 @@ components:
         startedAt: { type: string, format: date-time }
         endedAt: { type: string, format: date-time }
         detail: { type: string, description: Result line, or the error of a failed step. }
+        kind: { type: string, description: "The factory that rebuilds the step on a resume; absent: the step cannot be resumed." }
+        params: { description: "What that factory gets back on a resume (any JSON). Never secrets." }
+        taskId: { type: integer, description: The native task the step reported. }
     JobEvent:
       type: object
       description: One change of a job; seq grows by one per event of the job.
@@ -1372,7 +1499,7 @@ components:
         time: { type: string, format: date-time }
         type:
           type: string
-          examples: [job.queued, job.started, job.cancelling, job.succeeded, job.failed, job.cancelled, job.interrupted,
+          examples: [job.queued, job.started, job.cancelling, job.succeeded, job.failed, job.cancelled, job.interrupted, job.resumed,
             step.waiting, step.started, step.succeeded, step.failed, step.skipped, step.cancelled, step.interrupted,
             upload.progress, task.status, log]
         item: { type: string, description: The database. }
@@ -1411,6 +1538,10 @@ components:
         size: { type: integer }
         partSize: { type: integer }
         partsDone: { type: array, items: { type: integer } }
+    ResumeRequest:
+      type: object
+      properties:
+        confirm: { type: string, description: The target name retyped; needed when the target is protected. }
     TunnelState:
       type: object
       description: The shared tunnel of a tunnel-mode target.
@@ -1528,3 +1659,82 @@ components:
         partsTotal: { type: integer }
         bytesPerSecond: { type: number, description: Over the last 10 seconds; the average in the last event. }
         etaSeconds: { type: integer, description: Time left; absent when unknown or done. }
+    JobRequest:
+      type: object
+      description: An import or an export of databases on one target.
+      required: [kind, target, items]
+      properties:
+        kind: { type: string, enum: [import, export] }
+        target: { type: string, description: 'Target name; "" picks the only target.' }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: { $ref: "#/components/schemas/JobRequestItem" }
+        prefix: { type: string, description: 'Import - key prefix instead of the import prefix of the target ("" is the bucket root); an item key wins.' }
+        skipFailing: { type: boolean, description: Leave out the databases whose pre-flight failed instead of refusing the job. }
+        dryRun: { type: boolean, description: Answer the plan and start nothing. }
+        confirm: { type: string, description: The confirmation text of the plan, when it asks for one. }
+        digest: { type: string, description: The digest of the preview; a different plan is refused (412). }
+    JobRequestItem:
+      type: object
+      description: |
+        One database, paths absolute on the machine of the engine. Import needs
+        file, or files for the stripes of one backup (restored together with a
+        "*" key); export may have a destination (without it the backup stays in S3).
+      required: [database]
+      properties:
+        database: { type: string }
+        file: { type: string, description: Import - the local .bak. }
+        files: { type: array, minItems: 1, maxItems: 10, items: { type: string }, description: Import - the stripes of one backup. }
+        destination: { type: string, description: Export - the local file, or an existing folder. }
+        key: { type: string, description: 'S3 key, one file only. Default: <prefix>/<file name>, or <export prefix>/<database>_<UTC timestamp>.bak.' }
+        differential: { type: boolean, description: Import - a differential backup, onto the database left RESTORING. }
+        noRecovery: { type: boolean, description: Import - leave the database RESTORING (no post-restore report). }
+        overwrite: { type: boolean, description: Replace the object in S3 (import) or the local file (export). }
+    JobPlan:
+      type: object
+      description: A job after its pre-flight checks; nothing was changed.
+      required: [kind, target, instance, protected, ready, digest, items, preview]
+      properties:
+        kind: { type: string, enum: [import, export] }
+        target: { type: string }
+        instance: { type: string }
+        protected: { type: boolean }
+        ready: { type: boolean, description: Every database passed its checks (or skipFailing and one at least did). }
+        confirmation: { type: string, description: The text to retype in confirm. }
+        digest: { type: string }
+        warnings: { type: array, items: { type: string } }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/JobItemPlan" }
+        preview: { type: string, description: The dry-run text, as the CLI prints it. }
+    JobItemPlan:
+      type: object
+      required: [database, file, key, ready, checks, actions]
+      properties:
+        database: { type: string }
+        file: { type: string, description: 'The local backup (import; stripes comma-separated) or destination (export; "" when the backup stays in S3).' }
+        key: { type: string, description: 'The S3 key ("*" pattern for stripes), defaults resolved; send it back to start this plan.' }
+        ready: { type: boolean }
+        skipped: { type: boolean, description: The pre-flight failed and the request skips such databases. }
+        checks:
+          type: array
+          items: { $ref: "#/components/schemas/StepEvent" }
+        actions:
+          type: array
+          items: { $ref: "#/components/schemas/PlanAction" }
+        uploads:
+          type: array
+          description: Import - the files as the upload plans them.
+          items: { $ref: "#/components/schemas/TransferItem" }
+        rejected:
+          type: array
+          description: Import - the files the upload refuses, with the reason.
+          items: { $ref: "#/components/schemas/Rejection" }
+    JobRefused:
+      type: object
+      required: [reason, plan]
+      properties:
+        reason: { type: string }
+        plan: { $ref: "#/components/schemas/JobPlan" }
