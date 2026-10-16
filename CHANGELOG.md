@@ -9,6 +9,8 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ## [Non rilasciato]
 
+## [0.2.0] - 2026-10-16
+
 Prima linea di rilascio: configurazione guidata, controlli, tunnel SSM
 condiviso, database dell'istanza, ispezione dei `.bak`, trasferimenti su S3
 e operazioni native di restore ed export, dalla CLI e dall'app desktop
