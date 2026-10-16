@@ -14,11 +14,14 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/decisyon/dialga/engine/internal/check"
+	"github.com/decisyon/dialga/engine/internal/config"
 	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/ops"
 	"github.com/decisyon/dialga/engine/internal/pipeline"
+	"github.com/decisyon/dialga/engine/internal/session"
 	"github.com/decisyon/dialga/engine/internal/transfer"
+	"github.com/decisyon/dialga/engine/internal/tunnels"
 	"github.com/decisyon/dialga/engine/internal/validate"
 )
 
@@ -185,10 +188,12 @@ func (a *app) runJob(cmd *cobra.Command, f jobFlags, req pipeline.Request) error
 	if err != nil {
 		return err
 	}
-	env := pipeline.Env{
-		Name: name, Target: t, S3: client, TaskInterval: f.interval,
-		OpenOps: func(ctx context.Context) (*ops.Session, func(), error) { return a.openOps(ctx, name, t, password) },
+	openOps, closeOps, err := a.jobOpenOps(ctx, name, t, password)
+	if err != nil {
+		return err
 	}
+	defer closeOps()
+	env := pipeline.Env{Name: name, Target: t, S3: client, TaskInterval: f.interval, OpenOps: openOps}
 	plan, err := pipeline.Build(ctx, env, req)
 	if err != nil {
 		return err
@@ -444,4 +449,25 @@ func (r *jobReport) clearProgressLocked() {
 		_, _ = fmt.Fprint(r.errOut, "\r\x1b[K")
 		r.dirty = false
 	}
+}
+
+// jobOpenOps gives the steps of a job (planned here or resumed) their SQL
+// sessions. A tunnel-mode target gets one tunnel for the whole job, opened
+// now: the pre-flight and every step go through it; closeOps ends it.
+func (a *app) jobOpenOps(ctx context.Context, name string, t config.Target, password string) (open func(context.Context) (*ops.Session, func(), error), closeOps func(), err error) {
+	if t.Connect.Mode != config.ModeTunnel {
+		return func(ctx context.Context) (*ops.Session, func(), error) { return a.openOps(ctx, name, t, password) }, func() {}, nil
+	}
+	shared := tunnels.New(tunnels.Options{Open: a.jobTunnel})
+	if _, err := shared.Open(ctx, t); err != nil {
+		_ = shared.Close()
+		return nil, nil, fmt.Errorf("integrated tunnel: %w", err)
+	}
+	via := a.openOpsVia
+	if via == nil {
+		via = ops.OpenWith
+	}
+	openVia := via(session.Sessions{Tunnels: shared})
+	return func(ctx context.Context) (*ops.Session, func(), error) { return openVia(ctx, name, t, password) },
+		func() { _ = shared.Close() }, nil
 }

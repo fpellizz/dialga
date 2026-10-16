@@ -286,6 +286,10 @@ func mustNotExist(path string) error {
 	return err
 }
 
+// FreeBytes is the space the user can still write in dir;
+// errors.ErrUnsupported where the OS cannot tell.
+func FreeBytes(dir string) (uint64, error) { return freeBytes(dir) }
+
 // enoughSpace checks that dir can take size more bytes. Where the free space
 // cannot be known (an OS without the call) the check is skipped.
 func enoughSpace(free func(string) (uint64, error), dir string, size int64) error {

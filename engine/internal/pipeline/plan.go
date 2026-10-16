@@ -37,6 +37,8 @@ type Env struct {
 	// TaskInterval is the time between two reads of a native task
 	// (default 30s; RDS updates the status about every 2 minutes).
 	TaskInterval time.Duration
+	// FreeSpace is the space left in a folder (default transfer.FreeBytes).
+	FreeSpace func(dir string) (uint64, error)
 }
 
 func (e Env) interval() time.Duration {
@@ -229,7 +231,7 @@ func (b *builder) importItem(ctx context.Context, in ImportItem) error {
 		it.Key = stripePattern(keys)
 	}
 	if len(batch.Items) > 0 {
-		if len(batch.Rejected) == 0 {
+		if it.ready() {
 			it.add(step, label, check.OK, fmt.Sprintf("%d file(s), %s, to %s", len(batch.Items), transfer.FormatBytes(size), b.where(it.Key)))
 		}
 		it.Actions = append(it.Actions, uploadAction(batch))
@@ -373,6 +375,9 @@ func (b *builder) exportItem(ctx context.Context, in ExportItem) error {
 		if err != nil {
 			return fmt.Errorf("%s: %w", in.Database, err)
 		}
+		if err := b.freeSpace(ctx, &it, in.Database, filepath.Dir(dl.Path)); err != nil {
+			return fmt.Errorf("%s: %w", in.Database, err)
+		}
 		risk := core.Change
 		if len(it.replace) > 0 {
 			risk = core.Destructive
@@ -386,6 +391,44 @@ func (b *builder) exportItem(ctx context.Context, in ExportItem) error {
 		it.steps = append(it.steps, dl.Step(b.env, download.Title))
 	}
 	b.plan.Items = append(b.plan.Items, it)
+	return nil
+}
+
+// freeSpace compares the free space of dir with the data files of db: the
+// backup takes at most that (it holds the used pages, maybe compressed), so
+// less space is a warning; the download checks the real size again.
+func (b *builder) freeSpace(ctx context.Context, it *ItemPlan, db, dir string) error {
+	const step, label = "space", "Free space"
+	rep, err := b.sess.SQL.DatabaseReport(ctx, db)
+	switch {
+	case errors.Is(err, mssql.ErrNoDatabase):
+		return nil // the database check already failed
+	case err != nil:
+		return err
+	}
+	var dataMB float64
+	for _, f := range rep.Files {
+		if f.Type != "LOG" {
+			dataMB += f.SizeMB
+		}
+	}
+	data := int64(dataMB * transfer.MiB)
+	free := b.env.FreeSpace
+	if free == nil {
+		free = transfer.FreeBytes
+	}
+	avail, err := free(dir)
+	where := fmt.Sprintf("in %s, the data files of %s take %s", dir, db, transfer.FormatBytes(data))
+	switch {
+	case errors.Is(err, errors.ErrUnsupported):
+	case err != nil:
+		it.add(step, label, check.Failed, err.Error())
+	case avail < uint64(data):
+		it.add(step, label, check.Warning, fmt.Sprintf("%s free %s: the backup may not fit (the download checks its real size)",
+			transfer.FormatBytes(int64(avail)), where))
+	default:
+		it.add(step, label, check.OK, fmt.Sprintf("%s free %s", transfer.FormatBytes(int64(avail)), where))
+	}
 	return nil
 }
 

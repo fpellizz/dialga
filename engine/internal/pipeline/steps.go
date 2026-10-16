@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/mssql"
@@ -60,6 +62,7 @@ func (p UploadParams) step(env Env, title string, from *jobs.UploadState) jobs.S
 		}
 		files := slices.Clone(p.Files)
 		var lines []string
+		verified := true
 		for i, f := range files {
 			if f.Done {
 				done += f.Size
@@ -87,6 +90,10 @@ func (p UploadParams) step(env Env, title string, from *jobs.UploadState) jobs.S
 			}
 			done += f.Size
 			lines = append(lines, res.Summary())
+			verified = verified && res.Verified
+			if len(p.Files) == 1 {
+				reportChecksum(r, res)
+			}
 			files[i].Done = true
 			if err := r.Checkpoint(UploadParams{Bucket: p.Bucket, Files: files}); err != nil {
 				return "", err
@@ -95,9 +102,24 @@ func (p UploadParams) step(env Env, title string, from *jobs.UploadState) jobs.S
 		if len(lines) == 1 {
 			return lines[0], nil
 		}
+		if c, ok := r.(checksummer); ok {
+			c.Checksum(string(types.ChecksumAlgorithmCrc64nvme), "", verified, fmt.Sprintf("%d files, one checksum each: see the step detail", len(lines)))
+		}
 		return fmt.Sprintf("%d files, %s: %s", len(lines), transfer.FormatBytes(total), strings.Join(lines, "; ")), nil
 	}
 	return jobs.WithKind(jobs.NewStep("upload", title, jobs.ResourceTransfer, run), KindUpload, p)
+}
+
+// checksummer is a Reporter that records the checksum of the item's file
+// (jobs, Item.Checksum): the transfer steps fill it when it is there.
+type checksummer interface {
+	Checksum(algorithm, value string, verified bool, note string)
+}
+
+func reportChecksum(r jobs.Reporter, res transfer.Result) {
+	if c, ok := r.(checksummer); ok {
+		c.Checksum(res.ChecksumAlgorithm, res.Checksum, res.Verified, res.Note)
+	}
 }
 
 // uploadJournal records the multipart upload on the item, for a resume.
@@ -264,6 +286,7 @@ func (p DownloadParams) Step(env Env, title string) jobs.Step {
 		if err != nil {
 			return "", err
 		}
+		reportChecksum(r, res)
 		r.Result(fmt.Sprintf("%s exported to %s", p.Database, p.Path))
 		return res.Summary(), nil
 	}), KindDownload, p)

@@ -65,9 +65,9 @@ func interruptedImport(t *testing.T) (dir, id string) {
 // what it was built with.
 func resumable(a *app, restoreErr error) *string {
 	built := new(string)
-	a.jobEnv = func(_ context.Context, name string, _ config.Target, password string) (any, error) {
+	a.jobEnv = func(_ context.Context, name string, _ config.Target, password string) (any, func(), error) {
 		*built = name + " with " + password
-		return "env", nil
+		return "env", func() {}, nil
 	}
 	reg := jobs.NewRegistry()
 	reg.Register("upload", func(rb jobs.Rebuild) (jobs.Step, error) {

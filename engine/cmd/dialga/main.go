@@ -25,6 +25,7 @@ import (
 	"github.com/decisyon/dialga/engine/internal/ops"
 	"github.com/decisyon/dialga/engine/internal/session"
 	"github.com/decisyon/dialga/engine/internal/transfer"
+	"github.com/decisyon/dialga/engine/internal/tunnels"
 )
 
 // version is overridden at build time by ci/build-engine.sh
@@ -67,9 +68,13 @@ type app struct {
 	// jobEnv builds what resumed steps run with (jobs resume); jobRegistry
 	// has their factories (nil: jobs.DefaultRegistry); jobInterval is the
 	// time between two reads of a native task (0: the default).
-	jobEnv      func(ctx context.Context, name string, t config.Target, password string) (any, error)
+	jobEnv      func(ctx context.Context, name string, t config.Target, password string) (env any, closeEnv func(), err error)
 	jobRegistry *jobs.Registry
 	jobInterval time.Duration
+	// openOpsVia and jobTunnel open the sessions and the tunnel of a job in
+	// tunnel mode (cmd_job.go; nil: ops.OpenWith and the integrated tunnel).
+	openOpsVia func(session.Sessions) func(context.Context, string, config.Target, string) (*ops.Session, func(), error)
+	jobTunnel  tunnels.Opener
 }
 
 func main() {

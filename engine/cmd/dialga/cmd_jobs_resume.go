@@ -16,21 +16,23 @@ import (
 	"github.com/decisyon/dialga/engine/internal/config"
 	"github.com/decisyon/dialga/engine/internal/core"
 	"github.com/decisyon/dialga/engine/internal/jobs"
-	"github.com/decisyon/dialga/engine/internal/ops"
 	"github.com/decisyon/dialga/engine/internal/pipeline"
 )
 
 // pipelineJobEnv is how the resumed steps reach the target: the pipeline's
 // environment, built like the one of dialga import.
-func (a *app) pipelineJobEnv(ctx context.Context, name string, t config.Target, password string) (any, error) {
+// A tunnel-mode target gets the job's one tunnel (jobOpenOps); closeEnv
+// ends it once the resumed job has ended.
+func (a *app) pipelineJobEnv(ctx context.Context, name string, t config.Target, password string) (env any, closeEnv func(), err error) {
 	client, err := a.openS3(ctx, t)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return pipeline.Env{
-		Name: name, Target: t, S3: client, TaskInterval: a.jobInterval,
-		OpenOps: func(ctx context.Context) (*ops.Session, func(), error) { return a.openOps(ctx, name, t, password) },
-	}, nil
+	openOps, closeOps, err := a.jobOpenOps(ctx, name, t, password)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pipeline.Env{Name: name, Target: t, S3: client, TaskInterval: a.jobInterval, OpenOps: openOps}, closeOps, nil
 }
 
 func (a *app) jobsResumeCmd(dir *string) *cobra.Command {
@@ -126,10 +128,11 @@ func (a *app) resumeJob(cmd *cobra.Command, dir, id, confirm string) error {
 	if err != nil {
 		return fmt.Errorf("SQL password: %w", err)
 	}
-	env, err := a.jobEnv(cmd.Context(), name, t, password)
+	env, closeEnv, err := a.jobEnv(cmd.Context(), name, t, password)
 	if err != nil {
 		return err
 	}
+	defer closeEnv()
 	snap, err := m.Resume(id, jobs.ResumeOptions{Env: env, InstanceKey: api.InstanceKey(t)})
 	if err != nil {
 		return err
