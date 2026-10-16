@@ -10,6 +10,8 @@ import {
   storageShare,
 } from "./databases";
 import type { EngineInfo } from "./engine";
+import { HintText } from "./Feedback";
+import { errorHint, hintFor } from "./hints";
 import { useI18n } from "./i18n";
 
 /** True once the element has been on screen: off-screen cards cost no AWS calls. */
@@ -41,7 +43,7 @@ export function OverviewStrip({ engine, target }: { engine: EngineInfo; target: 
   const ref = useRef<HTMLDivElement>(null);
   const seen = useSeen(ref);
   const [overview, setOverview] = useState<Overview | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
   const [reload, setReload] = useState(0);
 
@@ -56,13 +58,13 @@ export function OverviewStrip({ engine, target }: { engine: EngineInfo; target: 
       (o) => {
         if (!controller.signal.aborted) {
           setOverview(o);
-          setError("");
+          setError(null);
           setLoading(false);
         }
       },
       (e: unknown) => {
         if (!controller.signal.aborted) {
-          setError(errorText(e));
+          setError(e);
           setLoading(false);
         }
       },
@@ -74,10 +76,10 @@ export function OverviewStrip({ engine, target }: { engine: EngineInfo; target: 
     <button
       type="button"
       className="btn btn-ghost btn-sm"
-      onClick={() => setReload((n) => n + 1)}
-      disabled={loading}
-      aria-label={t("instances.refresh")}
-      title={t("instances.refresh")}
+      onClick={() => !loading && setReload((n) => n + 1)}
+      aria-disabled={loading || undefined}
+      aria-label={t("overview.refresh")}
+      title={t("overview.refresh")}
     >
       <RefreshCw size={14} className={loading ? "spin" : undefined} aria-hidden="true" />
     </button>
@@ -85,26 +87,31 @@ export function OverviewStrip({ engine, target }: { engine: EngineInfo; target: 
 
   return (
     <div ref={ref} className="overview" aria-busy={loading}>
-      {!overview && !error && (
+      {!overview && error === null && (
         <div aria-hidden="true">
           <div className="skeleton skeleton-line" />
           <div className="skeleton skeleton-line" />
         </div>
       )}
-      {error && (
+      {error !== null && (
         <div className="overview-row">
-          <span className="overview-error tone-destructive">{error}</span>
+          <span className="overview-error">
+            <span className="tone-destructive">{errorText(error)}</span>
+            <HintText hint={errorHint(error)} className="overview-hint" />
+          </span>
           <button
             type="button"
             className="btn btn-outline btn-sm"
-            onClick={() => setReload((n) => n + 1)}
-            disabled={loading}
+            onClick={() => !loading && setReload((n) => n + 1)}
+            aria-disabled={loading || undefined}
           >
             {t("overview.retry")}
           </button>
         </div>
       )}
-      {overview && !error && <OverviewBody overview={overview} target={target} refresh={refresh} />}
+      {overview && error === null && (
+        <OverviewBody overview={overview} target={target} refresh={refresh} />
+      )}
     </div>
   );
 }
@@ -199,6 +206,7 @@ function OverviewBody({
             {o.sql === "failed" ? t("overview.sqlFailed") : t("overview.sqlSkipped")}
           </summary>
           {o.sqlDetail && <p className="overview-detail">{o.sqlDetail}</p>}
+          <HintText hint={hintFor(o.sqlDetail ?? "")} className="overview-hint" />
         </details>
       )}
     </>

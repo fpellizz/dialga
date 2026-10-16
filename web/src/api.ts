@@ -71,8 +71,19 @@ function authHeaders(engine: EngineInfo): HeadersInit {
   return { Authorization: `Bearer ${engine.token}` };
 }
 
+/** A call the engine answered with an error: its message and HTTP status. */
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 async function failure(response: Response): Promise<Error> {
-  return new Error((await response.text()).trim() || `HTTP ${response.status}`);
+  return new ApiError(response.status, (await response.text()).trim() || `HTTP ${response.status}`);
 }
 
 export async function listTargets(engine: EngineInfo): Promise<TargetList> {
