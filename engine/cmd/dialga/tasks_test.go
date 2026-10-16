@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 type fakeTasks struct {
 	list   []mssql.Task
 	gets   []mssql.Task
+	getErr error
 	calls  int
 	filter mssql.TaskFilter
 }
@@ -24,6 +26,10 @@ func (f *fakeTasks) List(_ context.Context, filter mssql.TaskFilter) ([]mssql.Ta
 }
 
 func (f *fakeTasks) Get(_ context.Context, id int) (mssql.Task, error) {
+	if f.getErr != nil {
+		f.calls++
+		return mssql.Task{}, f.getErr
+	}
 	t := f.gets[min(f.calls, len(f.gets)-1)]
 	f.calls++
 	t.ID = id
@@ -111,6 +117,17 @@ func TestWaitSuccess(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("output lacks %q:\n%s", want, out)
 		}
+	}
+}
+
+func TestWaitUnknownTaskIsNotFollowed(t *testing.T) {
+	a, _, _ := testApp(t, testConfig)
+	f := &fakeTasks{getErr: fmt.Errorf("task 99: %w", mssql.ErrTaskNotFound)}
+	withTasks(a, f)
+	code, out, errOut := run(a, "wait", "99", "--interval", "1ms")
+	if code != exitFailure || strings.Contains(out, "Following") || f.calls != 1 ||
+		!strings.Contains(errOut, "task 99 not found on dev-sql (RDS keeps 36 days of history)") {
+		t.Fatalf("code %d, reads %d, out %q, stderr %q", code, f.calls, out, errOut)
 	}
 }
 
