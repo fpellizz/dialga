@@ -55,6 +55,9 @@ func ValidProfile(p string) bool { return profilePattern.MatchString(p) }
 // ValidRegion reports whether r looks like an AWS region.
 func ValidRegion(r string) bool { return regionPattern.MatchString(r) }
 
+// ValidBucket reports whether b can name an S3 bucket in the file.
+func ValidBucket(b string) bool { return bucketPattern.MatchString(b) }
+
 // SupportedPasswordSource accepts the password references this build can
 // resolve, the only ones a new target gets: "prompt" (or empty) and env:VAR.
 // keyring and secretsmanager: are planned.
@@ -114,7 +117,7 @@ func (c *Config) RemoveTarget(name string) error {
 func Update(path string, change func(*Config) error) error {
 	writeMu.Lock()
 	defer writeMu.Unlock()
-	cfg, err := loadForUpdate(path)
+	cfg, err := LoadOrEmpty(path)
 	if err != nil {
 		return err
 	}
@@ -124,7 +127,10 @@ func Update(path string, change func(*Config) error) error {
 	return Save(path, cfg)
 }
 
-func loadForUpdate(path string) (*Config, error) {
+// LoadOrEmpty reads the file at path like Load, but a missing file (or one
+// without targets) is an empty configuration and a file that does not parse
+// is an *InvalidFileError: what Update builds on.
+func LoadOrEmpty(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return &Config{APIVersion: APIVersion, Targets: map[string]Target{}}, nil

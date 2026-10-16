@@ -17,6 +17,7 @@ import (
 
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/config"
+	"github.com/decisyon/dialga/engine/internal/discover"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/session"
 )
@@ -48,6 +49,8 @@ type app struct {
 	readPassword     func(prompt string) (string, error)
 	runCheck         func(context.Context, check.Request, string, check.Emitter) bool
 	openTasks        func(context.Context, config.Target, string) (mssql.TaskReader, func(), error)
+	// discover answers config init and doctor (nil: discover.System).
+	discover discover.Service
 }
 
 func main() {
@@ -157,7 +160,7 @@ func (a *app) loadConfig() (*config.Config, string, error) {
 	}
 	cfg, err := config.Load(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, path, fmt.Errorf("no configuration at %s (start from docs/config.example.yaml)", path)
+		return nil, path, fmt.Errorf("no configuration at %s (run dialga config init, or start from docs/config.example.yaml)", path)
 	}
 	return cfg, path, err
 }
