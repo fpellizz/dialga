@@ -27,7 +27,10 @@ describe("PrerequisitesCard", () => {
     const { container } = renderI18n(<PrerequisitesCard engine={ENGINE} />);
     expect(container.querySelectorAll(".skeleton")).toHaveLength(2);
     expect(card()).toHaveAttribute("aria-busy", "true");
-    expect(screen.getByRole("button", { name: "Check again" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Check again" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
 
     gate.resolve();
     await screen.findByText("Session Manager plugin");

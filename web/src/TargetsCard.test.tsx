@@ -61,7 +61,7 @@ describe("TargetsCard", () => {
     mockFetch({ [TARGETS]: answer });
     renderI18n(<TargetsCard engine={ENGINE} />);
     const banner = await within(card()).findByRole("alert");
-    expect(banner.querySelector("pre")).toHaveTextContent(new RegExp(`^${message}$`));
+    expect(banner.querySelector("pre, .banner-text")).toHaveTextContent(new RegExp(`^${message}$`));
     expect(screen.queryByText(/No targets yet/)).toBeNull();
   });
 
@@ -134,7 +134,7 @@ describe("TargetsCard", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Remove dev-sql" }));
     await userEvent.type(confirmField(), "dev-sql");
     await userEvent.click(confirmButton());
-    expect(confirmButton()).toBeDisabled();
+    expect(confirmButton()).toHaveAttribute("aria-disabled", "true");
 
     answer.resolve(text("config: cannot write config.yaml: read-only file system\n", 500));
     const form = screen.getByRole("form", { name: "Remove dev-sql?" });
@@ -142,7 +142,8 @@ describe("TargetsCard", () => {
       /^config: cannot write config\.yaml: read-only file system$/,
     );
     expect(confirmButton()).toBeEnabled();
-    expect(within(card()).queryByRole("status")).toBeNull();
+    // The live region of the confirmation is always there: nothing was removed.
+    expect(within(card()).getByRole("status")).toBeEmptyDOMElement();
   });
 
   it("waits for the engine without asking anything", () => {
