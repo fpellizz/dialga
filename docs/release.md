@@ -192,7 +192,9 @@ validate` after a downgrade.
 
 - x86_64 only. Linux arm64 packages arrive with the v2.0 GitHub workflow
   (`ENABLE_LINUX_ARM64`); the arm64 CLI archive exists already.
-- The desktop binary needs the glibc of the image that built it, or newer.
-  Built on Fedora 43 it needs glibc 2.39 (`pidfd_spawnp`). TODO: confirm
-  the minimum for the pipeline image.
+- The desktop binary needs the glibc of the system that built it, or
+  newer. The pipeline builds on `node:24`, today Debian 12 (glibc 2.36):
+  Debian 12+, Ubuntu 24.04+, Fedora 37+. Ubuntu 22.04 (glibc 2.35): TODO:
+  confirm. A build on Fedora 43 needs glibc 2.39 (`pidfd_spawnp`): publish
+  only the packages built by the pipeline.
 - License: TODO: confirm (the packages carry none).
