@@ -1,0 +1,79 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Identity",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    },
+    {
+      "Sid": "RdsDescribe",
+      "Effect": "Allow",
+      "Action": [
+        "rds:DescribeDBInstances",
+        "rds:DescribeOptionGroups"
+      ],
+      "Resource": [
+        "arn:aws:rds:[region]:[account-id]:db:*",
+        "arn:aws:rds:[region]:[account-id]:og:*"
+      ]
+    },
+    {
+      "Sid": "RdsFreeStorage",
+      "Effect": "Allow",
+      "Action": "cloudwatch:GetMetricStatistics",
+      "Resource": "*"
+    },
+    {
+      "Sid": "BackupBucket",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::[bucket]"
+    },
+    {
+      "Sid": "BackupObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:AbortMultipartUpload",
+        "s3:ListMultipartUploadParts"
+      ],
+      "Resource": [
+        "arn:aws:s3:::[bucket]/[import-prefix]/*",
+        "arn:aws:s3:::[bucket]/[export-prefix]/*"
+      ]
+    },
+    {
+      "Sid": "TunnelFindBridge",
+      "Effect": "Allow",
+      "Action": "ec2:DescribeInstances",
+      "Resource": "*"
+    },
+    {
+      "Sid": "TunnelStartSession",
+      "Effect": "Allow",
+      "Action": "ssm:StartSession",
+      "Resource": [
+        "arn:aws:ec2:[region]:[account-id]:instance/*",
+        "arn:aws:ssm:[region]::document/AWS-StartPortForwardingSessionToRemoteHost"
+      ]
+    },
+    {
+      "Sid": "TunnelTerminateOwnSession",
+      "Effect": "Allow",
+      "Action": "ssm:TerminateSession",
+      "Resource": [
+        "arn:aws:ssm:[region]:[account-id]:session/${aws:username}-*",
+        "arn:aws:ssm:[region]:[account-id]:session/${aws:userid}-*"
+      ]
+    },
+    {
+      "Sid": "OptionalSqlPasswordFromSecretsManager",
+      "Effect": "Allow",
+      "Action": "secretsmanager:GetSecretValue",
+      "Resource": "arn:aws:secretsmanager:[region]:[account-id]:secret:[secret-name]-*"
+    }
+  ]
+}
