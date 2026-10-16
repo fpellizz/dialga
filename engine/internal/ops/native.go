@@ -27,8 +27,11 @@ func (s *Session) Restore(ctx context.Context, db, key string, o mssql.RestoreOp
 	}
 	key, bare, _ := resolveKey(key, s.Target.Prefixes.Import, s.Target.Bucket)
 	p := s.prepare(OpRestore, in)
-	key = s.checkSource(ctx, p, key, bare, in.Key)
+	key, size := s.checkSource(ctx, p, key, bare, in.Key)
 	p.Params.Key = key
+	if !o.Differential {
+		s.checkSpace(ctx, p, size)
+	}
 
 	state, err := s.SQL.DatabaseState(ctx, db)
 	if err != nil {
@@ -61,10 +64,11 @@ func (s *Session) Restore(ctx context.Context, db, key string, o mssql.RestoreOp
 	return p, nil
 }
 
-// checkSource looks for the backup of a restore and returns the key to use:
-// a bare name missing under the prefix is looked for at the bucket root
-// too, as mssql-import.sh does.
-func (s *Session) checkSource(ctx context.Context, p *Prepared, key string, bare bool, typed string) string {
+// checkSource looks for the backup of a restore and returns the key to use
+// and the size of the object (0 for a striped backup or a missing one): a
+// bare name missing under the prefix is looked for at the bucket root too,
+// as mssql-import.sh does.
+func (s *Session) checkSource(ctx context.Context, p *Prepared, key string, bare bool, typed string) (string, int64) {
 	const step, label = "source", "Backup in S3"
 	where := func(k string) string { return "s3://" + s.Target.Bucket + "/" + k }
 	if strings.Contains(key, "*") {
@@ -72,7 +76,7 @@ func (s *Session) checkSource(ctx context.Context, p *Prepared, key string, bare
 		all, err := s.Bucket.Keys(ctx, literal)
 		if err != nil {
 			p.fail(step, label, where(key)+": "+err.Error())
-			return key
+			return key, 0
 		}
 		var files []string
 		match := globPattern(key)
@@ -89,7 +93,7 @@ func (s *Session) checkSource(ctx context.Context, p *Prepared, key string, bare
 		default:
 			p.ok(step, label, fmt.Sprintf("backup in %d files: %s", len(files), strings.Join(files, ", ")))
 		}
-		return key
+		return key, 0
 	}
 	size, err := s.Bucket.Size(ctx, key)
 	if bare && errors.Is(err, awsx.ErrObjectNotFound) {
@@ -104,8 +108,37 @@ func (s *Session) checkSource(ctx context.Context, p *Prepared, key string, bare
 		p.fail(step, label, where(key)+": "+err.Error())
 	default:
 		p.ok(step, label, fmt.Sprintf("%s (%s)", where(key), humanBytes(size)))
+		return key, size
 	}
-	return key
+	return key, 0
+}
+
+// spaceWarnShare: a backup above this share of the free storage is a
+// warning, as in dialga inspect.
+const spaceWarnShare = 0.8
+
+// checkSpace compares the backup with the free storage of the instance. The
+// restored files take at least the size of the backup (dialga inspect gives
+// their sum): a warning, not a failure, since CloudWatch lags and storage
+// autoscaling may grow the volume.
+func (s *Session) checkSpace(ctx context.Context, p *Prepared, size int64) {
+	if s.FreeStorage == nil || size <= 0 {
+		return
+	}
+	const step, label = "storage", "Free storage"
+	free, err := s.FreeStorage(ctx)
+	switch {
+	case err != nil:
+		p.warn(step, label, "free storage not read from CloudWatch (permissions?): the restored database takes "+humanBytes(size)+" at least")
+	case size > free:
+		p.warn(step, label, fmt.Sprintf("the backup alone is %s and %s is free: the restored database takes at least that much "+
+			"(dialga inspect gives the size of its files)", humanBytes(size), humanBytes(free)))
+	case float64(size) > spaceWarnShare*float64(free):
+		p.warn(step, label, fmt.Sprintf("the backup is %s, over 80%% of the %s free: the restored database takes at least that much "+
+			"(dialga inspect gives the size of its files)", humanBytes(size), humanBytes(free)))
+	default:
+		p.ok(step, label, fmt.Sprintf("%s free, backup %s", humanBytes(free), humanBytes(size)))
+	}
 }
 
 // globPattern matches keys the way the shell matches them in
