@@ -325,6 +325,10 @@ const en = {
   "step.plan.database": "Database",
   "step.plan.task": "Native task",
   "step.plan.tasks": "Native tasks",
+  "wizard.steps": "Steps",
+  "wizard.goTo": "Go back to {step}",
+  "wizard.done": "(done)",
+  "wizard.count": "Step {n} of {total}",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -661,6 +665,10 @@ const it: Record<MessageKey, string> = {
   "step.plan.database": "Database",
   "step.plan.task": "Task nativo",
   "step.plan.tasks": "Task nativi",
+  "wizard.steps": "Passi",
+  "wizard.goTo": "Torna a {step}",
+  "wizard.done": "(completato)",
+  "wizard.count": "Passo {n} di {total}",
 };
 
 export const messages: Record<Lang, Record<MessageKey, string>> = { en, it };
