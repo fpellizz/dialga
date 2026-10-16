@@ -26,8 +26,10 @@ const devOrigin = "http://localhost:1420"
 //     never shows up in the process list;
 //  2. the engine answers with one JSON line on stdout:
 //     {"event":"ready","port":N,"version":"…"};
-//  3. the engine exits when stdin closes (the shell is gone) or on
-//     SIGINT/SIGTERM.
+//  3. the engine exits when stdin closes (the shell is gone), when the shell
+//     writes a "shutdown" line (it closes, keeping the process handle to
+//     kill the engine if it does not stop) or on SIGINT/SIGTERM. Either way
+//     it closes its SSM tunnels first.
 //
 // The targets come from configPath, read on every request. SQL passwords
 // follow each target's sql.password (env:VAR, or DIALGA_SQL_PASSWORD for
@@ -50,8 +52,7 @@ func serve(stdin io.Reader, stdout, stderr io.Writer, configPath string) int {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	go func() {
-		// Watchdog: the shell holds our stdin; EOF means it is gone.
-		_, _ = io.Copy(io.Discard, reader)
+		waitShell(reader)
 		cancel()
 	}()
 
@@ -73,6 +74,20 @@ func serve(stdin io.Reader, stdout, stderr io.Writer, configPath string) int {
 	}
 	log.Info("serve stopped")
 	return 0
+}
+
+// shutdownLine on stdin asks the engine to stop.
+const shutdownLine = "shutdown"
+
+// waitShell is the watchdog: the shell holds our stdin, so it returns on EOF
+// (the shell is gone) or on a shutdown line.
+func waitShell(r io.Reader) {
+	lines := bufio.NewScanner(r)
+	for lines.Scan() {
+		if strings.TrimSpace(lines.Text()) == shutdownLine {
+			return
+		}
+	}
 }
 
 func readToken(r *bufio.Reader) (string, error) {

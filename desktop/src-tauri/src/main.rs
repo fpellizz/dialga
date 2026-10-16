@@ -2,7 +2,8 @@
 // per-session token on stdin and tells the frontend where to reach it.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::sync::Mutex;
+use std::sync::{Condvar, Mutex};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, RunEvent, State};
@@ -24,7 +25,13 @@ struct Engine {
     info: Mutex<Option<EngineInfo>>,
     error: Mutex<Option<String>>,
     child: Mutex<Option<CommandChild>>,
+    /// True once the engine process has exited.
+    exited: (Mutex<bool>, Condvar),
 }
+
+/// How long the engine has to stop by itself (closing its SSM tunnels with
+/// TerminateSession) before it is killed.
+const STOP_GRACE: Duration = Duration::from_secs(10);
 
 /// First stdout line of "dialga serve".
 #[derive(Deserialize)]
@@ -59,7 +66,8 @@ fn start_engine(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
     let token = session_token()?;
     let (mut events, mut child) = app.shell().sidecar("dialga")?.args(["serve"]).spawn()?;
     // The token goes on stdin, never on the command line (ps would show it).
-    // The engine also uses stdin as a watchdog: it exits when we close it.
+    // The engine also uses stdin as a watchdog: it exits when we close it or
+    // write "shutdown" (stop_engine).
     child.write(format!("{token}\n").as_bytes())?;
     app.state::<Engine>().child.lock().unwrap().replace(child);
 
@@ -92,6 +100,9 @@ fn start_engine(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
                         .lock()
                         .unwrap()
                         .replace(format!("engine exited (code {:?})", status.code));
+                    let (exited, changed) = &engine.exited;
+                    *exited.lock().unwrap() = true;
+                    changed.notify_all();
                 }
                 _ => {}
             }
@@ -114,9 +125,27 @@ fn main() {
 
     app.run(|handle, event| {
         if let RunEvent::Exit = event {
-            if let Some(child) = handle.state::<Engine>().child.lock().unwrap().take() {
-                let _ = child.kill();
-            }
+            stop_engine(handle);
         }
     });
+}
+
+/// Asks the engine to stop with a "shutdown" line on stdin, so it closes its
+/// SSM tunnels, and waits STOP_GRACE for it; kills it only if it is still
+/// there. A killed engine leaves its SSM sessions open until they time out.
+fn stop_engine(handle: &AppHandle) {
+    let engine = handle.state::<Engine>();
+    let Some(mut child) = engine.child.lock().unwrap().take() else {
+        return;
+    };
+    if child.write(b"shutdown\n").is_ok() {
+        let (exited, changed) = &engine.exited;
+        let (exited, _) = changed
+            .wait_timeout_while(exited.lock().unwrap(), STOP_GRACE, |exited| !*exited)
+            .unwrap();
+        if *exited {
+            return;
+        }
+    }
+    let _ = child.kill();
 }
