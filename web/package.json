@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "lint": "biome check .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "e2e": "playwright test"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.4",
