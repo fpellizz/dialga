@@ -15,6 +15,8 @@ import (
 
 	"github.com/decisyon/dialga/engine/internal/config"
 	"github.com/decisyon/dialga/engine/internal/jobs"
+	"github.com/decisyon/dialga/engine/internal/mssql"
+	"github.com/decisyon/dialga/engine/internal/transfer/transfertest"
 )
 
 // interruptedJob leaves in a journal one import on dev-sql that the engine
@@ -191,7 +193,6 @@ func TestResumeJobErrors(t *testing.T) {
 		{"no configuration", m, path, nil, resumePassword, &resumeEnv{}, "", 409, "no such file"},
 		{"target gone", m, path, &otherTarget, resumePassword, &resumeEnv{}, "", 422, "target dev-sql of this job is not in the configuration"},
 		{"other instance", m, path, &otherInstance, resumePassword, &resumeEnv{}, "", 422, "now points at instance other-sqlserver, the job ran on dev-sqlserver"},
-		{"no pipeline", m, path, &doc, resumePassword, nil, "", 501, "needs the import/export pipeline"},
 		{"no password", m, path, &doc, nil, &resumeEnv{}, "", 422, "SQL password"},
 		{"env fails", m, path, &doc, resumePassword, &resumeEnv{err: errors.New("AWS: no credentials")}, "", 502, "AWS: no credentials"},
 		{"not resumable", bare, "/api/v1/jobs/" + bareID + "/resume", &doc, resumePassword, &resumeEnv{}, "", 422, `no factory rebuilds steps of kind "upload"`},
@@ -208,5 +209,49 @@ func TestResumeJobErrors(t *testing.T) {
 	// None of them changed the job.
 	if j, _ := m.Get(id); j.State != jobs.Interrupted {
 		t.Fatalf("job %s after the refusals", j.State)
+	}
+}
+
+// An import the engine stopped while it followed the restore resumes through
+// the API with the pipeline's own environment: no second restore is queued.
+func TestResumeImportJobWithThePipeline(t *testing.T) {
+	doc := testConfig
+	dir := t.TempDir()
+	m1, err := jobs.Open(dir, jobs.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s3 := transfertest.New()
+	rds := &jobInstance{states: map[string]string{}, tasks: map[int]*mssql.Task{}, hold: make(chan struct{})}
+	js := newJobServerOn(t, &doc, testEnv, m1, s3, rds)
+	rec := doJSON(js.h, http.MethodPost, "/api/v1/jobs", importBody(t, ""))
+	var job jobs.Job
+	if rec.Code != http.StatusCreated || json.Unmarshal(rec.Body.Bytes(), &job) != nil {
+		t.Fatalf("start: %d %s", rec.Code, rec.Body)
+	}
+	waitFor(t, "the restore task", func() bool { return hasEvent(m1, job.ID, jobs.EventTaskStatus) })
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := m1.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	m2, err := jobs.Open(dir, jobs.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = m2.Close(context.Background()) })
+	if got, _ := m2.Get(job.ID); got.State != jobs.Interrupted {
+		t.Fatalf("job %s after the restart", got.State)
+	}
+	rds.hold = nil
+	js = newJobServerOn(t, &doc, testEnv, m2, s3, rds)
+	rec = doJSON(js.h, http.MethodPost, "/api/v1/jobs/"+job.ID+"/resume", "")
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("resume: %d %s", rec.Code, rec.Body)
+	}
+	end := endJob(t, m2, job.ID)
+	if end.State != jobs.Succeeded || len(rds.tasks) != 1 || rds.states["sales"] != "ONLINE" {
+		t.Fatalf("job %s, %d task(s), sales %q: %+v", end.State, len(rds.tasks), rds.states["sales"], end.Items)
 	}
 }

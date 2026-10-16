@@ -28,6 +28,9 @@ type jobInstance struct {
 	mu     sync.Mutex
 	states map[string]string
 	tasks  map[int]*mssql.Task
+	// hold, when set, blocks the reads of a native task until it is
+	// closed or the context ends.
+	hold chan struct{}
 }
 
 func (f *jobInstance) DatabaseState(_ context.Context, db string) (string, error) {
@@ -56,7 +59,14 @@ func (f *jobInstance) DatabaseReport(_ context.Context, db string) (mssql.Databa
 
 func (f *jobInstance) List(context.Context, mssql.TaskFilter) ([]mssql.Task, error) { return nil, nil }
 
-func (f *jobInstance) Get(_ context.Context, id int) (mssql.Task, error) {
+func (f *jobInstance) Get(ctx context.Context, id int) (mssql.Task, error) {
+	if f.hold != nil {
+		select {
+		case <-f.hold:
+		case <-ctx.Done():
+			return mssql.Task{}, ctx.Err()
+		}
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	t := f.tasks[id]
@@ -91,14 +101,21 @@ type jobServer struct {
 
 func newJobServer(t *testing.T, configDoc *string, env map[string]string) *jobServer {
 	t.Helper()
+	return newJobServerOn(t, configDoc, env, jobs.New(jobs.Options{}),
+		transfertest.New(), &jobInstance{states: map[string]string{}, tasks: map[int]*mssql.Task{}})
+}
+
+// newJobServerOn is newJobServer over a manager, an S3 and an instance the
+// caller keeps (a restart of the engine keeps the last two).
+func newJobServerOn(t *testing.T, configDoc *string, env map[string]string, m *jobs.Manager, s3 *transfertest.S3, rds *jobInstance) *jobServer {
+	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if configDoc != nil {
 		if err := os.WriteFile(path, []byte(*configDoc), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	js := &jobServer{jobs: jobs.New(jobs.Options{}), s3: transfertest.New(),
-		rds: &jobInstance{states: map[string]string{}, tasks: map[int]*mssql.Task{}}}
+	js := &jobServer{jobs: m, s3: s3, rds: rds}
 	s, err := New(Options{
 		Token: testToken, AllowedOrigins: DefaultOrigins, ConfigPath: path, Jobs: js.jobs,
 		Getenv: func(k string) string { return env[k] }, TaskInterval: time.Millisecond,
