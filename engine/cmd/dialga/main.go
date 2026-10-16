@@ -48,6 +48,7 @@ type app struct {
 	readPassword     func(prompt string) (string, error)
 	runCheck         func(context.Context, check.Request, string, check.Emitter) bool
 	openTasks        func(context.Context, config.Target, string) (mssql.TaskReader, func(), error)
+	runInspect       inspectFunc // nil: inspect.Run
 }
 
 func main() {

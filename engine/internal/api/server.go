@@ -58,6 +58,9 @@ type Options struct {
 	// (default session.OpenTasks; tests replace it).
 	OpenTasks func(context.Context, config.Target, string) (mssql.TaskReader, func(), error)
 	Log       *slog.Logger
+
+	// RunInspect inspects .bak files (nil: inspect.Run; tests replace it).
+	RunInspect InspectFunc
 }
 
 // Server is the HTTP API of the engine.
