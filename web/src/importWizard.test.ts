@@ -1,28 +1,25 @@
 import { describe, expect, it } from "vitest";
+import type { JobPlan } from "./exportJob";
 import { messages } from "./i18n";
 import {
   addPaths,
   allRestorable,
-  blockingChecks,
-  confirmations,
   databaseNameError,
   defaultDatabaseName,
   destinationErrors,
   folderError,
   formatDuration,
+  importItems,
+  importReady,
   isAbsolutePath,
   orphanFixSql,
   parsePaths,
   percentOf,
-  previewReady,
   restoreKey,
-  restoreRequests,
   spaceUse,
-  uploadRequest,
+  startItems,
 } from "./importWizard";
 import type { InspectedBackup, InspectResult } from "./inspect";
-import type { PlanPreview } from "./plans";
-import type { UploadBatch } from "./uploads";
 
 function backup(files: string[], change: Partial<InspectedBackup> = {}): InspectedBackup {
   return {
@@ -63,24 +60,27 @@ function result(backups: InspectedBackup[]): InspectResult {
   };
 }
 
-function preview(checks: PlanPreview["checks"], confirmation?: string): PlanPreview {
+function plan(items: Partial<JobPlan["items"][number]>[], change: Partial<JobPlan> = {}): JobPlan {
   return {
-    plan: { operation: "restore", target: "dev-sql", instance: "x", protected: false, actions: [] },
-    checks,
-    ready: checks.every((c) => c.status !== "failed"),
-    confirmation,
+    kind: "import",
+    target: "dev-sql",
+    instance: "x",
+    protected: false,
+    ready: true,
     digest: "d1",
     preview: "",
-    request: {},
+    items: items.map((it, i) => ({
+      database: `db${i}`,
+      file: "",
+      key: "",
+      ready: true,
+      checks: [],
+      actions: [],
+      ...it,
+    })),
+    ...change,
   };
 }
-
-const BATCH: UploadBatch = {
-  plan: { operation: "upload", target: "dev-sql", instance: "x", protected: false, actions: [] },
-  confirmation: "",
-  items: [],
-  rejected: [],
-};
 
 describe("import wizard", () => {
   it("reads pasted paths: quotes, file URIs, blank lines", () => {
@@ -143,7 +143,7 @@ describe("import wizard", () => {
     expect(restoreKey("i", ["/d/ab.bak", "/d/ab1.bak"])).toBe("i/ab*.bak");
   });
 
-  it("builds the upload and the restores of the inspected backups", () => {
+  it("builds the items of the import job from the inspected backups", () => {
     const stripes = backup(["/d/crm_1.bak", "/d/crm_2.bak"], {
       header: {
         ...(backup([]).header as NonNullable<InspectedBackup["header"]>),
@@ -151,23 +151,33 @@ describe("import wizard", () => {
       },
     });
     const r = result([backup(["/d/app_db.bak"]), stripes]);
-    expect(uploadRequest(r, "import", false)).toEqual({
-      files: ["/d/app_db.bak", "/d/crm_1.bak", "/d/crm_2.bak"],
-      prefix: "import",
-    });
-    expect(uploadRequest(r, "import", true).overwrite).toBe(true);
-    expect(
-      restoreRequests(
-        r,
-        [
-          { database: "app_db", noRecovery: true },
-          { database: "crm", noRecovery: false },
-        ],
-        "import",
-      ),
-    ).toEqual([
-      { database: "app_db", key: "import/app_db.bak", noRecovery: true },
-      { database: "crm", key: "import/crm_*.bak", differential: true },
+    const destinations = [
+      { database: "app_db", noRecovery: true },
+      { database: "crm", noRecovery: false },
+    ];
+    expect(importItems(r, destinations, false)).toEqual([
+      { database: "app_db", file: "/d/app_db.bak", noRecovery: true },
+      { database: "crm", files: ["/d/crm_1.bak", "/d/crm_2.bak"], differential: true },
+    ]);
+    expect(importItems(r, destinations, true).map((i) => i.overwrite)).toEqual([true, true]);
+  });
+
+  it("starts with the keys of the plan, but for the stripes", () => {
+    const items = importItems(
+      result([backup(["/d/app_db.bak"]), backup(["/d/crm_1.bak", "/d/crm_2.bak"])]),
+      [
+        { database: "app_db", noRecovery: false },
+        { database: "crm", noRecovery: false },
+      ],
+      false,
+    );
+    const planned = plan([
+      { database: "app_db", key: "import/app_db.bak" },
+      { database: "crm", key: "import/crm_*.bak" },
+    ]);
+    expect(startItems(items, planned)).toEqual([
+      { database: "app_db", file: "/d/app_db.bak", key: "import/app_db.bak" },
+      { database: "crm", files: ["/d/crm_1.bak", "/d/crm_2.bak"] },
     ]);
   });
 
@@ -182,39 +192,12 @@ describe("import wizard", () => {
     ).toBe(false);
   });
 
-  it("starts when only the source check waits for the upload", () => {
-    const source = {
-      step: "source",
-      label: "Backup in S3",
-      status: "failed" as const,
-      detail: "not found",
-    };
-    const exists = {
-      step: "database",
-      label: "Target database",
-      status: "failed" as const,
-      detail: "exists",
-    };
-    const ok = { step: "tasks", label: "Native tasks", status: "ok" as const };
-    expect(blockingChecks(preview([source, ok]))).toEqual([]);
-    expect(blockingChecks(preview([source, exists]))).toEqual([exists]);
-    expect(previewReady(BATCH, [preview([source, ok])])).toBe(true);
-    expect(previewReady(BATCH, [preview([exists])])).toBe(false);
-    expect(
-      previewReady({ ...BATCH, rejected: [{ path: "/a.bak", reason: "exists" }] }, [preview([ok])]),
-    ).toBe(false);
-    expect(previewReady(null, [preview([ok])])).toBe(false);
-    expect(previewReady(BATCH, [])).toBe(false);
-  });
-
-  it("asks each confirmation once", () => {
-    expect(confirmations(BATCH, [preview([])])).toEqual([]);
-    expect(
-      confirmations({ ...BATCH, confirmation: "prod-sql" }, [
-        preview([], "prod-sql"),
-        preview([], "prod-sql"),
-      ]),
-    ).toEqual(["prod-sql"]);
+  it("starts when the plan is ready and no file is refused", () => {
+    expect(importReady(plan([{}]))).toBe(true);
+    expect(importReady(plan([{}], { ready: false }))).toBe(false);
+    expect(importReady(plan([{ rejected: [{ path: "/a.bak", reason: "empty" }] }]))).toBe(false);
+    expect(importReady(plan([]))).toBe(false);
+    expect(importReady(null)).toBe(false);
   });
 
   it("measures the space and the transfers", () => {

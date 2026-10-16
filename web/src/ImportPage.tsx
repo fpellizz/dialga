@@ -14,6 +14,7 @@ import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useStat
 import { errorText, listTargets, type StepEvent, type TargetList, type TargetSummary } from "./api";
 import { formatBytes } from "./databases";
 import type { EngineInfo } from "./engine";
+import { cancelJob, followSnapshots, type Job, type JobPlan, mapJob } from "./exportJob";
 import { ImportPreview, ImportProgress, ImportResult, type RunState } from "./ImportRun";
 import { useI18n } from "./i18n";
 import {
@@ -74,14 +75,7 @@ const NO_INSPECT: InspectState = {
   result: null,
 };
 
-const IDLE_RUN: RunState = {
-  phase: "idle",
-  uploadSteps: [],
-  progress: {},
-  uploadDone: null,
-  uploadError: "",
-  restores: [],
-};
+const IDLE_RUN: RunState = { phase: "idle", items: [] };
 
 /**
  * The Import wizard (plan §3.5): files, verification against the target,
@@ -120,10 +114,14 @@ export function ImportPage({
 
   useEffect(() => () => inspectAbort.current?.abort(), []);
 
+  // Leaving the page stops following the job, not the job: it shows in Activity.
+  const runAbort = useRef<(() => void) | null>(null);
+  useEffect(() => () => runAbort.current?.(), []);
+
   const targets = list?.targets ?? [];
   const target: TargetSummary | undefined =
     targets.find((x) => x.name === targetName) ?? (targetName ? undefined : targets[0]);
-  const running = run.phase === "upload" || run.phase === "restore";
+  const running = run.phase === "running";
   const inspectKey = target ? `${target.name}\n${files.join("\n")}` : "";
   const s3Folder = folder ?? target?.importPrefix ?? "";
 
@@ -175,6 +173,46 @@ export function ImportPage({
     },
     [engine],
   );
+
+  /** Follows the started job to its end, then shows the result. */
+  const follow = (job: Job, plan: JobPlan) => {
+    if (!engine) {
+      return;
+    }
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    runAbort.current = abort;
+    setRun({ phase: "running", jobId: job.id, items: mapJob(job, plan), abort });
+    show("progress");
+    followSnapshots(
+      engine,
+      job,
+      (snapshot) => setRun((r) => ({ ...r, items: mapJob(snapshot, plan) })),
+      controller.signal,
+    ).then(
+      (last) => {
+        const phase = last.state === "succeeded" ? "done" : "failed";
+        setRun((r) => ({ ...r, items: mapJob(last, plan), phase, abort: undefined }));
+        show("result");
+      },
+      (e: unknown) => {
+        const stopped = controller.signal.aborted;
+        setRun((r) => ({
+          ...r,
+          phase: stopped ? "stopped" : "failed",
+          error: stopped ? undefined : e,
+          abort: undefined,
+        }));
+        show("result");
+      },
+    );
+  };
+
+  const cancelRun = () => {
+    if (engine && run.jobId) {
+      cancelJob(engine, run.jobId).catch((e: unknown) => setRun((r) => ({ ...r, error: e })));
+    }
+  };
 
   const goTo = (next: WizardStep) => {
     if (next === "verify" && target && inspect.key !== inspectKey) {
@@ -306,23 +344,10 @@ export function ImportPage({
           folder={s3Folder}
           destinations={destinations}
           onBack={() => show("destination")}
-          onStart={(start) => {
-            show("progress");
-            start(setRun).then((ok) => ok && show("result"));
-          }}
+          onStarted={follow}
         />
       )}
-      {step === "progress" && inspect.result && (
-        <ImportProgress
-          target={target}
-          run={run}
-          onBackToPreview={() => {
-            setRun(IDLE_RUN);
-            show("preview");
-          }}
-          onResult={() => show("result")}
-        />
-      )}
+      {step === "progress" && inspect.result && <ImportProgress run={run} onCancel={cancelRun} />}
       {step === "result" && (
         <ImportResult
           engine={engine}

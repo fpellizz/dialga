@@ -1,10 +1,11 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
+import type { JobPlan } from "./exportJob";
 import { ImportPage } from "./ImportPage";
 import type { InspectResult } from "./inspect";
-import type { DatabaseReport, PlanPreview } from "./plans";
-import { CONFIG_PATH, DEV, PROD, RESTORED, RESTORING, renderI18n } from "./test/fixtures";
+import type { DatabaseReport } from "./plans";
+import { CONFIG_PATH, DEV, PROD, renderI18n } from "./test/fixtures";
 import {
   ENGINE,
   type FetchRequest,
@@ -14,14 +15,14 @@ import {
   sseStream,
   text,
 } from "./test/http";
-import type { UploadBatch } from "./uploads";
 
 const GIB = 1024 ** 3;
 const TARGETS = "GET /api/v1/targets";
 const INSPECT = "POST /api/v1/inspect";
-const UPLOADS = "POST /api/v1/targets/dev-sql/uploads";
-const RESTORE = "POST /api/v1/targets/dev-sql/plans/restore";
-const EXECUTE = "POST /api/v1/targets/dev-sql/plans/restore/execute";
+const JOBS = "POST /api/v1/jobs";
+const JOB_ID = "20261016T093000Z-1a2b3c4d";
+const JOB = `GET /api/v1/jobs/${JOB_ID}`;
+const EVENTS = `GET /api/v1/jobs/${JOB_ID}/events`;
 const REPORT = "GET /api/v1/targets/dev-sql/databases/app_db/report";
 const PATH = "/data/backups/app_db.bak";
 
@@ -102,65 +103,96 @@ const NOT_RESTORABLE: InspectResult = {
   ],
 };
 
-const BATCH: UploadBatch = {
-  plan: {
-    operation: "upload",
-    target: "dev-sql",
-    instance: "my-sqlserver",
-    protected: false,
-    actions: [],
-  },
-  confirmation: "",
+const PLAN: JobPlan = {
+  kind: "import",
+  target: "dev-sql",
+  instance: "my-sqlserver",
+  protected: false,
+  ready: true,
+  digest: "digest-1",
   items: [
     {
-      step: "upload-1",
-      path: PATH,
-      bucket: "my-sqlserver-backups",
+      database: "app_db",
+      file: PATH,
       key: "import/app_db.bak",
-      size: 1024,
-      partSize: 1024,
-      parts: 1,
-      replaces: false,
+      ready: true,
+      checks: [
+        {
+          step: "database",
+          label: "Target database",
+          status: "ok",
+          detail: "app_db does not exist yet",
+        },
+      ],
+      actions: [
+        {
+          id: "restore",
+          title: "Restore app_db from s3://my-sqlserver-backups/import/app_db.bak",
+          statement: "exec msdb.dbo.rds_restore_database ...",
+        },
+      ],
+      uploads: [
+        {
+          path: PATH,
+          bucket: "my-sqlserver-backups",
+          key: "import/app_db.bak",
+          size: 1024,
+          partSize: 1024,
+          parts: 1,
+          replaces: false,
+        },
+      ],
     },
   ],
-  rejected: [],
+  preview: "1. Upload app_db.bak\n2. Restore app_db",
 };
 
-const PREVIEW: PlanPreview = {
-  plan: {
-    operation: "restore",
-    target: "dev-sql",
-    instance: "my-sqlserver",
-    protected: false,
-    actions: [
+/** The job as the engine reports it: the upload, then the restore and its native task. */
+function snapshot(state: "running" | "succeeded" | "failed", progress: "upload" | "restore") {
+  const item = {
+    name: "app_db",
+    state,
+    step: progress,
+    percent: state === "running" ? 50 : 100,
+    steps: [
+      {
+        id: "upload",
+        title: "Upload app_db.bak",
+        status: progress === "upload" ? "running" : "succeeded",
+      },
       {
         id: "restore",
-        title: "Restore app_db from s3://my-sqlserver-backups/import/app_db.bak",
-        kind: "sql",
-        risk: "change",
-        statement: "exec msdb.dbo.rds_restore_database ...",
+        title: "Restore app_db",
+        status: state === "running" ? "pending" : state === "failed" ? "failed" : "succeeded",
       },
     ],
-  },
-  checks: [
-    {
-      step: "source",
-      label: "Backup in S3",
-      status: "failed",
-      detail: "object not found: s3://my-sqlserver-backups/import/app_db.bak (upload it first)",
-    },
-    {
-      step: "database",
-      label: "Target database",
-      status: "ok",
-      detail: "app_db does not exist yet",
-    },
-  ],
-  ready: false,
-  digest: "digest-1",
-  preview: "1. Restore app_db",
-  request: { database: "app_db", key: "import/app_db.bak" },
-};
+    ...(progress === "upload"
+      ? {
+          transfer: {
+            direction: "upload",
+            bytes: 512,
+            total: 1024,
+            bytesPerSecond: 1024 * 1024,
+            etaSeconds: 65,
+          },
+        }
+      : {
+          task: {
+            id: 7,
+            type: "RESTORE_DB",
+            lifecycle: state === "running" ? "IN_PROGRESS" : "SUCCESS",
+            percent: state === "running" ? 40 : 100,
+          },
+        }),
+    ...(state === "failed" ? { error: "RDS task 7 ended in ERROR" } : {}),
+  };
+  return { id: JOB_ID, kind: "import", target: "dev-sql", state, items: [item] };
+}
+
+/** The dry run answers the plan, the start the job (201). */
+function jobs(plan: unknown = PLAN, started: unknown = snapshot("running", "upload")) {
+  return (request: FetchRequest) => (body(request).dryRun ? json(plan) : json(started, 201));
+}
 
 const REPORT_OK: DatabaseReport = {
   target: "dev-sql",
@@ -225,9 +257,9 @@ async function toPreview() {
 }
 
 describe("ImportPage", () => {
-  it("imports a backup end to end: verify, preview, upload, restore, report", async () => {
-    const upload = sseStream();
-    const restore = sseStream();
+  it("imports a backup end to end: verify, preview, job, report", async () => {
+    const stream = sseStream();
+    let reads = 0;
     const fetch = mockFetch({
       [TARGETS]: targets(DEV),
       [INSPECT]: () =>
@@ -236,9 +268,10 @@ describe("ImportPage", () => {
           ["result", RESTORABLE],
           ["done", { ok: true }],
         ),
-      [UPLOADS]: (request) => (body(request).apply ? upload.response : json(BATCH)),
-      [RESTORE]: () => json(PREVIEW),
-      [EXECUTE]: () => restore.response,
+      [JOBS]: jobs(),
+      [EVENTS]: () => stream.response,
+      [JOB]: () =>
+        json(reads++ === 0 ? snapshot("running", "restore") : snapshot("succeeded", "restore")),
       [REPORT]: () => json(REPORT_OK),
     });
     open();
@@ -277,71 +310,50 @@ describe("ImportPage", () => {
     await screen.findByRole("heading", { level: 2, name: "Step 3 of 6: Destination" });
     expect(screen.getByText("s3://my-sqlserver-backups/import/app_db.bak")).toBeInTheDocument();
 
-    // 4. Preview: the source check waits for the upload, the rest is ready.
+    // 4. Preview: one dry run of the job, the upload and the restore in it.
     await userEvent.click(screen.getByRole("button", { name: "Preview" }));
-    expect(await screen.findByText("Checked again after the upload.")).toBeInTheDocument();
-    // The shared plan view names the action in the UI language, with the key.
-    expect(screen.getByText("Restore app_db from import/app_db.bak")).toBeInTheDocument();
+    expect(await screen.findByText("Restore app_db from import/app_db.bak")).toBeInTheDocument();
     expect(
       screen.getByText(/s3:\/\/my-sqlserver-backups\/import\/app_db\.bak · 1 parts/),
     ).toBeInTheDocument();
-    const [planInit] = requestsTo(fetch, UPLOADS);
-    expect(JSON.parse(String(planInit.body))).toEqual({
-      files: [PATH],
+    expect(
+      body(requestsTo(fetch, JOBS).map((init) => ({ url: new URL(ENGINE.url), init }))[0]),
+    ).toEqual({
+      kind: "import",
+      target: "dev-sql",
       prefix: "import",
-      apply: false,
-    });
-    expect(JSON.parse(String(requestsTo(fetch, RESTORE)[0].body))).toEqual({
-      database: "app_db",
-      key: "import/app_db.bak",
+      items: [{ database: "app_db", file: PATH }],
+      dryRun: true,
     });
 
-    // 5. Progress: the upload, then the restore.
+    // 5. Progress: the upload of the job, then the restore and its task.
     await userEvent.click(screen.getByRole("button", { name: "Start import" }));
     await screen.findByRole("heading", { level: 2, name: "Step 5 of 6: Progress" });
-    upload.send("progress", {
-      path: PATH,
-      key: "import/app_db.bak",
-      done: 512,
-      total: 1024,
-      parts: 0,
-      partsTotal: 1,
-      bytesPerSecond: 1024 * 1024,
-      etaSeconds: 65,
-    });
-    const bar = await screen.findByRole("progressbar", { name: "Upload of app_db.bak" });
-    await waitFor(() => expect(bar).toHaveAttribute("aria-valuenow", "50"));
+    const bar = await screen.findByRole("progressbar", { name: "Upload of app_db" });
+    expect(bar).toHaveAttribute("aria-valuenow", "50");
     expect(screen.getByText("512 B of 1 KiB · 1 MiB/s · 1:05 left")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Cancel upload" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop following" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Cancel import" })).toBeInTheDocument();
     // While it runs, the done steps cannot be reopened.
     expect(
       within(screen.getByRole("navigation", { name: "Steps" })).queryAllByRole("button"),
     ).toHaveLength(0);
-    upload.send("done", { ok: true, results: [] });
-    upload.close();
-
-    expect(await screen.findByText("Uploaded and verified.")).toBeInTheDocument();
-    restore.send("step", { step: "restore", label: "Restore app_db", status: "running" });
-    restore.send("task", RESTORING);
-    const task = await screen.findByRole("progressbar", { name: "RESTORE_DB sales" });
+    stream.send("step.started", {});
+    const task = await screen.findByRole("progressbar", { name: "RESTORE_DB app_db" });
     expect(task).toHaveAttribute("aria-valuenow", "40");
-    expect(screen.getByRole("button", { name: "Stop following" })).toBeInTheDocument();
-    restore.send("step", { step: "restore", label: "Restore app_db", status: "ok" });
-    restore.send("done", { ok: true, task: RESTORED });
-    restore.close();
-    const [executeInit] = requestsTo(fetch, EXECUTE);
-    expect(JSON.parse(String(executeInit.body))).toEqual({
-      database: "app_db",
-      key: "import/app_db.bak",
+    stream.send("job.succeeded", {});
+    stream.close();
+    // Started with the digest and the key of the preview, and nothing to confirm.
+    const [, start] = requestsTo(fetch, JOBS);
+    expect(JSON.parse(String(start.body))).toEqual({
+      kind: "import",
+      target: "dev-sql",
+      prefix: "import",
+      items: [{ database: "app_db", file: PATH, key: "import/app_db.bak" }],
       digest: "digest-1",
     });
-    expect(JSON.parse(String(requestsTo(fetch, UPLOADS)[1].body))).toEqual({
-      files: [PATH],
-      prefix: "import",
-      apply: true,
-    });
 
-    // 6. Result: the post report with the orphaned users.
+    // 6. Result: the post report with the orphaned users, and the job in Activity.
     expect(
       await screen.findByRole("heading", { level: 2, name: "Step 6 of 6: Result" }),
     ).toHaveFocus();
@@ -360,6 +372,10 @@ describe("ImportPage", () => {
     expect(
       within(result).getByText(/ALTER USER \[app_user\] WITH LOGIN = \[app_user\];/),
     ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Follow it in Activity" })).toHaveAttribute(
+      "href",
+      `#activity/${JOB_ID}`,
+    );
     expect(screen.getByRole("link", { name: "Open Databases" })).toHaveAttribute(
       "href",
       "#databases/dev-sql",
@@ -421,64 +437,67 @@ describe("ImportPage", () => {
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
   });
 
-  it("goes back to the preview when the plan changed before the restore (412)", async () => {
+  it("says why the start was refused (412) and previews the job again", async () => {
+    const reason = "the plan changed since the preview: preview it again";
     const fetch = mockFetch({
       [TARGETS]: targets(DEV),
       [INSPECT]: () => events(["result", RESTORABLE], ["done", { ok: true }]),
-      [UPLOADS]: (request) =>
-        body(request).apply ? events(["done", { ok: true, results: [] }]) : json(BATCH),
-      [RESTORE]: () => json(PREVIEW),
-      [EXECUTE]: () => text("the plan changed since the preview: preview it again\n", 412),
+      [JOBS]: (request) => (body(request).dryRun ? json(PLAN) : json({ reason, plan: PLAN }, 412)),
     });
     open();
     await addAndVerify(PATH);
     await toPreview();
     await userEvent.click(await screen.findByRole("button", { name: "Start import" }));
 
-    expect(
-      await screen.findByText("the plan changed since the preview: preview it again"),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("The instance changed since the preview: preview again before going on."),
-    ).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "Back to the preview" }));
-    expect(
-      await screen.findByRole("heading", { level: 2, name: "Step 4 of 6: Preview" }),
-    ).toHaveFocus();
-    await screen.findByText("Checked again after the upload.");
-    expect(requestsTo(fetch, RESTORE)).toHaveLength(2);
+    expect(await screen.findByText(reason)).toBeInTheDocument();
+    // Still on the preview, which ran again.
+    expect(screen.getByRole("heading", { level: 2, name: "Step 4 of 6: Preview" })).toBeVisible();
+    await waitFor(() => expect(requestsTo(fetch, JOBS)).toHaveLength(3));
+    expect(body({ url: new URL(ENGINE.url), init: requestsTo(fetch, JOBS)[2] }).dryRun).toBe(true);
+    expect(await screen.findByRole("button", { name: "Start import" })).toBeEnabled();
   });
 
-  it("says the engine cannot upload yet and does not start", async () => {
+  it("shows the message of a confirmation the engine refuses (422) and stays on the preview", async () => {
     mockFetch({
       [TARGETS]: targets(DEV),
       [INSPECT]: () => events(["result", RESTORABLE], ["done", { ok: true }]),
-      [UPLOADS]: () => text("404 page not found\n", 404),
-      [RESTORE]: () => json(PREVIEW),
+      [JOBS]: (request) =>
+        body(request).dryRun
+          ? json(PLAN)
+          : text('not confirmed: this import asks to retype "dev-sql" in confirm\n', 422),
+    });
+    open();
+    await addAndVerify(PATH);
+    await toPreview();
+    await userEvent.click(await screen.findByRole("button", { name: "Start import" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("not confirmed: this import asks");
+    expect(screen.getByRole("heading", { level: 2, name: "Step 4 of 6: Preview" })).toBeVisible();
+  });
+
+  it("says the engine has no job API and does not start", async () => {
+    mockFetch({
+      [TARGETS]: targets(DEV),
+      [INSPECT]: () => events(["result", RESTORABLE], ["done", { ok: true }]),
+      [JOBS]: () => text("Method Not Allowed\n", 405),
     });
     open();
     await addAndVerify(PATH);
     await toPreview();
     expect(
       await screen.findByText(
-        "This engine cannot upload files yet: the upload arrives with the transfer feature.",
+        "This engine cannot run imports as jobs yet: update the Dialga engine.",
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Start import" })).toBeDisabled();
   });
 
   it("asks to retype the name of a protected instance before it starts", async () => {
-    const prodBatch = {
-      ...BATCH,
-      confirmation: "prod-sql",
-      plan: { ...BATCH.plan, target: "prod-sql", protected: true },
-    };
-    const prodPreview = { ...PREVIEW, confirmation: "prod-sql", checks: [PREVIEW.checks[0]] };
     mockFetch({
       [TARGETS]: targets(DEV, PROD),
       [INSPECT]: () => events(["result", RESTORABLE], ["done", { ok: true }]),
-      "POST /api/v1/targets/prod-sql/uploads": () => json(prodBatch),
-      "POST /api/v1/targets/prod-sql/plans/restore": () => json(prodPreview),
+      [JOBS]: () =>
+        json({ ...PLAN, target: "prod-sql", protected: true, confirmation: "prod-sql" }),
     });
     open("#import/prod-sql");
     expect(await screen.findByLabelText("Instance")).toHaveValue("prod-sql");
@@ -498,12 +517,10 @@ describe("ImportPage", () => {
   });
 
   it("asks to retype what the upload replaces", async () => {
-    const replacing = { ...BATCH, confirmation: "import/app_db.bak" };
     mockFetch({
       [TARGETS]: targets(DEV),
       [INSPECT]: () => events(["result", RESTORABLE], ["done", { ok: true }]),
-      [UPLOADS]: () => json(replacing),
-      [RESTORE]: () => json(PREVIEW),
+      [JOBS]: () => json({ ...PLAN, confirmation: "import/app_db.bak" }),
     });
     open();
     await addAndVerify(PATH);
@@ -512,6 +529,90 @@ describe("ImportPage", () => {
     expect(confirm).toHaveAccessibleDescription(
       "The upload replaces objects already in the bucket: retype what it replaces to confirm.",
     );
+  });
+
+  it("offers to replace a file the plan refuses, and sends overwrite with it", async () => {
+    const refused = {
+      ...PLAN,
+      ready: false,
+      items: [
+        {
+          ...PLAN.items[0],
+          ready: false,
+          rejected: [{ path: PATH, reason: "s3://my-sqlserver-backups/import/app_db.bak exists" }],
+        },
+      ],
+    };
+    const fetch = mockFetch({
+      [TARGETS]: targets(DEV),
+      [INSPECT]: () => events(["result", RESTORABLE], ["done", { ok: true }]),
+      [JOBS]: (request) =>
+        (body(request).items as { overwrite?: boolean }[])[0].overwrite
+          ? json(PLAN)
+          : json(refused),
+    });
+    open();
+    await addAndVerify(PATH);
+    await toPreview();
+    expect(await screen.findByText(/app_db\.bak: s3:\/\/.* exists/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start import" })).toBeDisabled();
+    await userEvent.click(screen.getByLabelText("Replace the objects that already exist"));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start import" })).toBeEnabled());
+    const sent = requestsTo(fetch, JOBS).map((init) => JSON.parse(String(init.body)));
+    expect(sent.at(-1).items).toEqual([{ database: "app_db", file: PATH, overwrite: true }]);
+  });
+
+  it("goes on in the engine when the page stops following the job", async () => {
+    const stream = sseStream();
+    mockFetch({
+      [TARGETS]: targets(DEV),
+      [INSPECT]: () => events(["result", RESTORABLE], ["done", { ok: true }]),
+      [JOBS]: jobs(),
+      [EVENTS]: () => stream.response,
+      [JOB]: () => json(snapshot("running", "upload")),
+    });
+    open();
+    await addAndVerify(PATH);
+    await toPreview();
+    await userEvent.click(await screen.findByRole("button", { name: "Start import" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Stop following" }));
+    // A real fetch fails its body read on abort; the fake one needs the stream to end.
+    stream.close();
+
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "Step 6 of 6: Result" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Stopped following: the import goes on in the engine. Follow it in Activity.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Follow it in Activity" })).toHaveAttribute(
+      "href",
+      `#activity/${JOB_ID}`,
+    );
+  });
+
+  it("shows the database that failed with its error, and the others", async () => {
+    const stream = sseStream();
+    mockFetch({
+      [TARGETS]: targets(DEV),
+      [INSPECT]: () => events(["result", RESTORABLE], ["done", { ok: true }]),
+      [JOBS]: jobs(),
+      [EVENTS]: () => stream.response,
+      [JOB]: () => json(snapshot("failed", "restore")),
+    });
+    open();
+    await addAndVerify(PATH);
+    await toPreview();
+    await userEvent.click(await screen.findByRole("button", { name: "Start import" }));
+    await screen.findByRole("heading", { level: 2, name: "Step 5 of 6: Progress" });
+    stream.send("job.failed", {});
+    stream.close();
+
+    const result = await screen.findByRole("region", { name: "Database app_db" });
+    expect(within(result).getByText("RDS task 7 ended in ERROR")).toBeInTheDocument();
+    expect(screen.getByText("Restored: 0 · failed: 1 · not completed: 0")).toBeInTheDocument();
   });
 
   it("speaks Italian", async () => {

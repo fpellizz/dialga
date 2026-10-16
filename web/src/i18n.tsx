@@ -525,8 +525,14 @@ const en = {
   "import.noRecovery": "Leave the database restoring",
   "import.noRecoveryHint":
     "To restore a differential backup next. The database stays offline until it is finished.",
-  "import.uploadMissing":
-    "This engine cannot upload files yet: the upload arrives with the transfer feature.",
+  "import.jobsMissing": "This engine cannot run imports as jobs yet: update the Dialga engine.",
+  "import.uploadStep": "Upload to S3",
+  "import.starting": "Starting the import…",
+  "import.stopHint":
+    "Stopping only stops following: the import goes on in the engine and stays in Activity.",
+  "import.cancel": "Cancel import",
+  "import.result.summary": "Restored: {succeeded} · failed: {failed} · not completed: {cancelled}",
+  "import.activity": "Follow it in Activity",
   "import.previewLead": "Nothing has changed yet: this is what the import will do.",
   "import.uploadTitle": "Upload to {bucket}",
   "import.replaces": "Replaces an object",
@@ -534,7 +540,6 @@ const en = {
   "import.overwrite": "Replace the objects that already exist",
   "import.overwriteHint": "Without it, a file whose key is taken is not uploaded.",
   "import.restoreTitle": "Restore {db}",
-  "import.sourcePending": "Checked again after the upload.",
   "import.restoreBlocked": "This restore cannot run: fix what the checks say, then preview again.",
   "import.confirmLabel": "Type {name} to confirm",
   "import.confirmHint": "The instance is protected: every change asks to retype its name.",
@@ -546,20 +551,11 @@ const en = {
   "import.rate": "{rate}/s",
   "import.eta": "{time} left",
   "import.uploading": "Upload of {name}",
-  "import.uploadFailed": "The upload failed.",
-  "import.uploaded": "Uploaded and verified.",
-  "import.restoreStarting": "Starting the restore…",
-  "import.restoreWaiting": "Waiting for the previous step.",
   "import.leftRestoring":
     "Left restoring, as asked: restore the differential backup next, or finish the restore from the command line (dialga finish).",
   "import.stoppedFollowing":
-    "Stopped following: the restore goes on on the instance. Its tasks are on the Instances page.",
-  "import.stoppedUpload": "Upload cancelled: nothing was restored.",
-  "import.planChanged": "The instance changed since the preview: preview again before going on.",
-  "import.cancelUpload": "Cancel upload",
+    "Stopped following: the import goes on in the engine. Follow it in Activity.",
   "import.stopFollowing": "Stop following",
-  "import.backToPreview": "Back to the preview",
-  "import.showResult": "Show the result",
   "import.resultTitle": "Database {db}",
   "import.reportOk": "The database is online and the login can enter it.",
   "import.reportFailed": "The database needs attention: see below.",
@@ -1218,8 +1214,16 @@ const it: Record<MessageKey, string> = {
   "import.noRecovery": "Lascia il database in restoring",
   "import.noRecoveryHint":
     "Per ripristinare dopo un backup differenziale. Il database resta offline finché il ripristino non viene concluso.",
-  "import.uploadMissing":
-    "Questo engine non sa ancora caricare file: il caricamento arriva con la funzione di trasferimento.",
+  "import.jobsMissing":
+    "Questo engine non sa ancora eseguire gli import come job: aggiorna l'engine di Dialga.",
+  "import.uploadStep": "Caricamento su S3",
+  "import.starting": "Avvio dell'import…",
+  "import.stopHint":
+    "Smettere di seguire non ferma l'import: continua nell'engine e resta in Attività.",
+  "import.cancel": "Annulla l'import",
+  "import.result.summary":
+    "Ripristinati: {succeeded} · falliti: {failed} · non completati: {cancelled}",
+  "import.activity": "Seguilo in Attività",
   "import.previewLead": "Non è ancora cambiato nulla: ecco cosa farà l'import.",
   "import.uploadTitle": "Caricamento su {bucket}",
   "import.replaces": "Sostituisce un oggetto",
@@ -1227,7 +1231,6 @@ const it: Record<MessageKey, string> = {
   "import.overwrite": "Sostituisci gli oggetti che esistono già",
   "import.overwriteHint": "Senza, un file la cui chiave è già occupata non viene caricato.",
   "import.restoreTitle": "Ripristino di {db}",
-  "import.sourcePending": "Verificato di nuovo dopo il caricamento.",
   "import.restoreBlocked":
     "Questo ripristino non può partire: risolvi quanto indicano i controlli, poi rifai l'anteprima.",
   "import.confirmLabel": "Scrivi {name} per confermare",
@@ -1240,21 +1243,11 @@ const it: Record<MessageKey, string> = {
   "import.rate": "{rate}/s",
   "import.eta": "mancano {time}",
   "import.uploading": "Caricamento di {name}",
-  "import.uploadFailed": "Il caricamento non è riuscito.",
-  "import.uploaded": "Caricato e verificato.",
-  "import.restoreStarting": "Avvio del ripristino…",
-  "import.restoreWaiting": "In attesa del passo precedente.",
   "import.leftRestoring":
     "Lasciato in restoring, come richiesto: ripristina il backup differenziale, oppure concludi il ripristino dalla riga di comando (dialga finish).",
   "import.stoppedFollowing":
-    "Non lo segui più: il ripristino continua sull'istanza. I suoi task sono nella pagina Istanze.",
-  "import.stoppedUpload": "Caricamento annullato: non è stato ripristinato nulla.",
-  "import.planChanged":
-    "L'istanza è cambiata dopo l'anteprima: rifai l'anteprima prima di continuare.",
-  "import.cancelUpload": "Annulla il caricamento",
+    "Non lo segui più: l'import continua nell'engine. Seguilo in Attività.",
   "import.stopFollowing": "Smetti di seguire",
-  "import.backToPreview": "Torna all'anteprima",
-  "import.showResult": "Mostra l'esito",
   "import.resultTitle": "Database {db}",
   "import.reportOk": "Il database è online e il login può accedervi.",
   "import.reportFailed": "Il database richiede attenzione: vedi sotto.",

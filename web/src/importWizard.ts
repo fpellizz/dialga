@@ -1,8 +1,6 @@
-import type { StepEvent } from "./api";
+import type { JobItemRequest, JobPlan } from "./exportJob";
 import type { MessageKey } from "./i18n";
 import type { InspectedBackup, InspectResult } from "./inspect";
-import type { PlanPreview, PlanRequest } from "./plans";
-import type { UploadBatch, UploadRequest } from "./uploads";
 
 /** The steps of the wizard, in order (plan §3.5 "Importa"). */
 export const STEPS = ["files", "verify", "destination", "preview", "progress", "result"] as const;
@@ -170,65 +168,55 @@ export function allRestorable(result: InspectResult | null): boolean {
   );
 }
 
-/** The upload of all the files of the inspected backups into folder. */
-export function uploadRequest(
-  result: InspectResult,
-  folder: string,
-  overwrite: boolean,
-): UploadRequest {
-  const files = result.backups.flatMap((b) => b.files);
-  return overwrite ? { files, prefix: folder, overwrite } : { files, prefix: folder };
-}
-
-/** The restore of each backup, with the key its files get. */
-export function restoreRequests(
+/**
+ * The items of the import job: one per inspected backup, its file or the
+ * stripes of it, with the database it restores into. The files go to
+ * <folder>/<file name> (the prefix of the job).
+ */
+export function importItems(
   result: InspectResult,
   destinations: readonly Destination[],
-  folder: string,
-): PlanRequest[] {
+  overwrite: boolean,
+): JobItemRequest[] {
   return result.backups.map((b, i) => {
-    const request: PlanRequest = {
-      database: destinations[i].database,
-      key: restoreKey(folder, b.files),
-    };
+    const item: JobItemRequest = { database: destinations[i].database };
+    if (b.files.length === 1) {
+      item.file = b.files[0];
+    } else {
+      item.files = [...b.files];
+    }
     if (isDifferential(b)) {
-      request.differential = true;
+      item.differential = true;
     }
     if (destinations[i].noRecovery) {
-      request.noRecovery = true;
+      item.noRecovery = true;
     }
-    return request;
+    if (overwrite) {
+      item.overwrite = true;
+    }
+    return item;
   });
 }
 
-/** The check of a restore preview that fails until the files are uploaded. */
-export const SOURCE_CHECK = "source";
-
-/** The failed checks of a restore preview, but the source one (uploaded next). */
-export function blockingChecks(preview: PlanPreview): StepEvent[] {
-  return preview.checks.filter((c) => c.status === "failed" && c.step !== SOURCE_CHECK);
+/**
+ * The items to start what the dry run planned: the same ones, with the key
+ * of the plan. A "*" pattern (the stripes) is not an object key: the engine
+ * builds it again from the files.
+ */
+export function startItems(items: readonly JobItemRequest[], plan: JobPlan): JobItemRequest[] {
+  return items.map((item) => {
+    const key = plan.items.find((p) => p.database === item.database)?.key;
+    return key && !key.includes("*") ? { ...item, key } : item;
+  });
 }
 
-/** The import can start: nothing rejected, no restore blocked but by the upload. */
-export function previewReady(
-  upload: UploadBatch | null,
-  restores: readonly PlanPreview[],
-): boolean {
+/** The import can start: the plan is ready and no file is refused. */
+export function importReady(plan: JobPlan | null): boolean {
   return (
-    upload !== null &&
-    upload.rejected.length === 0 &&
-    restores.length > 0 &&
-    restores.every((p) => blockingChecks(p).length === 0)
+    plan?.ready === true &&
+    plan.items.length > 0 &&
+    plan.items.every((it) => (it.rejected ?? []).length === 0)
   );
-}
-
-/** The texts to retype, once each (the target name of a protected target). */
-export function confirmations(
-  upload: UploadBatch | null,
-  restores: readonly PlanPreview[],
-): string[] {
-  const all = [upload?.confirmation, ...restores.map((p) => p.confirmation)];
-  return [...new Set(all.filter((c): c is string => Boolean(c)))];
 }
 
 /** How full the free storage gets: percent of free taken, and its tone. */

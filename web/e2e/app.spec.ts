@@ -16,12 +16,13 @@ test("navigates with the sidebar, the hash and history", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1, name: "Instances" })).toBeVisible();
   await expect(instances).toHaveAttribute("aria-current", "page");
   await expect(page.getByText("engine dev")).toBeVisible();
-  // Instances, Databases, Import and Export are pages; the coming ones are not links yet.
+  // Every item of the sidebar is a page.
   await expect(nav.getByRole("link")).toHaveText([
     "Instances",
     "Databases",
     "Import",
     "Export",
+    "Activity",
     "Settings",
   ]);
 

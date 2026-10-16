@@ -1,101 +1,86 @@
-import { ArrowLeft, Database, LoaderCircle, Play, RefreshCw, Square } from "lucide-react";
-import {
-  type Dispatch,
-  type SetStateAction,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-import { ApiError, errorText, type StepEvent, type TargetSummary, type Task } from "./api";
+import { ArrowLeft, Database, Play, RefreshCw, Square } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ApiError, errorText, type TargetSummary } from "./api";
 import { databasesHref, formatBytes } from "./databases";
 import type { EngineInfo } from "./engine";
+import {
+  type Job,
+  type JobItemPlan,
+  type JobPlan,
+  NoJobsError,
+  previewJob,
+  startJob,
+} from "./exportJob";
+import { type ExportItemRun, type ItemState, tally } from "./exportRun";
+import { ErrorBanner } from "./Feedback";
 import { useI18n } from "./i18n";
 import {
   baseName,
-  blockingChecks,
-  confirmations,
   type Destination,
   formatDuration,
+  importItems,
+  importReady,
   orphanFixSql,
   percentOf,
-  previewReady,
-  restoreRequests,
-  SOURCE_CHECK,
-  uploadRequest,
+  startItems,
 } from "./importWizard";
 import type { InspectResult } from "./inspect";
 import { PlanPreviewView } from "./PlanPreview";
-import { PlanRunView } from "./PlanRun";
-import {
-  type DatabaseReport,
-  executePlan,
-  getDatabaseReport,
-  type PlanDone,
-  type PlanRequest,
-  type PlanPreview as Preview,
-  previewPlan,
-} from "./plans";
+import { type DatabaseReport, getDatabaseReport, type PlanPreview as Preview } from "./plans";
 import { StepList } from "./StepList";
-import {
-  planUploads,
-  runUploads,
-  type UploadBatch,
-  type UploadDone,
-  type UploadItem,
-  type UploadProgress,
-} from "./uploads";
+import { TaskProgress } from "./TaskProgress";
 
-/** The restore of one backup while and after it runs. */
-export interface RestoreRun {
-  database: string;
-  notices: string[];
-  steps: StepEvent[];
-  task: Task | null;
-  done: PlanDone | null;
-  /** The call failed (refused, or the stream broke): the error itself, for its hint. */
-  error?: unknown;
-  /** The previewed request (labels and outcome of the run view). */
-  request: PlanRequest;
-}
-
-/** The execution of an import: the upload, then the restores in order. */
+/** The execution of an import: one engine job, followed to its end. */
 export interface RunState {
-  phase: "idle" | "upload" | "restore" | "done" | "failed" | "stopped";
-  items?: UploadItem[];
-  uploadSteps: StepEvent[];
-  /** The last progress of each file, by path. */
-  progress: Record<string, UploadProgress>;
-  uploadDone: UploadDone | null;
-  uploadError: string;
-  restores: RestoreRun[];
-  /** A restore answered 412: the plan changed or a check fails now. */
-  planChanged?: boolean;
-  /** Stops the upload, or stops following a restore (the task goes on). */
+  phase: "idle" | "running" | "done" | "failed" | "stopped";
+  jobId?: string;
+  /** The databases as the last snapshot of the job shows them. */
+  items: ExportItemRun[];
+  /** Following the job broke (not the job itself): the error, for its hint. */
+  error?: unknown;
+  /** Stops following the job: it goes on in the engine. */
   abort?: () => void;
 }
 
-export type RunSetter = Dispatch<SetStateAction<RunState>>;
+const STATE_BADGE: Record<ItemState, string> = {
+  queued: "badge-skipped",
+  running: "badge-running",
+  succeeded: "badge-ok",
+  failed: "badge-failed",
+  cancelled: "badge-skipped",
+};
 
-/** The engine has no upload endpoint yet (mux 404, not an unknown target). */
-function uploadMissing(e: unknown): boolean {
-  return e instanceof ApiError && e.status === 404 && e.message === "404 page not found";
-}
-
-function upsert(steps: StepEvent[], event: StepEvent): StepEvent[] {
-  const index = steps.findIndex((s) => s.step === event.step);
-  return index === -1 ? [...steps, event] : steps.map((s, i) => (i === index ? event : s));
+/** The job route of the import: the kind, and the S3 folder of the uploads. */
+function jobOptions(folder: string) {
+  return { kind: "import" as const, prefix: folder };
 }
 
 interface PreviewState {
   loading: boolean;
-  upload: UploadBatch | null;
-  uploadError: string;
-  restores: (Preview | null)[];
-  restoreErrors: string[];
+  plan: JobPlan | null;
+  error: unknown;
 }
 
-/** 4. What the import will do: the upload plan and each restore plan. */
+/** A job item as the shared plan view takes it: the checks and the exact statements. */
+function itemPreview(plan: JobPlan, item: JobItemPlan): Preview {
+  return {
+    plan: {
+      operation: "restore",
+      target: plan.target,
+      instance: plan.instance,
+      protected: plan.protected,
+      subject: item.database,
+      actions: item.actions.map((a) => ({ kind: "sql", risk: "change", ...a })),
+    },
+    checks: item.checks,
+    ready: item.ready,
+    digest: plan.digest,
+    preview: "",
+    request: { database: item.database, key: item.key },
+  };
+}
+
+/** 4. What the import will do: the job of every backup, previewed in one call. */
 export function ImportPreview({
   engine,
   target,
@@ -103,7 +88,7 @@ export function ImportPreview({
   folder,
   destinations,
   onBack,
-  onStart,
+  onStarted,
 }: {
   engine: EngineInfo;
   target: TargetSummary;
@@ -111,55 +96,30 @@ export function ImportPreview({
   folder: string;
   destinations: Destination[];
   onBack: () => void;
-  /** Gets the import to run: it reports into setRun and resolves true when all went well. */
-  onStart: (start: (setRun: RunSetter) => Promise<boolean>) => void;
+  /** The job started: follow it. */
+  onStarted: (job: Job, plan: JobPlan) => void;
 }) {
   const { t, lang } = useI18n();
   const [overwrite, setOverwrite] = useState(false);
-  const [state, setState] = useState<PreviewState>({
-    loading: true,
-    upload: null,
-    uploadError: "",
-    restores: [],
-    restoreErrors: [],
-  });
-  const [typed, setTyped] = useState<Record<string, string>>({});
+  const [state, setState] = useState<PreviewState>({ loading: true, plan: null, error: null });
+  const [typed, setTyped] = useState("");
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<unknown>(null);
 
   const load = useCallback(
     (signal: AbortSignal) => {
-      setState({ loading: true, upload: null, uploadError: "", restores: [], restoreErrors: [] });
-      const requests = restoreRequests(result, destinations, folder);
-      const upload = planUploads(
-        engine,
-        target.name,
-        uploadRequest(result, folder, overwrite),
-        signal,
-      ).then(
-        (batch) => ({ batch, error: "" }),
-        (e: unknown) => ({
-          batch: null,
-          error: uploadMissing(e) ? t("import.uploadMissing") : errorText(e),
-        }),
-      );
-      const restores = Promise.all(
-        requests.map((request) =>
-          previewPlan(engine, target.name, "restore", request, signal).then(
-            (preview) => ({ preview, error: "" }),
-            (e: unknown) => ({ preview: null, error: errorText(e) }),
-          ),
-        ),
-      );
-      Promise.all([upload, restores]).then(([u, r]) => {
-        if (!signal.aborted) {
+      setState({ loading: true, plan: null, error: null });
+      const items = importItems(result, destinations, overwrite);
+      previewJob(engine, target.name, items, signal, jobOptions(folder)).then(
+        (plan) => !signal.aborted && setState({ loading: false, plan, error: null }),
+        (e: unknown) =>
+          !signal.aborted &&
           setState({
             loading: false,
-            upload: u.batch,
-            uploadError: u.error,
-            restores: r.map((x) => x.preview),
-            restoreErrors: r.map((x) => x.error),
-          });
-        }
-      });
+            plan: null,
+            error: e instanceof NoJobsError ? t("import.jobsMissing") : e,
+          }),
+      );
     },
     [engine, target.name, result, destinations, folder, overwrite, t],
   );
@@ -176,100 +136,39 @@ export function ImportPreview({
     return () => inFlight.current?.abort();
   }, [reload]);
 
-  const previews = state.restores.filter((p): p is Preview => p !== null);
-  const complete = previews.length === destinations.length && state.restoreErrors.every((e) => !e);
-  const needed = confirmations(state.upload, previews);
-  const confirmed = needed.every((c) => typed[c] === c);
-  const ready = !state.loading && complete && previewReady(state.upload, previews) && confirmed;
+  const { plan } = state;
+  const confirmation = plan?.confirmation ?? "";
+  const ready = !state.loading && importReady(plan) && (!confirmation || typed === confirmation);
 
-  const start = () =>
-    onStart(async (setRun) => {
-      const upload = state.upload as UploadBatch;
-      const controller = new AbortController();
-      setRun({
-        phase: "upload",
-        items: upload.items,
-        uploadSteps: [],
-        progress: {},
-        uploadDone: null,
-        uploadError: "",
-        restores: destinations.map((d, i) => ({
-          database: d.database,
-          notices: [],
-          steps: [],
-          task: null,
-          done: null,
-          request: state.restores[i]?.request ?? { database: d.database },
-        })),
-        abort: () => controller.abort(),
-      });
-      const set = setRun;
-      try {
-        const done = await runUploads(
-          engine,
-          target.name,
-          {
-            ...uploadRequest(result, folder, overwrite),
-            confirm: upload.confirmation || undefined,
-          },
-          {
-            onStep: (e) => set((r) => ({ ...r, uploadSteps: upsert(r.uploadSteps, e) })),
-            onProgress: (p) => set((r) => ({ ...r, progress: { ...r.progress, [p.path]: p } })),
-          },
-          controller.signal,
-        );
-        set((r) => ({ ...r, uploadDone: done, phase: done.ok ? "restore" : "failed" }));
-        if (!done.ok) {
-          return false;
-        }
-      } catch (e) {
-        const stopped = controller.signal.aborted;
-        set((r) => ({
-          ...r,
-          phase: stopped ? "stopped" : "failed",
-          uploadError: stopped ? "" : errorText(e),
-        }));
-        return false;
+  const start = async () => {
+    if (!plan || !ready || starting) {
+      return;
+    }
+    setStarting(true);
+    setStartError(null);
+    try {
+      const job = await startJob(
+        engine,
+        target.name,
+        startItems(importItems(result, destinations, overwrite), plan),
+        plan,
+        confirmation ? typed : undefined,
+        jobOptions(folder),
+      );
+      onStarted(job, plan);
+    } catch (e) {
+      setStartError(e);
+      // 412: a check fails now or the plan changed since the preview: preview it again.
+      if (e instanceof ApiError && e.status === 412) {
+        reload();
       }
-      for (const [i, preview] of previews.entries()) {
-        const change = (update: (x: RestoreRun) => RestoreRun) =>
-          set((r) => ({ ...r, restores: r.restores.map((x, j) => (j === i ? update(x) : x)) }));
-        try {
-          const done = await executePlan(
-            engine,
-            target.name,
-            "restore",
-            {
-              ...preview.request,
-              confirm: preview.confirmation || undefined,
-              digest: preview.digest,
-            },
-            {
-              onNotice: (n) => change((x) => ({ ...x, notices: [...x.notices, n] })),
-              onStep: (e) => change((x) => ({ ...x, steps: upsert(x.steps, e) })),
-              onTask: (task) => change((x) => ({ ...x, task })),
-            },
-            controller.signal,
-          );
-          change((x) => ({ ...x, done, task: done.task ?? x.task }));
-          if (!done.ok) {
-            set((r) => ({ ...r, phase: "failed" }));
-            return false;
-          }
-        } catch (e) {
-          const stopped = controller.signal.aborted;
-          change((x) => ({ ...x, error: stopped ? undefined : e }));
-          set((r) => ({
-            ...r,
-            phase: stopped ? "stopped" : "failed",
-            planChanged: e instanceof ApiError && e.status === 412,
-          }));
-          return false;
-        }
-      }
-      set((r) => ({ ...r, phase: "done", abort: undefined }));
-      return true;
-    });
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const uploads = plan?.items.flatMap((it) => it.uploads ?? []) ?? [];
+  const rejected = plan?.items.flatMap((it) => it.rejected ?? []) ?? [];
 
   return (
     <div className="wizard-body" aria-busy={state.loading}>
@@ -280,47 +179,40 @@ export function ImportPreview({
           <div className="skeleton skeleton-row" />
         </div>
       )}
+      {state.error !== null && <ErrorBanner error={state.error} />}
+      {startError !== null && <ErrorBanner error={startError} />}
 
-      {!state.loading && (
+      {plan && (
         <section className="plan" aria-labelledby="import-upload-title">
           <h3 id="import-upload-title">{t("import.uploadTitle", { bucket: target.bucket })}</h3>
-          {state.uploadError && (
-            <div className="banner banner-fail" role="alert">
-              <span className="banner-text">{state.uploadError}</span>
-            </div>
-          )}
-          {state.upload && (
-            <>
-              <ul className="item-list">
-                {state.upload.items.map((item) => (
-                  <li key={item.path} className="item">
-                    <div className="item-row">
-                      <span className="item-title mono">{baseName(item.path)}</span>
-                      {item.replaces && (
-                        <span className="badge badge-warning">{t("import.replaces")}</span>
-                      )}
-                      <span className="muted">{formatBytes(item.size, lang)}</span>
-                    </div>
-                    <div className="mono muted item-detail">
-                      s3://{item.bucket}/{item.key} · {t("import.parts", { parts: item.parts })}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-              {state.upload.rejected.map((r) => (
-                <p key={`${r.path ?? ""}${r.key ?? ""}`} className="field-error">
-                  {r.path ? `${baseName(r.path)}: ` : ""}
-                  {r.reason}
-                </p>
-              ))}
-              {(state.upload.warnings ?? []).map((w) => (
-                <p key={w} className="hint">
-                  {w}
-                </p>
-              ))}
-            </>
-          )}
-          {(overwrite || (state.upload?.rejected.length ?? 0) > 0) && (
+          <ul className="item-list">
+            {uploads.map((item) => (
+              <li key={item.path} className="item">
+                <div className="item-row">
+                  <span className="item-title mono">{baseName(item.path)}</span>
+                  {item.replaces && (
+                    <span className="badge badge-warning">{t("import.replaces")}</span>
+                  )}
+                  <span className="muted">{formatBytes(item.size, lang)}</span>
+                </div>
+                <div className="mono muted item-detail">
+                  s3://{item.bucket}/{item.key} · {t("import.parts", { parts: item.parts })}
+                </div>
+              </li>
+            ))}
+          </ul>
+          {rejected.map((r) => (
+            <p key={`${r.path ?? ""}${r.key ?? ""}`} className="field-error">
+              {r.path ? `${baseName(r.path)}: ` : ""}
+              {r.reason}
+            </p>
+          ))}
+          {(plan.warnings ?? []).map((w) => (
+            <p key={w} className="hint">
+              {w}
+            </p>
+          ))}
+          {(overwrite || rejected.length > 0) && (
             <div className="check">
               <input
                 id="import-overwrite"
@@ -340,71 +232,66 @@ export function ImportPreview({
         </section>
       )}
 
-      {!state.loading &&
-        destinations.map((d, i) => {
-          const preview = state.restores[i];
-          const error = state.restoreErrors[i];
-          return (
-            <section
-              key={d.database}
-              className="plan-section"
-              aria-label={t("import.restoreTitle", { db: d.database })}
-            >
-              {error && (
-                <>
-                  <h3>{t("import.restoreTitle", { db: d.database })}</h3>
-                  <div className="banner banner-fail" role="alert">
-                    <span className="banner-text">{error}</span>
-                  </div>
-                </>
-              )}
-              {preview && (
-                <PlanPreviewView
-                  preview={preview}
-                  title={t("import.restoreTitle", { db: d.database })}
-                  pending={{ [SOURCE_CHECK]: t("import.sourcePending") }}
-                  // One confirmation for the upload and every restore, below.
-                  showConfirm={false}
-                  autoFocus={false}
-                />
-              )}
-              {preview && blockingChecks(preview).length > 0 && (
-                <p className="field-error">{t("import.restoreBlocked")}</p>
-              )}
-            </section>
-          );
-        })}
+      {plan?.items.map((item) => (
+        <section
+          key={item.database}
+          className="plan-section"
+          aria-label={t("import.restoreTitle", { db: item.database })}
+        >
+          <PlanPreviewView
+            preview={itemPreview(plan, item)}
+            title={t("import.restoreTitle", { db: item.database })}
+            // One confirmation for the whole job, below.
+            showConfirm={false}
+            autoFocus={false}
+          />
+          {!item.ready && <p className="field-error">{t("import.restoreBlocked")}</p>}
+        </section>
+      ))}
 
-      {!state.loading &&
-        needed.map((c) => (
-          <div key={c} className="form-field confirm-import">
-            <label htmlFor={`import-confirm-${c}`}>{t("import.confirmLabel", { name: c })}</label>
-            <input
-              id={`import-confirm-${c}`}
-              className="input mono"
-              value={typed[c] ?? ""}
-              onChange={(e) => setTyped((x) => ({ ...x, [c]: e.target.value }))}
-              autoComplete="off"
-              spellCheck={false}
-              aria-describedby={`import-confirm-${c}-hint`}
-            />
-            <p id={`import-confirm-${c}-hint`} className="hint">
-              {/* The target name: a protected instance. Anything else: objects the upload replaces. */}
-              {t(c === target.name ? "import.confirmHint" : "import.confirmReplace")}
-            </p>
-          </div>
-        ))}
+      {plan && confirmation && (
+        <div className="form-field confirm-import">
+          <label htmlFor="import-confirm">{t("import.confirmLabel", { name: confirmation })}</label>
+          <input
+            id="import-confirm"
+            className="input mono"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+            aria-describedby="import-confirm-hint"
+          />
+          <p id="import-confirm-hint" className="hint">
+            {/* The target name: a protected instance. Anything else: objects the upload replaces. */}
+            {t(confirmation === target.name ? "import.confirmHint" : "import.confirmReplace")}
+          </p>
+        </div>
+      )}
 
       <div className="wizard-nav">
         <button type="button" className="btn btn-outline" onClick={onBack}>
           <ArrowLeft size={16} aria-hidden="true" />
           {t("import.back")}
         </button>
-        <button type="button" className="btn btn-outline" onClick={reload} disabled={state.loading}>
+        <button
+          type="button"
+          className="btn btn-outline"
+          onClick={() => {
+            setStartError(null);
+            reload();
+          }}
+          disabled={state.loading}
+        >
           <RefreshCw size={16} aria-hidden="true" />
           {t("import.previewAgain")}
         </button>
-        <button type="button" className="btn btn-primary" onClick={start} disabled={!ready}>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={start}
+          disabled={!ready}
+          aria-disabled={starting || undefined}
+        >
           <Play size={16} aria-hidden="true" />
           {t("import.start")}
         </button>
@@ -413,37 +300,34 @@ export function ImportPreview({
   );
 }
 
-/** One file of the upload, with bytes, speed and time left. */
-function FileProgress({
-  item,
-  progress,
-  done,
-}: {
-  item: UploadItem;
-  progress?: UploadProgress;
-  done: boolean;
-}) {
+/** The upload of a database: bytes, speed and time left. */
+function UploadProgress({ item }: { item: ExportItemRun }) {
   const { t, lang } = useI18n();
-  const sent = done ? item.size : (progress?.done ?? 0);
-  const total = progress?.total || item.size;
-  const percent = percentOf(sent, total);
-  let meta = t("import.sent", { done: formatBytes(sent, lang), total: formatBytes(total, lang) });
-  if (!done && progress && progress.bytesPerSecond > 0) {
-    meta += ` · ${t("import.rate", { rate: formatBytes(progress.bytesPerSecond, lang) })}`;
-    if (progress.etaSeconds !== undefined) {
-      meta += ` · ${t("import.eta", { time: formatDuration(progress.etaSeconds) })}`;
+  const transfer = item.transfer;
+  if (!transfer) {
+    return null;
+  }
+  const percent = percentOf(transfer.done, transfer.total);
+  let meta = t("import.sent", {
+    done: formatBytes(transfer.done, lang),
+    total: formatBytes(transfer.total, lang),
+  });
+  if (transfer.bytesPerSecond > 0) {
+    meta += ` · ${t("import.rate", { rate: formatBytes(transfer.bytesPerSecond, lang) })}`;
+    if (transfer.etaSeconds !== undefined) {
+      meta += ` · ${t("import.eta", { time: formatDuration(transfer.etaSeconds) })}`;
     }
   }
   return (
-    <li className="task">
+    <div className="task">
       <div className="task-row">
-        <span className="task-db mono">{baseName(item.path)}</span>
+        <span className="muted">{t("import.uploadStep")}</span>
         <span className="muted">{percent}%</span>
       </div>
       <div
         className="progress"
         role="progressbar"
-        aria-label={t("import.uploading", { name: baseName(item.path) })}
+        aria-label={t("import.uploading", { name: item.database })}
         aria-valuemin={0}
         aria-valuemax={100}
         aria-valuenow={percent}
@@ -451,127 +335,53 @@ function FileProgress({
         <div className="progress-bar" style={{ width: `${percent}%` }} />
       </div>
       <div className="task-meta muted">{meta}</div>
-    </li>
+    </div>
   );
 }
 
-/** 5. The upload, then each restore with its native task. */
+/** 5. Each database of the job: its steps, the upload and the native task. */
 export function ImportProgress({
-  target,
   run,
-  onBackToPreview,
-  onResult,
+  onCancel,
 }: {
-  target: TargetSummary;
   run: RunState;
-  onBackToPreview: () => void;
-  onResult: () => void;
+  /** Asks the engine to stop the job. */
+  onCancel: () => void;
 }) {
   const { t } = useI18n();
-  const uploaded = run.uploadDone?.ok === true;
+  const running = run.phase === "running";
   return (
-    <div className="wizard-body" aria-busy={run.phase === "upload" || run.phase === "restore"}>
-      <section className="plan" aria-labelledby="import-run-upload">
-        <h3 id="import-run-upload">{t("import.uploadTitle", { bucket: target.bucket })}</h3>
-        <ul className="task-list">
-          {(run.items ?? []).map((item) => (
-            <FileProgress
-              key={item.path}
-              item={item}
-              progress={run.progress[item.path]}
-              done={uploaded}
-            />
-          ))}
-        </ul>
-        {run.uploadSteps.length > 0 && <StepList steps={run.uploadSteps} />}
-        {run.uploadError && (
-          <div className="banner banner-fail" role="alert">
-            <span className="banner-text">{run.uploadError}</span>
-          </div>
-        )}
-        {run.uploadDone && !run.uploadDone.ok && (
-          <div className="banner banner-fail" role="alert">
-            <span className="banner-text">{run.uploadDone.error || t("import.uploadFailed")}</span>
-          </div>
-        )}
-        {uploaded && (
-          <p className="tone-success" role="status">
-            {t("import.uploaded")}
-          </p>
-        )}
-      </section>
-
-      {run.restores.map((r, i) => (
-        <section
-          key={r.database}
-          className="plan"
-          aria-label={t("import.restoreTitle", { db: r.database })}
-        >
-          <h3>{t("import.restoreTitle", { db: r.database })}</h3>
-          {r.steps.length === 0 && !r.done && r.error === undefined && (
-            <p className="muted">
-              {run.phase === "restore" && !run.restores.slice(0, i).some((x) => !x.done) ? (
-                <>
-                  <LoaderCircle size={16} className="spin inline-icon" aria-hidden="true" />
-                  {t("import.restoreStarting")}
-                </>
-              ) : (
-                t("import.restoreWaiting")
-              )}
-            </p>
-          )}
-          <PlanRunView
-            run={{
-              status: r.done
-                ? r.done.ok
-                  ? "done"
-                  : "failed"
-                : r.error !== undefined
-                  ? "failed"
-                  : "running",
-              steps: r.steps,
-              notices: r.notices,
-              task: r.task ?? undefined,
-              done: r.done ?? undefined,
-              error: r.error,
-            }}
-            target={target.name}
-            operation="restore"
-            request={r.request}
-          />
-        </section>
-      ))}
-
-      {run.phase === "stopped" && (
-        <div className="banner banner-warn" role="status">
-          <span className="banner-text">
-            {uploaded ? t("import.stoppedFollowing") : t("import.stoppedUpload")}
-          </span>
-        </div>
-      )}
-      {run.planChanged && (
-        <div className="banner banner-warn" role="status">
-          <span className="banner-text">{t("import.planChanged")}</span>
-        </div>
-      )}
-
+    <div className="wizard-body" aria-busy={running}>
+      {run.items.length === 0 && <p className="muted">{t("import.starting")}</p>}
+      <ul className="task-list">
+        {run.items.map((item) => (
+          <li key={item.database} className="export-item">
+            <div className="export-preview-head">
+              <h3 className="mono">{t("import.restoreTitle", { db: item.database })}</h3>
+              <span className={`badge ${STATE_BADGE[item.state]}`}>
+                {t(`export.state.${item.state}`)}
+              </span>
+            </div>
+            {item.steps.length > 0 && <StepList steps={item.steps} />}
+            {item.transfer && item.state === "running" && !item.task && (
+              <UploadProgress item={item} />
+            )}
+            {item.task && <TaskProgress task={item.task} />}
+          </li>
+        ))}
+      </ul>
+      {running && <p className="hint">{t("import.stopHint")}</p>}
       <div className="wizard-nav">
-        {(run.phase === "upload" || run.phase === "restore") && (
-          <button type="button" className="btn btn-outline" onClick={() => run.abort?.()}>
-            <Square size={16} aria-hidden="true" />
-            {run.phase === "upload" ? t("import.cancelUpload") : t("import.stopFollowing")}
-          </button>
-        )}
-        {(run.phase === "failed" || run.phase === "stopped") && (
-          <button type="button" className="btn btn-outline" onClick={onBackToPreview}>
-            <ArrowLeft size={16} aria-hidden="true" />
-            {t("import.backToPreview")}
-          </button>
-        )}
-        {run.phase === "done" && (
-          <button type="button" className="btn btn-primary" onClick={onResult}>
-            {t("import.showResult")}
-          </button>
+        {running && (
+          <>
+            <button type="button" className="btn btn-outline" onClick={() => run.abort?.()}>
+              <Square size={16} aria-hidden="true" />
+              {t("import.stopFollowing")}
+            </button>
+            <button type="button" className="btn btn-outline" onClick={onCancel}>
+              {t("import.cancel")}
+            </button>
+          </>
         )}
       </div>
     </div>
@@ -652,7 +462,7 @@ function DatabaseResult({
   );
 }
 
-/** 6. The post-restore report of each database, and where to go next. */
+/** 6. What each database came to: its post-restore report, or why it did not. */
 export function ImportResult({
   engine,
   target,
@@ -667,17 +477,57 @@ export function ImportResult({
   onAgain: () => void;
 }) {
   const { t } = useI18n();
+  const count = tally(run.items);
+  const stopped = run.phase === "stopped";
+  const ok = run.phase === "done";
   return (
     <div className="wizard-body">
-      {run.phase === "done" && (
-        <div className="banner banner-ok" role="status">
-          {t("import.done", { count: destinations.length })}
+      {run.error !== undefined && <ErrorBanner error={run.error} />}
+      {stopped ? (
+        <div className="banner banner-warn" role="status">
+          <span className="banner-text">{t("import.stoppedFollowing")}</span>
+        </div>
+      ) : (
+        <div className={ok ? "banner banner-ok" : "banner banner-warn"} role="status">
+          <span className="banner-text">
+            {ok
+              ? t("import.done", { count: destinations.length })
+              : t("import.result.summary", count)}
+          </span>
         </div>
       )}
-      {destinations.map((d) => (
-        <DatabaseResult key={d.database} engine={engine} target={target.name} destination={d} />
-      ))}
+      {destinations.map((d) => {
+        const item = run.items.find((i) => i.database === d.database);
+        if (item?.state === "succeeded") {
+          return (
+            <DatabaseResult key={d.database} engine={engine} target={target.name} destination={d} />
+          );
+        }
+        return (
+          <section
+            key={d.database}
+            className="plan"
+            aria-label={t("import.resultTitle", { db: d.database })}
+          >
+            <div className="export-preview-head">
+              <h3>{t("import.resultTitle", { db: d.database })}</h3>
+              {item && (
+                <span className={`badge ${STATE_BADGE[item.state]}`}>
+                  {t(`export.state.${item.state}`)}
+                </span>
+              )}
+            </div>
+            {item && item.steps.length > 0 && <StepList steps={item.steps} />}
+            {item?.error !== undefined && <ErrorBanner error={item.error} />}
+          </section>
+        );
+      })}
       <div className="wizard-nav">
+        {run.jobId && (
+          <a className="btn btn-outline" href={`#activity/${encodeURIComponent(run.jobId)}`}>
+            {t("import.activity")}
+          </a>
+        )}
         <a className="btn btn-outline" href={databasesHref(target.name)}>
           <Database size={16} aria-hidden="true" />
           {t("import.openDatabases")}

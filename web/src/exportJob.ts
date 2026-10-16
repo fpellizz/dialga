@@ -3,6 +3,8 @@
  * wait and download per database, run by the engine and shown in
  * Activity). Used when the engine has the route; an older engine answers
  * 404 or 405 and the wizard chains the plan calls instead (exportRun.ts).
+ * The import wizard runs on the same route (kind "import", importJob.ts):
+ * the calls and the following of a job are shared, only the request differs.
  * Shapes as in api.JobRequest, pipeline.Plan and jobs.Job.
  */
 import { ApiError, failure, type StepEvent, type StepStatus, type Task } from "./api";
@@ -13,8 +15,33 @@ import { createSseParser } from "./sse";
 export interface JobItemRequest {
   database: string;
   key?: string;
+  /** Export: the local folder or file of the download. */
   destination?: string;
   overwrite?: boolean;
+  /** Import: one .bak, or the stripes of one backup. */
+  file?: string;
+  files?: string[];
+  differential?: boolean;
+  noRecovery?: boolean;
+}
+
+/** What the request adds to the items: the kind of job (export by default) and the import prefix. */
+export interface JobOptions {
+  kind?: "export" | "import";
+  /** Import: the S3 folder of the uploads ("" is the bucket root). */
+  prefix?: string;
+}
+
+/** transfer.Item: a file of an import upload as the plan has it. */
+export interface JobUpload {
+  path: string;
+  bucket: string;
+  key: string;
+  size: number;
+  partSize: number;
+  parts: number;
+  /** An object already has this key and will be replaced. */
+  replaces: boolean;
 }
 
 /** pipeline.ItemPlan of an export. */
@@ -26,7 +53,16 @@ export interface JobItemPlan {
   key: string;
   ready: boolean;
   checks: StepEvent[];
-  actions: { id: string; title: string; statement: string }[];
+  actions: {
+    id: string;
+    title: string;
+    statement: string;
+    kind?: "sql" | "aws";
+    risk?: "change" | "destructive";
+  }[];
+  /** Import: the files to upload, and the ones the plan refuses (with the reason). */
+  uploads?: JobUpload[];
+  rejected?: { path?: string; key?: string; reason: string }[];
 }
 
 /** pipeline.Plan: the dry run of the job. */
@@ -83,6 +119,15 @@ function headers(engine: EngineInfo): HeadersInit {
   return { Authorization: `Bearer ${engine.token}`, "Content-Type": "application/json" };
 }
 
+function jobBody(target: string, items: JobItemRequest[], options: JobOptions) {
+  return {
+    kind: options.kind ?? "export",
+    target,
+    items,
+    ...(options.prefix !== undefined ? { prefix: options.prefix } : {}),
+  };
+}
+
 /** The engine has no POST /api/v1/jobs: answered when the route is missing. */
 export class NoJobsError extends Error {}
 
@@ -95,11 +140,12 @@ export async function previewJob(
   target: string,
   items: JobItemRequest[],
   signal?: AbortSignal,
+  options: JobOptions = {},
 ): Promise<JobPlan> {
   const response = await fetch(`${engine.url}/api/v1/jobs`, {
     method: "POST",
     headers: headers(engine),
-    body: JSON.stringify({ kind: "export", target, items, dryRun: true }),
+    body: JSON.stringify({ ...jobBody(target, items, options), dryRun: true }),
     signal,
   });
   if (response.status === 404 || response.status === 405) {
@@ -123,11 +169,12 @@ export async function startJob(
   items: JobItemRequest[],
   plan: JobPlan,
   confirm?: string,
+  options: JobOptions = {},
 ): Promise<Job> {
   const response = await fetch(`${engine.url}/api/v1/jobs`, {
     method: "POST",
     headers: headers(engine),
-    body: JSON.stringify({ kind: "export", target, items, digest: plan.digest, confirm }),
+    body: JSON.stringify({ ...jobBody(target, items, options), digest: plan.digest, confirm }),
   });
   if (response.status === 412) {
     // {reason, plan}: a pre-flight check failed or the plan changed since the preview.
@@ -172,19 +219,16 @@ const ENDED = new Set(["succeeded", "failed", "cancelled", "interrupted"]);
 
 /**
  * Follows a job until it ends: every event of its stream asks for a fresh
- * snapshot (at most one at a time), mapped onto the items of the wizard.
- * Aborting stops following; the job goes on in the engine.
+ * snapshot (at most one at a time), handed to onSnapshot; resolves with the
+ * last one. Aborting stops following; the job goes on in the engine.
  */
-export async function followJob(
+export async function followSnapshots(
   engine: EngineInfo,
   job: Job,
-  plan: JobPlan,
-  onChange: (items: ExportItemRun[]) => void,
+  onSnapshot: (job: Job) => void,
   signal: AbortSignal,
-  bucket?: string,
-): Promise<ExportItemRun[]> {
-  let items = mapJob(job, plan, bucket);
-  onChange(items);
+): Promise<Job> {
+  let last = job;
   let reading: Promise<void> | null = null;
   let again = false;
   const refresh = async () => {
@@ -195,9 +239,8 @@ export async function followJob(
     reading = (async () => {
       do {
         again = false;
-        const snapshot = await getJob(engine, job.id, signal);
-        items = mapJob(snapshot, plan, bucket);
-        onChange(items);
+        last = await getJob(engine, job.id, signal);
+        onSnapshot(last);
       } while (again && !signal.aborted);
     })().finally(() => {
       reading = null;
@@ -229,6 +272,32 @@ export async function followJob(
   }
   await reader.cancel().catch(() => {});
   await refresh();
+  return last;
+}
+
+/**
+ * Follows an export job, its snapshots mapped onto the items of the wizard
+ * (mapJob). Aborting stops following; the job goes on in the engine.
+ */
+export async function followJob(
+  engine: EngineInfo,
+  job: Job,
+  plan: JobPlan,
+  onChange: (items: ExportItemRun[]) => void,
+  signal: AbortSignal,
+  bucket?: string,
+): Promise<ExportItemRun[]> {
+  let items = mapJob(job, plan, bucket);
+  onChange(items);
+  await followSnapshots(
+    engine,
+    job,
+    (snapshot) => {
+      items = mapJob(snapshot, plan, bucket);
+      onChange(items);
+    },
+    signal,
+  );
   return items;
 }
 
