@@ -8,6 +8,15 @@ import { StepList } from "./StepList";
 /** Failed checks the caller expects (the backup is uploaded later): step id → why, translated. */
 export type PendingChecks = Partial<Record<string, string>>;
 
+const REPLACE_ACTION = {
+  "single-user": "planaction.singleUser",
+  "rename-old": "planaction.renameOld",
+  "rename-new": "planaction.renameNew",
+  "multi-user": "planaction.multiUser",
+  "multi-user-old": "planaction.multiUserOld",
+  post: "planaction.post",
+} as const;
+
 /** The label of a check, an action or the wait, in the user's language. */
 export function stepLabel(t: Translate, s: StepEvent, request: PlanRequest): string {
   const vars = {
@@ -17,6 +26,19 @@ export function stepLabel(t: Translate, s: StepEvent, request: PlanRequest): str
   };
   switch (s.step) {
     case "restore":
+      // A swap restores beside the current database first (engine title).
+      return s.label.includes("(temporary name)")
+        ? t("planaction.restoreTemp", vars)
+        : t("planaction.restore", vars);
+    case "backup":
+      return t("planaction.backupFirst", vars);
+    case "single-user":
+    case "rename-old":
+    case "rename-new":
+    case "multi-user":
+    case "multi-user-old":
+    case "post":
+      return t(REPLACE_ACTION[s.step], vars);
     case "export":
     case "finish":
     case "cancel":

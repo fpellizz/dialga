@@ -34,9 +34,20 @@ const SWAP_PREVIEW: PlanPreview = {
   plan: {
     ...RESTORE_PREVIEW.plan,
     actions: [
-      { ...RESTORE_PREVIEW.plan.actions[0], risk: "destructive" },
       {
-        id: "rename",
+        ...RESTORE_PREVIEW.plan.actions[0],
+        title:
+          "Restore sales_dialga_new_20261016100000 from s3://b/import/sales.bak (temporary name)",
+      },
+      {
+        id: "single-user",
+        title: "Close sales to other sessions (disconnects them)",
+        kind: "sql",
+        risk: "destructive",
+        statement: "ALTER DATABASE [sales] SET SINGLE_USER;",
+      },
+      {
+        id: "rename-old",
         title: `Rename sales to ${OLD}`,
         kind: "sql",
         risk: "destructive",
@@ -136,6 +147,16 @@ describe("Restore from S3 over an existing database", () => {
       replace: "swap",
     });
 
+    const actions = within(screen.getByRole("region", { name: "What runs" }));
+    expect(
+      actions.getByText("Restore sales beside the current one (temporary name)"),
+    ).toBeInTheDocument();
+    expect(
+      actions.getByText("Close sales to other sessions (disconnects them)"),
+    ).toBeInTheDocument();
+    expect(
+      actions.getByText("Rename sales to its old name (the current database is kept)"),
+    ).toBeInTheDocument();
     const run = screen.getByRole("button", { name: "Restore" });
     expect(run).toBeDisabled();
     await userEvent.type(screen.getByRole("textbox", { name: "Type sales to confirm" }), "sales");
