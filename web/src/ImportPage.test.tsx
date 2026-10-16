@@ -211,15 +211,17 @@ async function addAndVerify(...paths: string[]) {
   await userEvent.type(await screen.findByLabelText("File paths"), paths.join("\n"));
   await userEvent.click(screen.getByRole("button", { name: "Add files" }));
   await userEvent.click(screen.getByRole("button", { name: "Next" }));
-  expect(await screen.findByRole("heading", { level: 2, name: "Verify" })).toHaveFocus();
+  expect(
+    await screen.findByRole("heading", { level: 2, name: "Step 2 of 6: Verify" }),
+  ).toHaveFocus();
 }
 
 /** Verify → Destination → Preview, with the defaults. */
 async function toPreview() {
   await userEvent.click(await screen.findByRole("button", { name: "Next" }));
-  await screen.findByRole("heading", { level: 2, name: "Destination" });
+  await screen.findByRole("heading", { level: 2, name: "Step 3 of 6: Destination" });
   await userEvent.click(screen.getByRole("button", { name: "Preview" }));
-  await screen.findByRole("heading", { level: 2, name: "Preview" });
+  await screen.findByRole("heading", { level: 2, name: "Step 4 of 6: Preview" });
 }
 
 describe("ImportPage", () => {
@@ -242,7 +244,9 @@ describe("ImportPage", () => {
     open();
 
     // 1. Files
-    expect(await screen.findByRole("heading", { level: 2, name: "Files" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "Step 1 of 6: Files" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
     await addAndVerify(PATH);
     expect(body({ url: new URL(ENGINE.url), init: requestsTo(fetch, INSPECT)[0] })).toEqual({
@@ -259,9 +263,18 @@ describe("ImportPage", () => {
 
     // 3. Destination
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(await screen.findByRole("heading", { level: 2, name: "Destination" })).toHaveFocus();
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "Step 3 of 6: Destination" }),
+    ).toHaveFocus();
     expect(screen.getByLabelText("Database name")).toHaveValue("app_db");
     expect(screen.getByLabelText("S3 folder")).toHaveValue("import");
+    // The stepper goes back to a done step, and forward again with Next.
+    await userEvent.click(screen.getByRole("button", { name: "Go back to Verify" }));
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "Step 2 of 6: Verify" }),
+    ).toHaveFocus();
+    await userEvent.click(screen.getByRole("button", { name: "Next" }));
+    await screen.findByRole("heading", { level: 2, name: "Step 3 of 6: Destination" });
     expect(screen.getByText("s3://my-sqlserver-backups/import/app_db.bak")).toBeInTheDocument();
 
     // 4. Preview: the source check waits for the upload, the rest is ready.
@@ -285,7 +298,7 @@ describe("ImportPage", () => {
 
     // 5. Progress: the upload, then the restore.
     await userEvent.click(screen.getByRole("button", { name: "Start import" }));
-    await screen.findByRole("heading", { level: 2, name: "Progress" });
+    await screen.findByRole("heading", { level: 2, name: "Step 5 of 6: Progress" });
     upload.send("progress", {
       path: PATH,
       key: "import/app_db.bak",
@@ -300,6 +313,10 @@ describe("ImportPage", () => {
     await waitFor(() => expect(bar).toHaveAttribute("aria-valuenow", "50"));
     expect(screen.getByText("512 B of 1 KiB · 1 MiB/s · 1:05 left")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Cancel upload" })).toBeInTheDocument();
+    // While it runs, the done steps cannot be reopened.
+    expect(
+      within(screen.getByRole("navigation", { name: "Steps" })).queryAllByRole("button"),
+    ).toHaveLength(0);
     upload.send("done", { ok: true, results: [] });
     upload.close();
 
@@ -325,7 +342,9 @@ describe("ImportPage", () => {
     });
 
     // 6. Result: the post report with the orphaned users.
-    expect(await screen.findByRole("heading", { level: 2, name: "Result" })).toHaveFocus();
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "Step 6 of 6: Result" }),
+    ).toHaveFocus();
     expect(screen.getByText("Import complete: 1 restored.")).toBeInTheDocument();
     const result = await screen.findByRole("region", { name: "Database app_db" });
     expect(
@@ -347,7 +366,9 @@ describe("ImportPage", () => {
     );
 
     await userEvent.click(screen.getByRole("button", { name: "Import more files" }));
-    expect(await screen.findByRole("heading", { level: 2, name: "Files" })).toHaveFocus();
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "Step 1 of 6: Files" }),
+    ).toHaveFocus();
   });
 
   it("stops at a backup that cannot be restored and says what to do", async () => {
@@ -372,7 +393,9 @@ describe("ImportPage", () => {
 
     // Removing the only backup goes back to the files.
     await userEvent.click(screen.getByRole("button", { name: "Remove from the import" }));
-    expect(await screen.findByRole("heading", { level: 2, name: "Files" })).toHaveFocus();
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "Step 1 of 6: Files" }),
+    ).toHaveFocus();
     expect(screen.queryByText("app_db.bak")).not.toBeInTheDocument();
     expect(requestsTo(fetch, INSPECT)).toHaveLength(1);
   });
@@ -419,7 +442,9 @@ describe("ImportPage", () => {
       screen.getByText("The instance changed since the preview: preview again before going on."),
     ).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Back to the preview" }));
-    expect(await screen.findByRole("heading", { level: 2, name: "Preview" })).toHaveFocus();
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "Step 4 of 6: Preview" }),
+    ).toHaveFocus();
     await screen.findByText("Checked again after the upload.");
     expect(requestsTo(fetch, RESTORE)).toHaveLength(2);
   });
@@ -463,18 +488,42 @@ describe("ImportPage", () => {
     const start = await screen.findByRole("button", { name: "Start import" });
     expect(start).toBeDisabled();
     const confirm = screen.getByLabelText("Type prod-sql to confirm");
+    expect(confirm).toHaveAccessibleDescription(
+      "The instance is protected: every change asks to retype its name.",
+    );
     await userEvent.type(confirm, "prod");
     expect(start).toBeDisabled();
     await userEvent.type(confirm, "-sql");
     expect(start).toBeEnabled();
   });
 
+  it("asks to retype what the upload replaces", async () => {
+    const replacing = { ...BATCH, confirmation: "import/app_db.bak" };
+    mockFetch({
+      [TARGETS]: targets(DEV),
+      [INSPECT]: () => events(["result", RESTORABLE], ["done", { ok: true }]),
+      [UPLOADS]: () => json(replacing),
+      [RESTORE]: () => json(PREVIEW),
+    });
+    open();
+    await addAndVerify(PATH);
+    await toPreview();
+    const confirm = await screen.findByLabelText("Type import/app_db.bak to confirm");
+    expect(confirm).toHaveAccessibleDescription(
+      "The upload replaces objects already in the bucket: retype what it replaces to confirm.",
+    );
+  });
+
   it("speaks Italian", async () => {
     mockFetch({ [TARGETS]: targets(DEV) });
     window.location.hash = "#import/dev-sql";
     renderI18n(<ImportPage engine={ENGINE} engineError="" />, "it");
-    expect(await screen.findByRole("heading", { level: 1, name: "Importa" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { level: 2, name: "File" })).toBeInTheDocument();
+    // The page title shows while the instances load; the wizard comes with them.
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "Passo 1 di 6: File" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Importa" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Passi" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Avanti" })).toBeDisabled();
     expect(screen.getByLabelText("Percorsi dei file")).toBeInTheDocument();
   });

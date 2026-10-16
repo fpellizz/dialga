@@ -404,7 +404,7 @@ const en = {
   "import.step.preview": "Preview",
   "import.step.progress": "Progress",
   "import.step.result": "Result",
-  "import.stepDone": "(done)",
+  "import.onTarget": "On {target} ({instance})",
   "import.back": "Back",
   "import.next": "Next",
   "import.toPreview": "Preview",
@@ -460,6 +460,8 @@ const en = {
   "import.restoreBlocked": "This restore cannot run: fix what the checks say, then preview again.",
   "import.confirmLabel": "Type {name} to confirm",
   "import.confirmHint": "The instance is protected: every change asks to retype its name.",
+  "import.confirmReplace":
+    "The upload replaces objects already in the bucket: retype what it replaces to confirm.",
   "import.previewAgain": "Preview again",
   "import.start": "Start import",
   "import.sent": "{done} of {total}",
@@ -488,6 +490,10 @@ const en = {
   "import.done": "Import complete: {count} restored.",
   "import.openDatabases": "Open Databases",
   "import.again": "Import more files",
+  "wizard.steps": "Steps",
+  "wizard.goTo": "Go back to {step}",
+  "wizard.done": "(done)",
+  "wizard.count": "Step {n} of {total}",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -903,7 +909,7 @@ const it: Record<MessageKey, string> = {
   "import.step.preview": "Anteprima",
   "import.step.progress": "Avanzamento",
   "import.step.result": "Esito",
-  "import.stepDone": "(fatto)",
+  "import.onTarget": "Su {target} ({instance})",
   "import.back": "Indietro",
   "import.next": "Avanti",
   "import.toPreview": "Anteprima",
@@ -960,6 +966,8 @@ const it: Record<MessageKey, string> = {
     "Questo ripristino non può partire: risolvi quanto indicano i controlli, poi rifai l'anteprima.",
   "import.confirmLabel": "Scrivi {name} per confermare",
   "import.confirmHint": "L'istanza è protetta: ogni modifica chiede di riscriverne il nome.",
+  "import.confirmReplace":
+    "L'upload sostituisce oggetti già presenti nel bucket: riscrivi cosa sostituisce per confermare.",
   "import.previewAgain": "Rifai l'anteprima",
   "import.start": "Avvia l'import",
   "import.sent": "{done} su {total}",
@@ -989,6 +997,10 @@ const it: Record<MessageKey, string> = {
   "import.done": "Import completato: {count} ripristinati.",
   "import.openDatabases": "Apri Database",
   "import.again": "Importa altri file",
+  "wizard.steps": "Passi",
+  "wizard.goTo": "Torna a {step}",
+  "wizard.done": "(completato)",
+  "wizard.count": "Passo {n} di {total}",
 };
 
 export const messages: Record<Lang, Record<MessageKey, string>> = { en, it };

@@ -389,7 +389,8 @@ export function ImportPreview({
               aria-describedby={`import-confirm-${c}-hint`}
             />
             <p id={`import-confirm-${c}-hint`} className="hint">
-              {t("import.confirmHint")}
+              {/* The target name: a protected instance. Anything else: objects the upload replaces. */}
+              {t(c === target.name ? "import.confirmHint" : "import.confirmReplace")}
             </p>
           </div>
         ))}

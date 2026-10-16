@@ -3,7 +3,6 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import {
   ArrowLeft,
   ArrowRight,
-  Check,
   FileUp,
   LoaderCircle,
   Plus,
@@ -11,7 +10,7 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { errorText, listTargets, type StepEvent, type TargetList, type TargetSummary } from "./api";
 import { formatBytes } from "./databases";
 import type { EngineInfo } from "./engine";
@@ -35,6 +34,7 @@ import {
 } from "./importWizard";
 import { type InspectedBackup, type InspectResult, inspectBackups } from "./inspect";
 import { StepList } from "./StepList";
+import { Wizard } from "./Wizard";
 
 const IMPORT_HASH = "#import/";
 
@@ -115,18 +115,8 @@ export function ImportPage({
     listTargets(engine).then(setList, (e: unknown) => setLoadError(errorText(e)));
   }, [engine]);
 
-  // The focus follows the step the user moves to, so a screen reader hears where it is.
-  const focusOn = useRef<WizardStep | null>(null);
-  useEffect(() => {
-    if (focusOn.current === step) {
-      focusOn.current = null;
-      headingRef.current?.focus();
-    }
-  }, [step]);
-  const show = (next: WizardStep) => {
-    focusOn.current = next;
-    setStep(next);
-  };
+  // The Wizard shell moves the focus to the heading of every new step.
+  const show = setStep;
 
   useEffect(() => () => inspectAbort.current?.abort(), []);
 
@@ -216,138 +206,166 @@ export function ImportPage({
   };
 
   const loading = !list && !loadError && !engineError;
-  const index = STEPS.indexOf(step);
-  return (
-    <div className="page">
-      <header className="page-head">
-        <div>
-          <h1>{t("import.title")}</h1>
-          <p className="lead">{t("import.lead")}</p>
-        </div>
-        {targets.length > 0 && (
-          <div className="form-field import-target">
-            <label htmlFor="import-target">{t("import.target")}</label>
-            <select
-              id="import-target"
-              className="input"
-              value={target?.name ?? ""}
-              onChange={(e) => chooseTarget(e.target.value)}
-              disabled={running || step === "progress"}
-            >
-              {!target && <option value="">{t("import.chooseTarget")}</option>}
-              {targets.map((x) => (
-                <option key={x.name} value={x.name}>
-                  {x.name} · {x.instance}
-                </option>
-              ))}
-            </select>
+  const picker = (
+    <TargetSelect
+      targets={targets}
+      value={target?.name ?? ""}
+      onChange={chooseTarget}
+      disabled={running || step === "progress"}
+    />
+  );
+
+  if (!engine || !target) {
+    // No wizard yet: loading, an error, no instance, or an unknown one in the link.
+    return (
+      <div className="page">
+        <header className="page-head">
+          <div>
+            <h1>{t("import.title")}</h1>
+            <p className="lead">{t("import.lead")}</p>
+          </div>
+        </header>
+        {(engineError || loadError || list?.error) && (
+          <div className="banner banner-fail" role="alert">
+            <span className="banner-text">{engineError || loadError || list?.error}</span>
           </div>
         )}
-      </header>
+        {loading && <div className="card skeleton" aria-hidden="true" />}
+        {list && !list.error && targets.length === 0 && (
+          <section className="empty" role="status">
+            <Upload size={20} aria-hidden="true" />
+            <h2>{t("import.noTargets")}</h2>
+            <p>{t("import.noTargetsHint")}</p>
+            <a className="btn btn-primary" href="#instances">
+              {t("instances.add")}
+            </a>
+          </section>
+        )}
+        {list && targetName && targets.length > 0 && (
+          <>
+            <div className="banner banner-warn" role="status">
+              <span className="banner-text">{t("import.unknownTarget", { name: targetName })}</span>
+            </div>
+            <div className="card">{picker}</div>
+          </>
+        )}
+      </div>
+    );
+  }
 
-      {(engineError || loadError || list?.error) && (
-        <div className="banner banner-fail" role="alert">
-          <span className="banner-text">{engineError || loadError || list?.error}</span>
-        </div>
+  return (
+    <Wizard
+      title={t("import.title")}
+      lead={t("import.lead")}
+      steps={STEPS.map((id) => ({ id, label: t(`import.step.${id}`) }))}
+      current={STEPS.indexOf(step)}
+      onStep={(i) => goTo(STEPS[i])}
+      locked={running || step === "progress" || step === "result"}
+      busy={inspect.running}
+      titleRef={headingRef}
+    >
+      {step === "files" && (
+        <FilesStep
+          picker={picker}
+          files={files}
+          onChange={setFiles}
+          onNext={() => goTo("verify")}
+        />
       )}
-      {loading && <div className="card skeleton" aria-hidden="true" />}
-      {list && !list.error && targets.length === 0 && (
-        <section className="empty" role="status">
-          <Upload size={20} aria-hidden="true" />
-          <h2>{t("import.noTargets")}</h2>
-          <p>{t("import.noTargetsHint")}</p>
-          <a className="btn btn-primary" href="#instances">
-            {t("instances.add")}
-          </a>
-        </section>
+      {step !== "files" && (
+        <p className="muted">
+          {t("import.onTarget", { target: target.name, instance: target.instance })}
+        </p>
       )}
-      {list && targetName && !target && targets.length > 0 && (
-        <div className="banner banner-warn" role="status">
-          <span className="banner-text">{t("import.unknownTarget", { name: targetName })}</span>
-        </div>
+      {step === "verify" && (
+        <VerifyStep
+          inspect={inspect}
+          onRetry={() => runInspect(files, inspectKey, target.name)}
+          onRemove={removeBackup}
+          onBack={() => show("files")}
+          onNext={() => goTo("destination")}
+        />
       )}
+      {step === "destination" && inspect.result && (
+        <DestinationStep
+          target={target}
+          result={inspect.result}
+          folder={s3Folder}
+          onFolder={setFolder}
+          destinations={destinations}
+          onDestinations={setDestinations}
+          onBack={() => show("verify")}
+          onNext={() => goTo("preview")}
+        />
+      )}
+      {step === "preview" && inspect.result && (
+        <ImportPreview
+          engine={engine}
+          target={target}
+          result={inspect.result}
+          folder={s3Folder}
+          destinations={destinations}
+          onBack={() => show("destination")}
+          onStart={(start) => {
+            show("progress");
+            start(setRun).then((ok) => ok && show("result"));
+          }}
+        />
+      )}
+      {step === "progress" && inspect.result && (
+        <ImportProgress
+          target={target}
+          run={run}
+          onBackToPreview={() => {
+            setRun(IDLE_RUN);
+            show("preview");
+          }}
+          onResult={() => show("result")}
+        />
+      )}
+      {step === "result" && (
+        <ImportResult
+          engine={engine}
+          target={target}
+          destinations={destinations}
+          run={run}
+          onAgain={reset}
+        />
+      )}
+    </Wizard>
+  );
+}
 
-      {engine && target && (
-        <section className="card wizard" aria-labelledby="import-step-title">
-          <ol className="wizard-steps">
-            {STEPS.map((s, i) => (
-              <li
-                key={s}
-                className={i < index ? "done" : i === index ? "current" : undefined}
-                aria-current={i === index ? "step" : undefined}
-              >
-                <span className="wizard-dot" aria-hidden="true">
-                  {i < index ? <Check size={12} /> : i + 1}
-                </span>
-                <span>{t(`import.step.${s}`)}</span>
-                {i < index && <span className="sr-only">{t("import.stepDone")}</span>}
-              </li>
-            ))}
-          </ol>
-          <h2 id="import-step-title" ref={headingRef} tabIndex={-1} className="wizard-title">
-            {t(`import.step.${step}`)}
-          </h2>
-
-          {step === "files" && (
-            <FilesStep files={files} onChange={setFiles} onNext={() => goTo("verify")} />
-          )}
-          {step === "verify" && (
-            <VerifyStep
-              inspect={inspect}
-              onRetry={() => runInspect(files, inspectKey, target.name)}
-              onRemove={removeBackup}
-              onBack={() => show("files")}
-              onNext={() => goTo("destination")}
-            />
-          )}
-          {step === "destination" && inspect.result && (
-            <DestinationStep
-              target={target}
-              result={inspect.result}
-              folder={s3Folder}
-              onFolder={setFolder}
-              destinations={destinations}
-              onDestinations={setDestinations}
-              onBack={() => show("verify")}
-              onNext={() => goTo("preview")}
-            />
-          )}
-          {step === "preview" && inspect.result && (
-            <ImportPreview
-              engine={engine}
-              target={target}
-              result={inspect.result}
-              folder={s3Folder}
-              destinations={destinations}
-              onBack={() => show("destination")}
-              onStart={(start) => {
-                show("progress");
-                start(setRun).then((ok) => ok && show("result"));
-              }}
-            />
-          )}
-          {step === "progress" && inspect.result && (
-            <ImportProgress
-              target={target}
-              run={run}
-              onBackToPreview={() => {
-                setRun(IDLE_RUN);
-                show("preview");
-              }}
-              onResult={() => show("result")}
-            />
-          )}
-          {step === "result" && (
-            <ImportResult
-              engine={engine}
-              target={target}
-              destinations={destinations}
-              run={run}
-              onAgain={reset}
-            />
-          )}
-        </section>
-      )}
+/** The instance the import restores on. */
+function TargetSelect({
+  targets,
+  value,
+  onChange,
+  disabled,
+}: {
+  targets: TargetSummary[];
+  value: string;
+  onChange: (name: string) => void;
+  disabled: boolean;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="form-field import-target">
+      <label htmlFor="import-target">{t("import.target")}</label>
+      <select
+        id="import-target"
+        className="input"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+      >
+        {!value && <option value="">{t("import.chooseTarget")}</option>}
+        {targets.map((x) => (
+          <option key={x.name} value={x.name}>
+            {x.name} · {x.instance}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
@@ -383,12 +401,14 @@ function WizardNav({
   );
 }
 
-/** 1. The local .bak files: dropped on the window (desktop app) or typed. */
+/** 1. The instance and the local .bak files: dropped on the window (desktop app) or typed. */
 function FilesStep({
+  picker,
   files,
   onChange,
   onNext,
 }: {
+  picker: ReactNode;
   files: string[];
   onChange: (files: string[]) => void;
   onNext: () => void;
@@ -452,6 +472,7 @@ function FilesStep({
 
   return (
     <div className="wizard-body">
+      {picker}
       {/* The browser gives no file paths on a drop: it only blocks navigating to the file. */}
       <section
         className={dragging ? "dropzone dragging" : "dropzone"}

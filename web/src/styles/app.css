@@ -1443,69 +1443,7 @@ summary:focus-visible {
 
 /* Import wizard */
 .import-target {
-  min-width: 240px;
-}
-.wizard {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.wizard-steps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 16px;
-  margin: 0;
-  padding: 0 0 12px;
-  border-bottom: 1px solid var(--border);
-  list-style: none;
-  counter-reset: none;
-}
-.wizard-steps li {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted-foreground);
-  font-weight: 500;
-}
-.wizard-steps li.current {
-  color: var(--foreground);
-}
-.wizard-dot {
-  display: inline-grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-full);
-  font-size: 11px;
-}
-.wizard-steps li.current .wizard-dot {
-  border-color: var(--primary);
-  background: var(--primary);
-  color: var(--primary-foreground);
-}
-.wizard-steps li.done .wizard-dot {
-  border-color: var(--primary);
-  color: var(--primary);
-}
-.wizard-title:focus {
-  outline: none;
-}
-.wizard-body {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.wizard-nav {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-.wizard-nav .btn-primary {
-  order: 10;
+  max-width: 420px;
 }
 .dropzone {
   display: flex;
@@ -1591,4 +1529,105 @@ a.btn {
 .wizard-body p,
 .plan p {
   margin: 0;
+}
+
+/* Wizard shell (Export, Import): the same class names as the Import wizard */
+.wizard {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.wizard-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 0;
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--border);
+  list-style: none;
+}
+.wizard-steps li {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+.wizard-steps li > span,
+.wizard-jump {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.wizard-steps li.current {
+  color: var(--foreground);
+}
+.wizard-jump {
+  padding: 2px 4px;
+  margin: -2px -4px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.wizard-jump:hover {
+  color: var(--foreground);
+  text-decoration: underline;
+}
+.wizard-jump:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.wizard-dot {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--control-border);
+  border-radius: var(--radius-full);
+  font-size: 11px;
+}
+.wizard-steps li.current .wizard-dot {
+  border-color: var(--primary-fill);
+  background: var(--primary-fill);
+  color: var(--primary-foreground);
+}
+.wizard-steps li.done .wizard-dot {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.wizard-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.wizard-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wizard-title:focus {
+  outline: none;
+}
+.wizard-count {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+}
+.wizard-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.wizard-nav {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.wizard-nav .btn-primary {
+  order: 10;
 }
