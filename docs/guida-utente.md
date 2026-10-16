@@ -4,7 +4,7 @@
 |---|---|
 | **Data** | 2026-10-16 |
 | **Autore** | Fabio Pellizzaro (con Claude Code) |
-| **Versione documentata** | `0.2.0 + funzioni non rilasciate (wave 2)` |
+| **Versione documentata** | `0.3.0` |
 | **Destinatari** | Sviluppatori e amministratori DLOOP che importano o esportano database SQL Server su Amazon RDS |
 | **Piattaforma** | Linux x86_64 (app desktop e CLI); solo CLI su Windows e macOS |
 
@@ -12,8 +12,7 @@
 > - Dialga importa ed esporta database SQL Server su istanze **Amazon RDS** passando per **S3** (backup e restore nativi `rds_*`). Ha un'**app desktop** e una **CLI** (`dialga`), che usano lo stesso engine.
 > - Oggi fa: **controlli preliminari** (`check`, `doctor`), **configurazione guidata** (`config init`), **upload e download su S3** (`upload`, `download`), **operazioni native** (`restore`, `export`, `finish`, `cancel`, `drop`, `post`), **task nativi** (`status`, `wait`), **tunnel SSM integrato** (`tunnel`), **elenco dei database** (`databases`) e **ispezione dei `.bak`** (`inspect`).
 > - Ogni comando che modifica qualcosa mostra prima un'**anteprima** (dry-run) e cambia lo stato solo con `--apply`; i target protetti e le azioni distruttive chiedono di riscrivere un testo di conferma.
-> - Nell'app desktop ci sono le azioni sui database (Export, Report, Drop, Finish, Restore from S3), l'aggiunta guidata di un'istanza e il tunnel condiviso. I **wizard Import ed Export**, la schermata **Activity** (coda dei job) e la **ripresa dei job** sono nella wave 2, non ancora rilasciata (segnati con `> Non rilasciato`).
-> - **Funzioni non rilasciate (wave 2)**: `dialga import`, `dialga run`, `dialga jobs` (§5.12–§5.14), i wizard **Import** ed **Export** e la pagina **Activity** dell'app (§6.7–§6.9), i job con un tunnel per job (§4.4) e il default `tunnel` di `config init` e `config add-target` (§4.1.1) non sono nella 0.2.0: le sezioni che le descrivono sono segnate con `> Non rilasciato`.
+> - Nell'app desktop ci sono le azioni sui database (Export, Report, Drop, Finish, Restore from S3), l'aggiunta guidata di un'istanza e il tunnel condiviso. Ci sono anche i **wizard Import ed Export**, la schermata **Activity** (coda dei job) e la **ripresa dei job**.
 > - La password SQL **non è mai nel file di configurazione**: il file dice solo da dove leggerla.
 
 ## 1. Cosa c'è oggi
@@ -28,13 +27,13 @@
 | Tunnel SSM verso l'istanza | `dialga tunnel`, `connect.mode: tunnel` | Tunnel condiviso, indicatore sulla scheda e nella barra laterale | Disponibile |
 | Database dell'istanza | `dialga databases` | Databases | Disponibile |
 | Panoramica dell'istanza (stato, spazio, DB, task attivi) | — | Instances, nella scheda | Disponibile |
-| Ispezione dei `.bak` | `dialga inspect` | Passo *Files → Verify* del wizard Import | Disponibile (nell'app: non rilasciato) |
-| Upload e download su S3 | `dialga upload`, `dialga download` | Dentro i wizard Import ed Export (non rilasciato) | CLI disponibile |
+| Ispezione dei `.bak` | `dialga inspect` | Passo *Files → Verify* del wizard Import | Disponibile |
+| Upload e download su S3 | `dialga upload`, `dialga download` | Dentro i wizard Import ed Export | Disponibile |
 | Restore, export, finish, drop di un database | `dialga restore`, `export`, `finish`, `drop` | Databases: *Restore from S3*, *Export*, *Finish restore*, *Drop* | Disponibile |
 | Report dopo il restore | `dialga post` | Databases → *Report* | Disponibile |
-| Import di più database come un solo job | `dialga import`, `dialga run` (piano YAML) | Wizard Import | Non rilasciato |
-| Export di più database come un solo job | `dialga run` (piano YAML) | Wizard Export, *Export selected* in Databases | Non rilasciato |
-| Elenco, dettaglio e ripresa dei job | `dialga jobs`, `dialga jobs show`, `dialga jobs resume` | Activity | Non rilasciato |
+| Import di più database come un solo job | `dialga import`, `dialga run` (piano YAML) | Wizard Import | Disponibile |
+| Export di più database come un solo job | `dialga run` (piano YAML) | Wizard Export, *Export selected* in Databases | Disponibile |
+| Elenco, dettaglio e ripresa dei job | `dialga jobs`, `dialga jobs show`, `dialga jobs resume` | Activity | Disponibile |
 
 ## 2. Installazione
 
@@ -159,7 +158,7 @@ dialga config init [--profile P] [--region R] [--instance I] [--bucket B] [--sql
 - Un target con lo stesso nome non viene toccato senza `--replace`.
 - Default: regione del profilo (altrimenti `us-east-1`), profilo `$AWS_PROFILE` (altrimenti `default`), modalità `tunnel` (tunnel SSM integrato; con `--mode external` la porta `--local-port` vale `11433`), nome ricavato dall'identificativo dell'istanza.
 
-> Non rilasciato: nella 0.2.0 `config init` e `config add-target` avevano `external` come modalità predefinita; ora è `tunnel`, come in *Add instance* dell'app. Un target **già nel file** senza `connect.mode` resta `external` (§4.2): il default di `tunnel` vale solo per i target che questi comandi scrivono.
+> Novità della 0.3.0: nella 0.2.0 `config init` e `config add-target` avevano `external` come modalità predefinita; ora è `tunnel`, come in *Add instance* dell'app. Un target **già nel file** senza `connect.mode` resta `external` (§4.2): il default di `tunnel` vale solo per i target che questi comandi scrivono.
 
 #### 4.1.2 `dialga config add-target` e `remove-target`
 
@@ -246,7 +245,7 @@ Chi usa la porta locale, in modalità `tunnel`:
 | `dialga tunnel` | `--port`, altrimenti `connect.local_port`, altrimenti una libera | Ctrl-C o SIGTERM |
 | App desktop | `connect.local_port` (`0` o assente = una libera): **un solo tunnel per target**, condiviso da panoramica, check, database e operazioni | Si chiude da solo dopo **10 minuti** senza utilizzatori se è stato aperto dall'uso; resta aperto finché non lo disconnetti se l'hai aperto con *Connect*; si chiude comunque all'uscita dall'app (§6.1) |
 
-> Non rilasciato: un **job** apre **un solo tunnel per target**, non uno per database. Nella CLI (`dialga import`, `dialga run`, `dialga jobs resume`) il tunnel è del job: lo usano il controllo preliminare e tutti i database, e si chiude alla fine del job (anche con Ctrl-C). Nell'app i job prendono in prestito il tunnel condiviso del target (quello dell'indicatore): uno solo per target, anche con più job insieme.
+> Novità della 0.3.0: un **job** apre **un solo tunnel per target**, non uno per database. Nella CLI (`dialga import`, `dialga run`, `dialga jobs resume`) il tunnel è del job: lo usano il controllo preliminare e tutti i database, e si chiude alla fine del job (anche con Ctrl-C). Nell'app i job prendono in prestito il tunnel condiviso del target (quello dell'indicatore): uno solo per target, anche con più job insieme.
 
 Ogni comando singolo apre la sua sessione SSM (qualche secondo in più). Se lavori a lungo con un client SQL o con molti comandi di fila, tieni aperto un tunnel con `dialga tunnel` (§5.5) e usa un target `external` sulla stessa porta. L'indicatore del tunnel dell'app è nel §6.3.
 
@@ -658,8 +657,6 @@ Per le voci mancanti stampa il comando di installazione per la tua distribuzione
 
 ### 5.12 `dialga import`
 
-> Non rilasciato (wave 2).
-
 Importa uno o più `.bak` come **un solo job**: per ogni database `upload` su S3 (multipart, checksum verificato) → `restore` → attesa del task nativo → report `post` in sola lettura (non con `--norecovery`). I database avanzano **in parallelo**, nei limiti di `max_tasks` del target; un database che fallisce non ferma gli altri.
 
 ```bash
@@ -694,8 +691,6 @@ dialga import <file.bak>... [-t target] [--db nome,...] [--key K | --prefix P] [
 
 ### 5.13 `dialga run`
 
-> Non rilasciato (wave 2).
-
 Esegue un job di import **o di export** di più database descritto da un **piano YAML**.
 
 ```bash
@@ -710,8 +705,6 @@ Schema del piano (`apiVersion: v1`, `kind: Import` o `Export`, `target`, `items`
 - Un `kind: Export` con `destination` scarica il backup dopo l'export; senza, il backup resta in S3.
 
 ### 5.14 `dialga jobs`
-
-> Non rilasciato (wave 2).
 
 I job dell'**app desktop** sono registrati in un **journal** su disco: `$XDG_STATE_HOME/dialga/jobs`, oppure `~/.local/state/dialga/jobs` (Linux). `dialga jobs` lo legge **in sola lettura**, anche con l'app aperta.
 
@@ -861,8 +854,6 @@ Ogni azione che modifica qualcosa (Restore, Export, Finish, Drop, Cancel) apre l
 
 ### 6.7 Wizard Import
 
-> Non rilasciato (wave 2).
-
 Voce **Import** (*Importa*) della barra laterale, oppure `#import/<target>`. In alto, la scelta dell'istanza (*Instance*). Sei passi in ordine, con l'indicatore *Step N of 6*; dai passi già fatti si può tornare indietro (*Go back to …*). Non cambia nulla su AWS finché non premi *Start import*.
 
 | Passo | Cosa si fa |
@@ -888,8 +879,6 @@ Con `Leave the database restoring` il risultato dice che il database resta in re
 
 ### 6.8 Wizard Export
 
-> Non rilasciato (wave 2).
-
 Voce **Export** (*Esporta*), oppure `#export/<target>?db=<nome>&db=<nome>`. Fa il backup nativo RDS di uno o più database su S3 e, a richiesta, li scarica. Sei passi, nulla cambia prima di *Run export*.
 
 | Passo | Cosa si fa |
@@ -907,8 +896,6 @@ Voce **Export** (*Esporta*), oppure `#export/<target>?db=<nome>&db=<nome>`. Fa i
 - **Export selected**: in Databases (§6.4) si spuntano i database (*Select …*, *Select all shown databases*) e *Export selected (N)* (*Esporta i selezionati*) apre il wizard già sui database scelti.
 
 ### 6.9 Activity
-
-> Non rilasciato (wave 2).
 
 Voce **Activity** (*Attività*), con il numero dei job in corso accanto al nome. Mostra gli **import ed export dell'app**: prima quelli in corso (*Running*), poi lo storico (*History*): gli ultimi 200 job, al massimo 30 giorni.
 
@@ -1066,8 +1053,6 @@ Se capita spesso, valuta con l'amministratore un aggiornamento di major version 
 
 ### 7.9 Job, wizard e Activity
 
-> Non rilasciato (wave 2).
-
 | Messaggio | Causa | Cosa fare |
 |---|---|---|
 | **412**: `pre-flight failed, nothing was started: …` (app) / `Nothing was started.` (CLI, exit `2`) | Un controllo preliminare di almeno un database è fallito: il job non è partito | Nel wizard leggi i controlli in *Not ready* e correggi; con `--skip-failing` (*skipFailing*) si lasciano fuori i database che falliscono |
@@ -1091,7 +1076,7 @@ Se capita spesso, valuta con l'amministratore un aggiornamento di major version 
 |---|---|
 | `docs/config.example.yaml` | Configurazione di esempio commentata |
 | `docs/iam-policy.md`, `docs/iam-policy.json` | Policy IAM minima per gli utenti |
-| `docs/piani-job.md` | Piani YAML di `dialga run`, controlli preliminari dei job, API dei job (non rilasciato) |
+| `docs/piani-job.md` | Piani YAML di `dialga run`, controlli preliminari dei job, API dei job |
 | `docs/release.md` | Come si rilascia e si installa una versione |
 | `engine/internal/api/openapi.yaml` | Contratto OpenAPI dell'API locale dell'app (`GET /api/v1/openapi.yaml` sull'engine in esecuzione) |
 | `CHANGELOG.md` | Modifiche per versione |

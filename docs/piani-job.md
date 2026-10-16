@@ -4,7 +4,7 @@
 |---|---|
 | **Data** | 2026-10-16 |
 | **Autore** | Fabio Pellizzaro (con Claude Code) |
-| **Versione documentata** | `0.2.0 + funzioni non rilasciate (wave 2)`, branch `feature/v0.2-wave2` |
+| **Versione documentata** | `0.3.0` |
 | **Oggetto** | Import ed export di più database come un solo job: CLI `import`, `run <piano.yaml>`, API `POST /api/v1/jobs` |
 
 > **Sintesi**
