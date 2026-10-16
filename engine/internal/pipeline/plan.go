@@ -256,14 +256,13 @@ func (b *builder) importItem(ctx context.Context, in ImportItem) error {
 	if in.NoRecovery {
 		wait.Result = in.Database + " stays RESTORING: restore a differential backup, or finish it with dialga finish " + in.Database
 	}
-	state := &ItemState{}
 	it.Actions = append(it.Actions, restore, waitAction("restore", b.env.interval()))
 	if len(upload.Files) > 0 {
 		it.steps = append(it.steps, upload.Step(b.env, it.Actions[0].Title))
 	}
 	it.steps = append(it.steps,
-		TaskParams{Statement: restore.Statement, Database: in.Database}.Step(b.env, "restore", restore.Title, state),
-		wait.Step(b.env, state))
+		TaskParams{Statement: restore.Statement, Database: in.Database}.Step(b.env, "restore", restore.Title),
+		wait.Step(b.env))
 	if !in.NoRecovery {
 		post := PostParams{Database: in.Database}
 		it.Actions = append(it.Actions, core.Action{
@@ -360,15 +359,14 @@ func (b *builder) exportItem(ctx context.Context, in ExportItem) error {
 
 	export := prep.Plan.Actions[0]
 	export.Run = nil
-	state := &ItemState{}
 	it.Actions = append(it.Actions, export, waitAction("backup", b.env.interval()))
 	wait := WaitParams{What: "backup"}
 	if in.Destination == "" {
 		wait.Result = in.Database + " exported to " + b.where(it.Key)
 	}
 	it.steps = []jobs.Step{
-		TaskParams{Statement: export.Statement, Database: in.Database}.Step(b.env, "export", export.Title, state),
-		wait.Step(b.env, state),
+		TaskParams{Statement: export.Statement, Database: in.Database}.Step(b.env, "export", export.Title),
+		wait.Step(b.env),
 	}
 	if in.Destination != "" {
 		dl, err := b.localFile(&it, in)
