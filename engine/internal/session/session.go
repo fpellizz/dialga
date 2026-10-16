@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+
 	"github.com/decisyon/dialga/engine/internal/awsx"
 	"github.com/decisyon/dialga/engine/internal/config"
 	"github.com/decisyon/dialga/engine/internal/mssql"
@@ -45,27 +47,34 @@ func PasswordFromEnv(t config.Target, getenv func(string) string) (string, error
 // Open connects to the SQL Server of t and checks the login. The caller
 // closes the returned pool.
 func Open(ctx context.Context, t config.Target, password string) (*sql.DB, error) {
+	db, _, err := OpenWithAWS(ctx, t, password)
+	return db, err
+}
+
+// OpenWithAWS is Open that also returns the AWS configuration it checked,
+// for the callers that reach S3 too. The caller closes the returned pool.
+func OpenWithAWS(ctx context.Context, t config.Target, password string) (*sql.DB, aws.Config, error) {
 	if t.Connect.Mode == config.ModeTunnel {
-		return nil, config.ErrTunnelNotYet
+		return nil, aws.Config{}, config.ErrTunnelNotYet
 	}
 	cfg, _, err := awsx.Load(ctx, t.AWSProfile, t.Region, t.AccountID)
 	if err != nil {
-		return nil, err
+		return nil, aws.Config{}, err
 	}
 	inst, err := awsx.DescribeInstance(ctx, cfg, t.Instance)
 	if err != nil {
-		return nil, fmt.Errorf("RDS instance %s: %w", t.Instance, err)
+		return nil, aws.Config{}, fmt.Errorf("RDS instance %s: %w", t.Instance, err)
 	}
 	addr := mssql.Addr(t.Connect.Mode == config.ModeDirect, t.Connect.LocalPort, inst.Endpoint, inst.Port)
 	db, err := mssql.Open(addr, inst.Endpoint, t.SQL.User, password)
 	if err != nil {
-		return nil, err
+		return nil, aws.Config{}, err
 	}
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
-		return nil, fmt.Errorf("SQL Server on %s: %w", addr, err)
+		return nil, aws.Config{}, fmt.Errorf("SQL Server on %s: %w", addr, err)
 	}
-	return db, nil
+	return db, cfg, nil
 }
 
 // OpenTasks opens a session on t for reading its native tasks; close ends it.
