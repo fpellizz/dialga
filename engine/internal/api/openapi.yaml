@@ -510,6 +510,68 @@ paths:
               schema: { $ref: "#/components/schemas/JobList" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+    post:
+      summary: Plan or start an import or an export of databases
+      description: |
+        Runs the read-only pre-flight checks of every database (the upload or
+        the destination, the database, the native tasks), then starts one job:
+        import = upload, restore, wait, post (no post with noRecovery);
+        export = export, wait, download. The job runs in the engine: follow it
+        on /api/v1/jobs/{id}/events, stop it with /api/v1/jobs/{id}/cancel
+        (uploads are aborted, native tasks keep running). When the engine
+        stops, its uploads keep their parts for a resume.
+
+        With dryRun the answer is the plan (JobPlan) and nothing changes. Send
+        back the keys of the preview (items[].key: the default export key has a
+        timestamp) and its digest, so the job that starts is the one previewed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/JobRequest" }
+      responses:
+        "200":
+          description: The plan (dryRun); nothing was started.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobPlan" }
+        "201":
+          description: The job started; Location is its URL.
+          headers:
+            Location:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "400":
+          description: Invalid body, kind, items, paths or keys.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "412":
+          description: A pre-flight check failed (and skipFailing is off), or the digest differs from the plan.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobRefused" }
+        "422":
+          description: confirm does not match the confirmation of the plan, or no SQL password in the engine environment.
+          content:
+            text/plain:
+              schema: { type: string }
+        "502":
+          description: AWS or SQL Server did not answer during the pre-flight.
+          content:
+            text/plain:
+              schema: { type: string }
+        "503":
+          description: The engine is stopping.
+          content:
+            text/plain:
+              schema: { type: string }
   /api/v1/jobs/{id}:
     get:
       summary: One job, with its databases, steps and event log
@@ -639,6 +701,194 @@ paths:
           content:
             text/plain:
               schema: { type: string }
+  /api/v1/tunnels:
+    get:
+      summary: The shared tunnels of the tunnel-mode targets
+      description: |
+        One entry per target with connect.mode tunnel, in name order, open or
+        not. A missing configuration file gives an empty list.
+      responses:
+        "200":
+          description: The tunnels.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TunnelList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+  /api/v1/targets/{name}/tunnel:
+    parameters:
+      - $ref: "#/components/parameters/TargetName"
+    get:
+      summary: The shared tunnel of a target
+      description: |
+        The engine keeps one SSM tunnel per tunnel-mode target, shared by all
+        its SQL sessions. One opened by use closes after 10 minutes without
+        users; it reconnects by itself while open.
+      responses:
+        "200":
+          description: The state of the tunnel.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TunnelState" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "422": { $ref: "#/components/responses/NotTunnelMode" }
+    post:
+      summary: Open the tunnel now and keep it open
+      description: |
+        Answers once the tunnel is ready; the events show the way there. A
+        tunnel opened this way has no idle close: it stays until DELETE or
+        until the engine stops.
+      responses:
+        "200":
+          description: The tunnel is ready.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TunnelState" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "422": { $ref: "#/components/responses/NotTunnelMode" }
+        "502":
+          description: The tunnel did not open (credentials, bridge, plugin, timeout).
+          content:
+            text/plain:
+              schema: { type: string }
+        "503":
+          description: The engine is stopping.
+          content:
+            text/plain:
+              schema: { type: string }
+    delete:
+      summary: Close the tunnel now
+      description: Closes it even with users, whose sessions fail; the next session opens a new one.
+      responses:
+        "200":
+          description: The tunnel is closed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TunnelState" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "422": { $ref: "#/components/responses/NotTunnelMode" }
+  /api/v1/targets/{name}/tunnel/events:
+    get:
+      summary: The changes of state of the tunnel
+      description: |
+        Server-Sent Events: a "state" event (TunnelState) with the current
+        state, then one per change (including the number of users), and a
+        comment every 20 seconds. The stream ends when the engine stops.
+      parameters:
+        - $ref: "#/components/parameters/TargetName"
+      responses:
+        "200":
+          description: The event stream.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "422": { $ref: "#/components/responses/NotTunnelMode" }
+  /api/v1/targets/{name}/uploads:
+    post:
+      summary: Plan or run the upload of local files to the bucket of a target
+      description: |
+        Multipart uploads with a CRC64NVME checksum S3 verifies; an object that
+        exists is never replaced without overwrite.
+
+        With apply false (the default) the answer is the plan and nothing
+        changes. With apply true the plan runs and the answer streams
+        Server-Sent Events: one "plan" (TransferPlan), "step" (StepEvent) when
+        a file starts and ends, "progress" (TransferProgressEvent) at most 4 times a
+        second, then one "done" (TransferDone). Rejected files are in the plan
+        with their reason and are not uploaded; the others are. Closing the
+        stream cancels the upload, which is aborted in S3.
+      parameters:
+        - $ref: "#/components/parameters/TargetName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UploadsRequest" }
+      responses:
+        "200":
+          description: The plan (apply false) or the event stream (apply true).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TransferPlan" }
+            text/event-stream:
+              schema: { type: string }
+        "400":
+          description: Invalid body, path, key, prefix or concurrency.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "422":
+          description: The plan asks to retype a text (protected target, replaced object) and confirm does not match.
+          content:
+            text/plain:
+              schema: { type: string }
+        "502":
+          description: AWS did not answer (credentials, account, bucket).
+          content:
+            text/plain:
+              schema: { type: string }
+  /api/v1/targets/{name}/downloads:
+    post:
+      summary: Plan or run the download of an object of the bucket of a target
+      description: |
+        Parallel ranged GETs into a temporary file next to dest, renamed once
+        complete; the CRC checksum of the object is verified when it has one.
+        A file that exists is never replaced without overwrite.
+
+        apply and the events are as for uploads. A missing object, an existing
+        file or too little free space is a rejection in the plan.
+      parameters:
+        - $ref: "#/components/parameters/TargetName"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DownloadRequest" }
+      responses:
+        "200":
+          description: The plan (apply false) or the event stream (apply true).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TransferPlan" }
+            text/event-stream:
+              schema: { type: string }
+        "400":
+          description: Invalid body, key, destination or concurrency.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "422":
+          description: The plan asks to retype a text (protected target, replaced file) and confirm does not match.
+          content:
+            text/plain:
+              schema: { type: string }
+        "502":
+          description: AWS did not answer (credentials, account, bucket).
+          content:
+            text/plain:
+              schema: { type: string }
 components:
   securitySchemes:
     bearer:
@@ -659,6 +909,11 @@ components:
       description: Target name from the configuration.
       schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,62}$" }
   responses:
+    NotTunnelMode:
+      description: The target is not in connect.mode tunnel.
+      content:
+        text/plain:
+          schema: { type: string }
     UnknownJob:
       description: No job with that id (or removed by the retention).
       content:
@@ -1280,3 +1535,199 @@ components:
       type: object
       properties:
         confirm: { type: string, description: The target name retyped; needed when the target is protected. }
+    TunnelState:
+      type: object
+      description: The shared tunnel of a tunnel-mode target.
+      required: [target, status, users, keepOpen]
+      properties:
+        target: { type: string }
+        status: { type: string, enum: [connecting, ready, reconnecting, closed] }
+        localPort: { type: integer, description: Port on 127.0.0.1. }
+        endpoint: { type: string, description: "host:port of the RDS instance." }
+        bridge: { type: string, description: Instance id of the bridge of the session. }
+        detail: { type: string, description: "Why: the bridge and endpoint when ready, the failure when reconnecting or closed." }
+        since: { type: string, format: date-time, description: When status began; absent for a tunnel this engine never opened. }
+        users: { type: integer, minimum: 0, description: SQL sessions going through it now. }
+        keepOpen: { type: boolean, description: Opened on request; no idle close. }
+        failed: { type: boolean, description: Closed because the last attempt to open it failed (see detail). }
+    TunnelList:
+      type: object
+      required: [tunnels]
+      properties:
+        tunnels:
+          type: array
+          items: { $ref: "#/components/schemas/TunnelState" }
+    UploadsRequest:
+      type: object
+      description: Local files to upload; absolute paths on the machine of the engine.
+      required: [files]
+      properties:
+        files: { type: array, minItems: 1, items: { type: string } }
+        key: { type: string, description: S3 key of the object; one file only. }
+        prefix: { type: string, description: 'Key prefix instead of the import prefix of the target ("" is the bucket root); not with key.' }
+        overwrite: { type: boolean, description: Replace the objects that exist now. }
+        concurrency: { type: integer, minimum: 1, maximum: 32, default: 4, description: Parts in flight. }
+        apply: { type: boolean, description: Run the plan; false only answers it. }
+        confirm: { type: string, description: The confirmation text of the plan, when it asks for one. }
+    DownloadRequest:
+      type: object
+      required: [key, dest]
+      properties:
+        key: { type: string, description: 'A key, s3://<bucket of the target>/<key>, or a bare name under the export prefix.' }
+        dest: { type: string, description: Absolute path of the local file, or of an existing folder. }
+        overwrite: { type: boolean, description: Replace the file if it exists now. }
+        concurrency: { type: integer, minimum: 1, maximum: 32, default: 4, description: Ranges in flight. }
+        apply: { type: boolean, description: Run the plan; false only answers it. }
+        confirm: { type: string, description: The confirmation text of the plan, when it asks for one. }
+    TransferPlan:
+      type: object
+      description: A transfer plan; also the data of the "plan" event.
+      required: [plan, confirmation, items, rejected]
+      properties:
+        plan: { $ref: "#/components/schemas/Plan" }
+        confirmation: { type: string, description: The text to retype in confirm; empty when none is needed. }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/TransferItem" }
+        rejected:
+          type: array
+          description: The files that cannot be transferred, with the reason.
+          items: { $ref: "#/components/schemas/Rejection" }
+        warnings: { type: array, items: { type: string } }
+    TransferItem:
+      type: object
+      required: [step, path, bucket, key, size, partSize, parts, replaces]
+      properties:
+        step: { type: string, description: Id of its plan action. }
+        path: { type: string }
+        bucket: { type: string }
+        key: { type: string }
+        size: { type: integer }
+        partSize: { type: integer, description: Bytes per part (upload) or range (download). }
+        parts: { type: integer }
+        checksum: { type: string, examples: [CRC64NVME], description: Algorithm verified at the end; absent when the object has none that can be checked. }
+        replaces: { type: boolean, description: An existing object or file is replaced. }
+    Rejection:
+      type: object
+      required: [reason]
+      properties:
+        path: { type: string }
+        key: { type: string }
+        reason: { type: string }
+    TransferResult:
+      type: object
+      required: [path, bucket, key, size, verified, seconds, bytesPerSecond]
+      properties:
+        path: { type: string }
+        bucket: { type: string }
+        key: { type: string }
+        size: { type: integer }
+        checksumAlgorithm: { type: string }
+        checksum: { type: string, description: Base64, as S3 shows it. }
+        verified: { type: boolean, description: The checksum computed here matches the one S3 keeps. }
+        note: { type: string, description: Why the checksum was not verified. }
+        seconds: { type: number }
+        bytesPerSecond: { type: number }
+    TransferDone:
+      type: object
+      description: Data of the final "done" event of a transfer.
+      required: [ok, results]
+      properties:
+        ok: { type: boolean, description: Every file of the plan was transferred and none was rejected. }
+        error: { type: string }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/TransferResult" }
+    TransferProgressEvent:
+      type: object
+      description: Data of a "progress" event.
+      required: [path, key, done, total, parts, partsTotal, bytesPerSecond]
+      properties:
+        step: { type: string, description: Id of the plan action. }
+        path: { type: string }
+        key: { type: string }
+        done: { type: integer, description: Bytes transferred; never goes back. }
+        total: { type: integer }
+        parts: { type: integer, description: Parts or ranges completed. }
+        partsTotal: { type: integer }
+        bytesPerSecond: { type: number, description: Over the last 10 seconds; the average in the last event. }
+        etaSeconds: { type: integer, description: Time left; absent when unknown or done. }
+    JobRequest:
+      type: object
+      description: An import or an export of databases on one target.
+      required: [kind, target, items]
+      properties:
+        kind: { type: string, enum: [import, export] }
+        target: { type: string, description: 'Target name; "" picks the only target.' }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: { $ref: "#/components/schemas/JobRequestItem" }
+        prefix: { type: string, description: 'Import - key prefix instead of the import prefix of the target ("" is the bucket root); an item key wins.' }
+        skipFailing: { type: boolean, description: Leave out the databases whose pre-flight failed instead of refusing the job. }
+        dryRun: { type: boolean, description: Answer the plan and start nothing. }
+        confirm: { type: string, description: The confirmation text of the plan, when it asks for one. }
+        digest: { type: string, description: The digest of the preview; a different plan is refused (412). }
+    JobRequestItem:
+      type: object
+      description: |
+        One database, paths absolute on the machine of the engine. Import needs
+        file, or files for the stripes of one backup (restored together with a
+        "*" key); export may have a destination (without it the backup stays in S3).
+      required: [database]
+      properties:
+        database: { type: string }
+        file: { type: string, description: Import - the local .bak. }
+        files: { type: array, minItems: 1, maxItems: 10, items: { type: string }, description: Import - the stripes of one backup. }
+        destination: { type: string, description: Export - the local file, or an existing folder. }
+        key: { type: string, description: 'S3 key, one file only. Default: <prefix>/<file name>, or <export prefix>/<database>_<UTC timestamp>.bak.' }
+        differential: { type: boolean, description: Import - a differential backup, onto the database left RESTORING. }
+        noRecovery: { type: boolean, description: Import - leave the database RESTORING (no post-restore report). }
+        overwrite: { type: boolean, description: Replace the object in S3 (import) or the local file (export). }
+    JobPlan:
+      type: object
+      description: A job after its pre-flight checks; nothing was changed.
+      required: [kind, target, instance, protected, ready, digest, items, preview]
+      properties:
+        kind: { type: string, enum: [import, export] }
+        target: { type: string }
+        instance: { type: string }
+        protected: { type: boolean }
+        ready: { type: boolean, description: Every database passed its checks (or skipFailing and one at least did). }
+        confirmation: { type: string, description: The text to retype in confirm. }
+        digest: { type: string }
+        warnings: { type: array, items: { type: string } }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/JobItemPlan" }
+        preview: { type: string, description: The dry-run text, as the CLI prints it. }
+    JobItemPlan:
+      type: object
+      required: [database, file, key, ready, checks, actions]
+      properties:
+        database: { type: string }
+        file: { type: string, description: 'The local backup (import; stripes comma-separated) or destination (export; "" when the backup stays in S3).' }
+        key: { type: string, description: 'The S3 key ("*" pattern for stripes), defaults resolved; send it back to start this plan.' }
+        ready: { type: boolean }
+        skipped: { type: boolean, description: The pre-flight failed and the request skips such databases. }
+        checks:
+          type: array
+          items: { $ref: "#/components/schemas/StepEvent" }
+        actions:
+          type: array
+          items: { $ref: "#/components/schemas/PlanAction" }
+        uploads:
+          type: array
+          description: Import - the files as the upload plans them.
+          items: { $ref: "#/components/schemas/TransferItem" }
+        rejected:
+          type: array
+          description: Import - the files the upload refuses, with the reason.
+          items: { $ref: "#/components/schemas/Rejection" }
+    JobRefused:
+      type: object
+      required: [reason, plan]
+      properties:
+        reason: { type: string }
+        plan: { $ref: "#/components/schemas/JobPlan" }

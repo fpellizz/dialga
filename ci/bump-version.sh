@@ -151,7 +151,7 @@ changelog_note() {  # <version>
   local log="$ROOT/CHANGELOG.md"
   [[ -f "$log" ]] || return 0
   grep -qE "^## \[$1\]" "$log" ||
-    echo "note: CHANGELOG.md has no '## [$1]' section yet (move [Unreleased] there, with the date)" >&2
+    echo "note: CHANGELOG.md has no '## [$1]' section yet (rename [Non rilasciato] to it, with the date)" >&2
 }
 
 cmd_check() {  # <version>

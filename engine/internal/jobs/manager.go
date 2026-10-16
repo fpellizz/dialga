@@ -15,18 +15,28 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/decisyon/dialga/engine/internal/transfer"
 )
 
 var (
 	// ErrCancelled is the context cause a step sees when the user cancels.
 	ErrCancelled = errors.New("job cancelled")
 	// ErrInterrupted is the context cause a step sees when the engine stops.
-	ErrInterrupted = errors.New("the engine stopped")
+	// It is a transfer.ErrPaused too, so an upload it stops keeps its
+	// multipart upload for a resume instead of aborting it.
+	ErrInterrupted error = interruptedError{}
 
 	ErrNotFound = errors.New("job not found")
 	ErrEnded    = errors.New("job already ended")
 	ErrClosed   = errors.New("job manager closed")
 )
+
+type interruptedError struct{}
+
+func (interruptedError) Error() string { return "the engine stopped" }
+
+func (interruptedError) Is(target error) bool { return target == transfer.ErrPaused }
 
 // Defaults of Options.
 const (

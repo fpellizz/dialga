@@ -1,12 +1,6 @@
 import { ArrowDown, ArrowUp, ArrowUpDown, Database, RefreshCw, SearchX } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import {
-  type Database as DatabaseRow,
-  errorText,
-  listDatabases,
-  listTargets,
-  type TargetList,
-} from "./api";
+import { type Database as DatabaseRow, listDatabases, listTargets, type TargetList } from "./api";
 import {
   compatRelease,
   DEFAULT_SORT,
@@ -26,6 +20,7 @@ import {
   targetFromHash,
 } from "./databases";
 import type { EngineInfo } from "./engine";
+import { ErrorBanner, HintText } from "./Feedback";
 import { type MessageKey, useI18n } from "./i18n";
 
 const COLUMNS: { key: SortKey; label: MessageKey; numeric?: boolean }[] = [
@@ -55,10 +50,10 @@ export function DatabasesPage({
 }) {
   const { t } = useI18n();
   const [targets, setTargets] = useState<TargetList | null>(null);
-  const [targetsError, setTargetsError] = useState("");
+  const [targetsError, setTargetsError] = useState<unknown>(null);
   const [target, setTarget] = useState("");
   const [loaded, setLoaded] = useState<Loaded | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
   const [reload, setReload] = useState(0);
   const [query, setQuery] = useState("");
@@ -82,7 +77,7 @@ export function DatabasesPage({
           }
         }
       },
-      (e: unknown) => live && setTargetsError(errorText(e)),
+      (e: unknown) => live && setTargetsError(e),
     );
     return () => {
       live = false;
@@ -96,7 +91,7 @@ export function DatabasesPage({
     }
     const controller = new AbortController();
     setLoading(true);
-    setError("");
+    setError(null);
     listDatabases(engine, target, controller.signal).then(
       (list) => {
         if (!controller.signal.aborted) {
@@ -106,7 +101,7 @@ export function DatabasesPage({
       },
       (e: unknown) => {
         if (!controller.signal.aborted) {
-          setError(errorText(e));
+          setError(e);
           setLoading(false);
         }
       },
@@ -128,7 +123,7 @@ export function DatabasesPage({
   };
 
   const noTargets = targets !== null && !targets.error && targets.targets.length === 0;
-  const pageError = engineError || targetsError || targets?.error || "";
+  const pageError = engineError || targetsError;
   return (
     <div className="page">
       <header className="page-head">
@@ -156,8 +151,10 @@ export function DatabasesPage({
             <button
               type="button"
               className="btn btn-outline"
-              onClick={() => setReload((n) => n + 1)}
-              disabled={loading || !target}
+              onClick={() => !loading && setReload((n) => n + 1)}
+              aria-disabled={loading || undefined}
+              disabled={!target}
+              aria-label={t("databases.refresh", { target })}
             >
               <RefreshCw size={16} className={loading ? "spin" : undefined} aria-hidden="true" />
               {t("instances.refresh")}
@@ -166,10 +163,12 @@ export function DatabasesPage({
         )}
       </header>
 
-      {pageError && (
+      {pageError !== null && pageError !== "" && <ErrorBanner error={pageError} />}
+      {targets?.error && (
         <div className="banner banner-fail" role="alert">
-          {targets?.error && <strong>{t("instances.error")}</strong>}
-          <pre className="error-pre">{pageError}</pre>
+          <strong>{t("instances.error")}</strong>
+          <pre className="error-pre">{targets.error}</pre>
+          <HintText hint={{ key: "hint.config" }} />
         </div>
       )}
       {noTargets && (
@@ -182,18 +181,13 @@ export function DatabasesPage({
           </a>
         </section>
       )}
-      {error && (
-        <div className="banner banner-fail" role="alert">
-          <span className="banner-text">{error}</span>
-          <span className="banner-hint">{t("databases.errorHint")}</span>
-        </div>
-      )}
+      {error !== null && <ErrorBanner error={error} fallback={{ key: "databases.errorHint" }} />}
 
-      {target && !error && (
+      {target && error === null && (
         <section
           className="card db-card"
           aria-label={t("databases.caption", { target })}
-          aria-busy={loading}
+          aria-busy={loading || !list}
         >
           <div className="db-toolbar">
             <label className="field-inline db-filter">
@@ -335,8 +329,10 @@ function DatabaseLine({ db }: { db: DatabaseRow }) {
       <td className="mono">{db.recovery}</td>
       <td>
         {db.owner ?? (
+          // A screen reader reads the reason, not "em dash".
           <span className="muted" title={t("databases.noOwner")}>
-            —
+            <span aria-hidden="true">—</span>
+            <span className="sr-only">{t("databases.noOwner")}</span>
           </span>
         )}
       </td>

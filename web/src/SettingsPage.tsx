@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { errorText, listTargets } from "./api";
 import type { EngineInfo } from "./engine";
+import { HintText } from "./Feedback";
+import { hintFor } from "./hints";
 import { type Lang, useI18n } from "./i18n";
 import { PrerequisitesCard } from "./PrerequisitesCard";
 import { TargetsCard } from "./TargetsCard";
@@ -118,6 +120,7 @@ export function SettingsPage({
           <div className="banner banner-fail" role="alert">
             <strong>{t("instances.error")}</strong>
             <pre className="error-pre">{configError}</pre>
+            <HintText hint={hintFor(configError) ?? { key: "hint.config" }} />
           </div>
         )}
       </section>
