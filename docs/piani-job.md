@@ -4,7 +4,7 @@
 |---|---|
 | **Data** | 2026-10-16 |
 | **Autore** | Fabio Pellizzaro (con Claude Code) |
-| **Versione documentata** | `0.x`, branch `feature/wave1-pipelines` |
+| **Versione documentata** | `0.2.0 + funzioni non rilasciate (wave 2)`, branch `feature/v0.2-wave2` |
 | **Oggetto** | Import ed export di più database come un solo job: CLI `import`, `run <piano.yaml>`, API `POST /api/v1/jobs` |
 
 > **Sintesi**
@@ -148,7 +148,7 @@ Il controllo `Backup in S3` del restore non c'è, perché il backup lo mette in 
 | Evento | Upload | Task nativo | Stato del job |
 |---|---|---|---|
 | Ctrl-C (CLI), *Cancel* (Activity, `POST /api/v1/jobs/{id}/cancel`) | Abort: in S3 non resta niente | Continua sull'istanza (`taskLeftRunning`); si annulla con `dialga cancel <task-id>` | `cancelled` |
-| L'app si chiude (engine fermato) | Le parti **restano** in S3 per la ripresa (upload id nel journal) | Continua sull'istanza | `interrupted` |
+| L'app si chiude (engine fermato) | Le parti **restano** in S3 per la ripresa (upload id nel journal) | Continua sull'istanza | `interrupted`: si riprende da Activity o con `dialga jobs resume` |
 | Un database fallisce | — | — | Gli altri continuano; il job è `failed` |
 
 | Exit code | Significato |
@@ -182,7 +182,7 @@ Contratto completo: `engine/internal/api/openapi.yaml`, schemi `JobRequest`, `Jo
 
 ## 7. Limiti
 
-- La **ripresa** di un job `interrupted` non c'è ancora: il journal tiene upload id e task, ma `Resume` arriva con la v0.5.
-- La CLI non scrive i suoi job nel journal dell'app: non compaiono in Activity.
+- La **ripresa** riguarda i job dell'app: un job `interrupted` si riprende da Activity (`POST /api/v1/jobs/{id}/resume`) o con `dialga jobs resume <id>` (non mentre l'app tiene il journal). Gli upload continuano dalle parti già in S3, un task nativo già in coda viene seguito.
+- La CLI non scrive i suoi job nel journal dell'app: non compaiono in Activity né in `dialga jobs`, e non si riprendono.
 - `dialga import` non legge il nome del database dal `.bak`: lo prende dal nome del file. Il wizard della GUI usa invece l'ispezione.
 - Il progresso dei trasferimenti è **per database**: con le stripe è la somma dei file.
