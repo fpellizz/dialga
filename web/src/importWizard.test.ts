@@ -103,9 +103,9 @@ describe("import wizard", () => {
     expect(databaseNameError("MSDB")).toBe("import.error.dbSystem");
     expect(
       destinationErrors([
-        { database: "app", noRecovery: false },
-        { database: "APP", noRecovery: false },
-        { database: "", noRecovery: false },
+        { database: "app", noRecovery: false, replace: "" as const, backupFirst: true },
+        { database: "APP", noRecovery: false, replace: "" as const, backupFirst: true },
+        { database: "", noRecovery: false, replace: "" as const, backupFirst: true },
       ]),
     ).toEqual([undefined, "import.error.dbDuplicate", "import.error.dbName"]);
   });
@@ -152,8 +152,8 @@ describe("import wizard", () => {
     });
     const r = result([backup(["/d/app_db.bak"]), stripes]);
     const destinations = [
-      { database: "app_db", noRecovery: true },
-      { database: "crm", noRecovery: false },
+      { database: "app_db", noRecovery: true, replace: "" as const, backupFirst: true },
+      { database: "crm", noRecovery: false, replace: "" as const, backupFirst: true },
     ];
     expect(importItems(r, destinations, false)).toEqual([
       { database: "app_db", file: "/d/app_db.bak", noRecovery: true },
@@ -162,12 +162,38 @@ describe("import wizard", () => {
     expect(importItems(r, destinations, true).map((i) => i.overwrite)).toEqual([true, true]);
   });
 
+  it("sends replace, and backupFirst only for a drop", () => {
+    const r = result([
+      backup(["/d/a.bak"]),
+      backup(["/d/b.bak"]),
+      backup(["/d/c.bak"]),
+      backup(["/d/d.bak"]),
+    ]);
+    const base = { noRecovery: false, backupFirst: false };
+    const items = importItems(
+      r,
+      [
+        { ...base, database: "a", replace: "" },
+        { ...base, database: "b", replace: "auto" },
+        { ...base, database: "c", replace: "swap" },
+        { ...base, database: "d", replace: "drop" },
+      ],
+      false,
+    );
+    expect(items.map((i) => [i.replace, i.backupFirst])).toEqual([
+      [undefined, undefined],
+      ["auto", undefined],
+      ["swap", undefined],
+      ["drop", false],
+    ]);
+  });
+
   it("starts with the keys of the plan, but for the stripes", () => {
     const items = importItems(
       result([backup(["/d/app_db.bak"]), backup(["/d/crm_1.bak", "/d/crm_2.bak"])]),
       [
-        { database: "app_db", noRecovery: false },
-        { database: "crm", noRecovery: false },
+        { database: "app_db", noRecovery: false, replace: "" as const, backupFirst: true },
+        { database: "crm", noRecovery: false, replace: "" as const, backupFirst: true },
       ],
       false,
     );

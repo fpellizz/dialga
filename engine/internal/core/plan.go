@@ -46,6 +46,15 @@ type Action struct {
 	Run func(context.Context) (string, error) `json:"-"`
 }
 
+// ReplaceOutcome is what a restore over an existing database did or kept: the
+// strategy ("swap" or "drop"), the old database a swap kept, the S3 key of the
+// safety backup a drop took. The fields fill in as the steps succeed.
+type ReplaceOutcome struct {
+	Strategy    string `json:"strategy"`
+	OldDatabase string `json:"oldDatabase,omitempty"`
+	BackupKey   string `json:"backupKey,omitempty"`
+}
+
 // Plan is an operation on a target, ready to preview or execute.
 type Plan struct {
 	Operation string `json:"operation"`

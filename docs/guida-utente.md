@@ -583,7 +583,7 @@ dialga download <chiave|s3://bucket/chiave|nome> [dest] [-t target] [--overwrite
 
 #### 5.10.3 `dialga restore`
 
-Ripristina un `.bak` del bucket in un **nuovo** database con `rds_restore_database`, poi segue il task fino alla fine.
+Ripristina un `.bak` del bucket in un **nuovo** database (o, con `--replace`, sopra uno esistente) con `rds_restore_database`, poi segue il task fino alla fine.
 
 ```bash
 dialga restore <db> <chiave> [-t target] [--norecovery] [--differential] [--no-wait] [--interval 30s] [--apply] [--confirm testo]
@@ -594,8 +594,30 @@ dialga restore <db> <chiave> [-t target] [--norecovery] [--differential] [--no-w
 - `--no-wait` avvia il task nativo e torna subito (`Follow it with: dialga wait <id> -t <target>`).
 - **Avviso spazio libero** (nei controlli preliminari, `WARN`): se il backup occupa più dell'80% dello spazio libero dell'istanza, o più di tutto lo spazio libero, il restore parte ugualmente ma l'avviso ricorda che il database ripristinato occupa **la somma dei suoi file**, non la dimensione del `.bak` (`dialga inspect` la dà). Con lo spazio non leggibile da CloudWatch l'avviso lo dice.
 - Alla fine di un restore riuscito stampa `Next: dialga post <db> -t <target>` (con `--norecovery`, come proseguire).
+- `--replace auto|swap|drop` e `--no-backup-first`: restore su un database che esiste già, vedi **Restore su un database esistente** qui sotto.
 
 L'anteprima stampa `Pre-flight checks of restore on <target> (instance <istanza>):` con un esito per controllo, poi `Dry run: restore on <target> (instance <istanza>). Nothing is changed.` e le azioni numerate, ognuna con la sua istruzione T-SQL.
+
+**Restore su un database esistente**
+
+RDS rifiuta un restore nativo sopra un database che esiste già, e per questo `dialga restore` (e `dialga import`) senza opzioni lo rifiuta con "choose another name or drop it first". Con `--replace` lo si fa esplicitamente, in due modi:
+
+| Strategia | Che cosa fa | Che cosa ti resta |
+|---|---|---|
+| `swap` | Ripristina il backup in un database temporaneo (`<db>_dialga_new_<stamp>`), poi scambia i nomi: il database corrente diventa `<db>_old_<stamp>` e quello nuovo prende il nome `<db>`. Il database corrente non viene mai toccato finché il restore non è finito. | Il database vecchio, intatto: lo elimini tu con `dialga drop <db>_old_<stamp>` quando non serve più |
+| `drop` | Salva il database corrente su S3 (`<prefisso export>/<db>_before_replace_<stamp>.bak`), lo elimina e ripristina il backup al suo posto. Se il restore fallisce, il database non c'è più: l'errore indica il backup. | Il backup di sicurezza su S3 |
+| `auto` | Sceglie da solo (vedi sotto) e dice perché | Come la strategia scelta |
+
+**Regola dello spazio di `auto`**: `swap` richiede due copie sull'istanza insieme. Con `auto`, se `2 × dimensione` sta nello spazio libero dell'istanza sceglie `swap`; altrimenti `drop`, **sempre con il backup su S3**. La dimensione è quella del backup (o, se non è nota, dei file dati del database corrente). Se lo spazio libero o la dimensione non si leggono, sceglie `swap`, la via sicura: se lo spazio finisce, il restore fallisce e nulla è cambiato. L'anteprima mostra la scelta, ad esempio `swap: two copies (2 × 42.0 GiB) fit in 97.2 GiB free` oppure `drop: not enough free storage for two copies (needs 84.0 GiB, 61.3 GiB free); the current database is backed up to S3 first`.
+
+**Backup prima di `drop`**: di default `drop` salva prima il database su S3 (`backupFirst`). `--no-backup-first` lo salta: il database corrente è perso per sempre, e l'anteprima lo segnala con un `WARN`. Con `auto` il backup c'è sempre quando sceglie `drop`.
+
+**Sicurezza**: è un'operazione distruttiva, quindi vale tutto il modello di sempre: dry run di default, controlli in sola lettura, T-SQL esatto nell'anteprima, e `--apply` chiede di riscrivere il **nome del database** (il nome del target, se il target è protetto). I controlli avvisano delle sessioni attive sul database (saranno disconnesse) e verificano che i nomi temporanei e il backup di sicurezza siano liberi. Un replace segue i task fino alla fine: `--no-wait` non è ammesso. Le rinomine usano `rdsadmin.dbo.rds_modify_db_name` (TODO: confermare su mssql-dev).
+
+```bash
+dialga restore sales sales.bak -t dev-sql --replace auto            # anteprima
+dialga restore sales sales.bak -t dev-sql --replace drop --apply    # con backup di sicurezza
+```
 
 #### 5.10.4 `dialga export`
 

@@ -11,6 +11,7 @@ import { ApiError, failure, type StepEvent, type StepStatus, type Task } from ".
 import type { EngineInfo } from "./engine";
 import type { ExportItemRun, ItemState } from "./exportRun";
 import type { JobChecksum } from "./jobs";
+import type { ReplaceOutcomeInfo, ReplacePlan } from "./plans";
 import { createSseParser } from "./sse";
 
 export interface JobItemRequest {
@@ -24,6 +25,10 @@ export interface JobItemRequest {
   files?: string[];
   differential?: boolean;
   noRecovery?: boolean;
+  /** Import: what to do when the database exists (see ReplaceMode). */
+  replace?: "auto" | "swap" | "drop";
+  /** Import with replace "drop": back the current database up first. */
+  backupFirst?: boolean;
 }
 
 /** What the request adds to the items: the kind of job (export by default) and the import prefix. */
@@ -62,6 +67,7 @@ export interface JobItemPlan {
     risk?: "change" | "destructive";
   }[];
   /** Import: the files to upload, and the ones the plan refuses (with the reason). */
+  replace?: ReplacePlan;
   uploads?: JobUpload[];
   rejected?: { path?: string; key?: string; reason: string }[];
 }
@@ -75,6 +81,8 @@ export interface JobPlan {
   ready: boolean;
   confirmation?: string;
   digest: string;
+  /** The timestamp the replace names are built with: sent back on start so they match the preview. */
+  stamp?: string;
   warnings?: string[];
   items: JobItemPlan[];
   preview: string;
@@ -104,6 +112,7 @@ interface JobItem {
   task?: { id: number; type?: string; lifecycle: Task["lifecycle"]; percent: number };
   taskLeftRunning?: boolean;
   checksum?: JobChecksum;
+  replace?: ReplaceOutcomeInfo;
   error?: string;
   result?: string;
 }
@@ -176,7 +185,12 @@ export async function startJob(
   const response = await fetch(`${engine.url}/api/v1/jobs`, {
     method: "POST",
     headers: headers(engine),
-    body: JSON.stringify({ ...jobBody(target, items, options), digest: plan.digest, confirm }),
+    body: JSON.stringify({
+      ...jobBody(target, items, options),
+      digest: plan.digest,
+      ...(plan.stamp ? { stamp: plan.stamp } : {}),
+      confirm,
+    }),
   });
   if (response.status === 412) {
     // {reason, plan}: a pre-flight check failed or the plan changed since the preview.
@@ -380,6 +394,12 @@ export function mapJob(job: Job, plan: JobPlan, bucket?: string): ExportItemRun[
           bytesPerSecond: item.transfer.bytesPerSecond,
         };
       }
+    }
+    if (item.replace) {
+      run.replace = item.replace;
+    }
+    if (item.result) {
+      run.result = item.result;
     }
     if (item.error) {
       run.error = new Error(item.error);

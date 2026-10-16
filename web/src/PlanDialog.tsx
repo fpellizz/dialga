@@ -19,6 +19,7 @@ import { PlanAnnouncer, PlanRunView, usePlanRun } from "./PlanRun";
 import {
   canExecute,
   cleanRequest,
+  databaseExists,
   isDestructive,
   type Operation,
   type PlanPreview,
@@ -27,6 +28,8 @@ import {
   previewPlan,
   sameRequest,
 } from "./plans";
+import { ReplaceChoice } from "./ReplaceChoice";
+import { ReplaceOutcome } from "./ReplaceOutcome";
 
 /** How the dialog ended, for the page behind it. */
 export interface PlanResult {
@@ -51,17 +54,26 @@ export function PlanDialog({
   operation,
   request,
   fields,
+  existing,
+  bucket,
   onClose,
   onShowReport,
+  onDropOld,
 }: {
   engine: EngineInfo;
   target: string;
   operation: Operation;
   request: PlanRequest;
   fields?: "export" | "restore";
+  /** The databases of the target, when the page knows them: a restore over one offers to replace it. */
+  existing?: readonly string[];
+  /** The bucket of the target: names the S3 URI of the safety backup of a replace. */
+  bucket?: string;
   onClose: (result: PlanResult) => void;
   /** Offered after a restore: open the post-restore report of the database. */
   onShowReport?: (database: string) => void;
+  /** Offered after a swap: drop the old database it kept. */
+  onDropOld?: (database: string) => void;
 }) {
   const { t } = useI18n();
   const [params, setParams] = useState<PlanRequest>(request);
@@ -186,6 +198,17 @@ export function PlanDialog({
   // "Cancel" next to "Cancel task" would read as the same thing.
   const dismiss = operation === "cancel" ? t("plan.close") : t("plan.cancel");
   const database = preview?.request.database ?? params.database ?? "";
+  // The list of the page, or the pre-flight that refused an existing database.
+  const exists =
+    fields === "restore" &&
+    // The engine refuses a replace with a differential or a restore left restoring.
+    !params.differential &&
+    !params.noRecovery &&
+    (!!params.replace ||
+      databaseExists(existing, params.database ?? "") ||
+      (!!preview &&
+        !preview.request.replace &&
+        preview.checks.some((c) => c.step === "database" && c.status === "failed")));
 
   let footer: ReactNode;
   if (run && run.status !== "running") {
@@ -355,6 +378,17 @@ export function PlanDialog({
               </label>
             </div>
           )}
+          {exists && (
+            <ReplaceChoice
+              database={params.database?.trim() ?? ""}
+              mode={params.replace ?? ""}
+              backupFirst={params.backupFirst !== false}
+              disabled={loading}
+              onChange={({ replace, backupFirst }) =>
+                setParams((p) => ({ ...p, replace, backupFirst }))
+              }
+            />
+          )}
           {stale && (
             <div className="banner banner-warn">
               <TriangleAlert size={16} aria-hidden="true" />
@@ -405,6 +439,23 @@ export function PlanDialog({
           target={target}
           operation={operation}
           request={preview?.request ?? params}
+          strategy={preview?.replace?.strategy}
+        />
+      )}
+      {run?.status === "done" && operation === "restore" && preview?.request.replace && (
+        <ReplaceOutcome
+          database={database}
+          mode={preview.request.replace}
+          structured={run.done?.replace}
+          texts={[
+            run.done?.result,
+            preview.replace?.old,
+            preview.replace?.backupKey,
+            ...run.steps.flatMap((s) => [s.label, s.detail]),
+            ...run.notices,
+          ]}
+          bucket={bucket}
+          onDropOld={onDropOld}
         />
       )}
       <PlanAnnouncer text={announcement} />

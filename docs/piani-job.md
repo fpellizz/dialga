@@ -23,6 +23,7 @@
 | Import | `restore` | task RDS | `rds_restore_database` (anche `differential`, `noRecovery`) |
 | Import | `wait` | task RDS (lo stesso slot di `restore`) | Segue il task fino alla fine; `ERROR`/`CANCELLED` = database fallito |
 | Import | `post` | nessuna | Report post-restore in sola lettura (come `dialga post`); con `noRecovery` non c'è |
+| Import con `replace` | `backup`, `wait-backup`, `drop`, `single-user`, `rename-old`, `rename-new`, `multi-user`, `multi-user-old` | task RDS o nessuna | Restore su un database che esiste già, vedi §3.3 |
 | Export | `export` | task RDS | `rds_backup_database`, mai sopra un oggetto esistente |
 | Export | `wait` | task RDS | Come per l'import |
 | Export | `download` | trasferimento S3 | Solo se c'è `destination`: GET a range paralleli, file temporaneo, checksum verificato |
@@ -51,6 +52,8 @@ dialga import <file.bak>... [-t target] [--db NOME,...] [--key KEY | --prefix P]
 | `--differential` | Backup differenziali, sopra database lasciati `RESTORING` |
 | `--norecovery` | Lascia i database `RESTORING` (segue un differenziale); niente report `post` |
 | `--overwrite` | Sostituisce gli oggetti già presenti in S3 (chiede conferma) |
+| `--replace auto\|swap\|drop` | Ripristina anche sopra database che esistono già (§3.3); chiede di riscrivere il nome |
+| `--no-backup-first` | Con `drop`: non salva prima il database corrente su S3 |
 | `--skip-failing` | Lascia fuori i database il cui pre-flight fallisce |
 | `--interval` | Intervallo di lettura dei task nativi (default 30 s) |
 
@@ -80,6 +83,7 @@ kind: Import
 target: dev-sql
 prefix: import/2026-10        # facoltativo: al posto del prefisso import del target ("" = radice)
 skipFailing: false            # facoltativo
+replace: ""                   # facoltativo: auto | swap | drop, vale per gli item che non lo indicano (anche backupFirst)
 items:
   - file: backup/sales.bak
     database: sales
@@ -100,10 +104,28 @@ items:
 | `differential` | No | Il DB deve esistere `RESTORING` |
 | `noRecovery` | No | Niente passo `post` |
 | `overwrite` | No | Sostituisce gli oggetti in S3 (conferma) |
+| `replace` | No | `auto`, `swap` o `drop`: ripristina sopra un database esistente (§3.3). Vuoto = lo rifiuta. Non si combina con `differential` né `noRecovery` |
+| `backupFirst` | No | Solo `drop`: salva prima il database su S3 (default `true`; con `auto` è sempre `true` se sceglie `drop`) |
 
 **Backup striped**: se il pattern `*` corrisponde anche ad altri oggetti già nel bucket, il pre-flight fallisce, perché RDS li ripristinerebbe insieme al backup. In quel caso si usa un altro `prefix`.
 
 **Full più differenziale dello stesso DB**: non stanno nello stesso job, perché i database avanzano in parallelo e un DB compare una volta sola. Si lancia prima il job con `noRecovery: true`, poi un secondo job con `differential: true`.
+
+### 3.3 Restore su un database esistente (`replace`)
+
+RDS rifiuta un restore nativo sopra un database che esiste. Con `replace` Dialga lo fa in uno di due modi, e l'anteprima mostra quale e **perché** (controllo `replace`) con il T-SQL esatto di ogni passo.
+
+| Strategia | Passi | Cosa resta |
+|---|---|---|
+| `swap` | restore in `<db>_dialga_new_<aaaammggoommss>`, attesa, `ALTER DATABASE … SET SINGLE_USER WITH ROLLBACK IMMEDIATE`, rinomina `<db>` in `<db>_old_<stamp>`, rinomina il nuovo in `<db>`, `SET MULTI_USER` su entrambi, report post | il database vecchio, `<db>_old_<stamp>`: si elimina poi con `dialga drop` |
+| `drop` | backup di `<db>` in `<prefisso export>/<db>_before_replace_<stamp>.bak` (se `backupFirst`), attesa, `rds_drop_database`, restore, attesa, report post | il backup di sicurezza su S3 |
+| `auto` | `swap` se due copie stanno nello spazio libero, altrimenti `drop` (con il backup) | come la strategia scelta |
+
+Le rinomine usano `EXEC rdsadmin.dbo.rds_modify_db_name` (TODO: confermare su mssql-dev). Se la seconda rinomina fallisce, il database vecchio riprende il suo nome e il nuovo resta col nome temporaneo; un job interrotto tra le due rinomine riprende leggendo i nomi attuali prima di agire.
+
+**Conferma e controlli**: serve riscrivere il nome del database (o del target se è protetto). Nuovi controlli: sessioni attive sul database (avviso: saranno disconnesse), nomi temporaneo e vecchio liberi e di al massimo 128 caratteri, spazio libero per strategia, chiave del backup di sicurezza libera.
+
+**Stamp**: l'anteprima sceglie un `stamp` (UTC) che data i nomi; il digest lo ignora, ma rimandandolo (`stamp` in `POST /api/v1/jobs`) l'esecuzione usa gli stessi nomi mostrati.
 
 ### 3.2 Export
 

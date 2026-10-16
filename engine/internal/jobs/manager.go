@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/decisyon/dialga/engine/internal/core"
 	"github.com/decisyon/dialga/engine/internal/transfer"
 )
 
@@ -1031,6 +1032,21 @@ func (p *reporter) Checksum(algorithm, value string, verified bool, note string)
 		return
 	}
 	it.Checksum = &ChecksumInfo{Algorithm: algorithm, Value: value, Verified: verified, Note: note}
+	r.job.UpdatedAt = r.m.opts.Now()
+	r.save(false)
+}
+
+// Replace records what a replace did or kept on the item (the pipeline's
+// steps call it when the reporter has it).
+func (p *reporter) Replace(o core.ReplaceOutcome) {
+	r := p.r
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	it, ok := p.live()
+	if !ok {
+		return
+	}
+	it.Replace = &o
 	r.job.UpdatedAt = r.m.opts.Now()
 	r.save(false)
 }

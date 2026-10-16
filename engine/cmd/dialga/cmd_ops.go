@@ -61,9 +61,11 @@ func (f *opFlags) register(cmd *cobra.Command, follows bool) {
 func (a *app) restoreCmd() *cobra.Command {
 	var f opFlags
 	var o mssql.RestoreOptions
+	var replace string
+	var noBackup bool
 	cmd := &cobra.Command{
 		Use:   "restore <db> <key>",
-		Short: "Restore a .bak from the target bucket into a new database (rds_restore_database)",
+		Short: "Restore a .bak from the target bucket into a database (rds_restore_database)",
 		Long: `Restore a native backup from the target bucket into a new database with
 rds_restore_database, then follow the task until it ends.
 
@@ -71,10 +73,26 @@ rds_restore_database, then follow the task until it ends.
 the import prefix (then at the bucket root), a key with "/" is taken as it is,
 s3://<bucket>/<key> must name the target bucket. A "*" restores a backup
 striped over several files (10 at most).
+
+RDS refuses a restore over an existing database, so by default so does
+dialga. --replace restores onto it anyway:
+  swap  restore beside it under a temporary name, rename the current database
+        to <db>_old_<stamp> (kept) and the new one to <db>
+  drop  back the current database up to S3 (unless --no-backup-first), drop it
+        and restore in its place
+  auto  swap when two copies fit in the free storage, else drop with the backup
+Either way the plan shows the exact T-SQL, and --apply asks to retype the
+database name. The renames use rdsadmin.dbo.rds_modify_db_name (TODO:
+confermare su mssql-dev).
 ` + opExitStatus,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return a.runOp(cmd, ops.OpRestore, ops.Params{Database: args[0], Key: args[1], Restore: o}, f)
+			p := ops.Params{Database: args[0], Key: args[1], Restore: o, Replace: ops.ReplaceOptions{Mode: replace}}
+			if noBackup {
+				no := false
+				p.Replace.BackupFirst = &no
+			}
+			return a.runOp(cmd, ops.OpRestore, p, f)
 		},
 	}
 	f.register(cmd, true)
@@ -82,6 +100,8 @@ striped over several files (10 at most).
 		"restore a differential backup on a database left RESTORING (@type = DIFFERENTIAL)")
 	cmd.Flags().BoolVar(&o.NoRecovery, "norecovery", false,
 		"leave the database RESTORING for a differential restore (@with_norecovery = 1); dialga finish ends it")
+	cmd.Flags().StringVar(&replace, "replace", "", "restore onto an existing database: auto, swap or drop")
+	cmd.Flags().BoolVar(&noBackup, "no-backup-first", false, "with --replace drop: do not back the current database up to S3 first")
 	return cmd
 }
 
@@ -174,6 +194,8 @@ type opResult struct {
 	Steps        []core.Event  `json:"steps,omitempty"`
 	Task         *mssql.Task   `json:"task,omitempty"`
 	Error        string        `json:"error,omitempty"`
+	// Result is what a replace kept: the old database or the safety backup.
+	Result string `json:"result,omitempty"`
 }
 
 // runOp prepares op, prints the pre-flight checks and either the preview
@@ -264,7 +286,7 @@ func (a *app) runOp(cmd *cobra.Command, op string, p ops.Params, f opFlags) erro
 				return
 			}
 			switch {
-			case e.Step == "wait" && e.Status == core.Running:
+			case strings.HasPrefix(e.Step, "wait") && e.Status == core.Running:
 				_, _ = fmt.Fprintf(out, "Following the task every %s (Ctrl-C stops the wait, not the task).\n", f.interval)
 			case e.Status != core.Running && e.Detail != "":
 				_, _ = fmt.Fprintf(out, "  %s  %s: %s\n", tag(check.Status(e.Status)), e.Label, e.Detail)
@@ -281,7 +303,7 @@ func (a *app) runOp(cmd *cobra.Command, op string, p ops.Params, f opFlags) erro
 			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "dialga: reading the task failed, retrying: %v\n", err)
 		},
 	})
-	res.Task = task
+	res.Task, res.Result = task, prep.Result()
 	if err != nil {
 		res.Error = err.Error()
 		if !text {
@@ -291,6 +313,9 @@ func (a *app) runOp(cmd *cobra.Command, op string, p ops.Params, f opFlags) erro
 	}
 	if text {
 		printOpEnd(out, name, op, p, task, f.noWait)
+		if r := prep.Result(); r != "" {
+			_, _ = fmt.Fprintln(out, r+".")
+		}
 	}
 	if task != nil && !f.noWait && task.Lifecycle != mssql.Success {
 		return finish(exitTaskFailed)
@@ -302,6 +327,8 @@ func printOpEnd(w io.Writer, target, op string, p ops.Params, task *mssql.Task, 
 	switch {
 	case task == nil:
 		_, _ = fmt.Fprintln(w, "Done.")
+	case p.Replace.Mode != ops.ReplaceNone && op == ops.OpRestore && task.Lifecycle == mssql.Success:
+		printTaskEnd(w, *task) // a replace has its post-restore report in its steps
 	case noWait:
 		_, _ = fmt.Fprintf(w, "Follow it with: dialga wait %d -t %s\n", task.ID, target)
 	default:
@@ -327,7 +354,9 @@ func (a *app) confirmation(plan core.Plan, given string) (string, error) {
 	}
 	if given == "" {
 		what := fmt.Sprintf("Retype %q to run %s on %s: ", want, plan.Operation, plan.Target)
-		if plan.Subject != "" && want == plan.Subject {
+		if plan.Subject != "" && want == plan.Subject && plan.Operation == ops.OpRestore {
+			what = fmt.Sprintf("This replaces database %s on %s: the current one is renamed or dropped. Retype the database name to confirm: ", want, plan.Target)
+		} else if plan.Subject != "" && want == plan.Subject {
 			what = fmt.Sprintf("This drops %s on %s for good. Retype the database name to confirm: ", want, plan.Target)
 		}
 		answer, err := a.readConfirm(what)

@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -13,8 +14,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
 	"github.com/decisyon/dialga/engine/internal/check"
+	"github.com/decisyon/dialga/engine/internal/core"
 	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/mssql"
+	"github.com/decisyon/dialga/engine/internal/ops"
 	"github.com/decisyon/dialga/engine/internal/transfer"
 )
 
@@ -116,6 +119,18 @@ type checksummer interface {
 	Checksum(algorithm, value string, verified bool, note string)
 }
 
+// replacer is a Reporter that records the outcome of a replace on the item
+// (jobs.Item.Replace).
+type replacer interface {
+	Replace(core.ReplaceOutcome)
+}
+
+func reportReplace(r jobs.Reporter, o *core.ReplaceOutcome) {
+	if rr, ok := r.(replacer); ok && o != nil {
+		rr.Replace(*o)
+	}
+}
+
 func reportChecksum(r jobs.Reporter, res transfer.Result) {
 	if c, ok := r.(checksummer); ok {
 		c.Checksum(res.ChecksumAlgorithm, res.Checksum, res.Verified, res.Note)
@@ -158,14 +173,15 @@ type TaskParams struct {
 	NoRecovery   bool   `json:"noRecovery,omitempty"`
 }
 
-// expected is the statement of the step id ("restore" or "export") for
+// expected is the statement of the step id ("restore", "export", or "backup",
+// the safety backup of a replace) for
 // params, built the way the plan builds it, on bucket.
 func (p TaskParams) expected(id, bucket string) (string, error) {
 	arn := mssql.S3ARN(bucket, p.Key)
 	switch id {
 	case "restore":
 		return mssql.RestoreDatabase(p.Database, arn, mssql.RestoreOptions{Differential: p.Differential, NoRecovery: p.NoRecovery}), nil
-	case "export":
+	case "export", ops.StepBackup:
 		return mssql.BackupDatabase(p.Database, arn), nil
 	}
 	return "", fmt.Errorf("unknown task step %q", id)
@@ -210,12 +226,15 @@ func lastLine(s string) string {
 type WaitParams struct {
 	What   string `json:"what"`
 	Result string `json:"result,omitempty"`
+	// ID is the step id when an item waits twice (a replace backs up, then
+	// restores); default "wait".
+	ID string `json:"id,omitempty"`
 }
 
 // Step follows the last native task of the item until it ends: the one its
 // restore or export queued, in a resumed job too.
 func (p WaitParams) Step(env Env) jobs.Step {
-	return jobs.WithKind(jobs.NewStep("wait", "Wait for the "+p.What+" task", jobs.ResourceRDSTask, func(ctx context.Context, r jobs.Reporter) (string, error) {
+	return jobs.WithKind(jobs.NewStep(cmp.Or(p.ID, "wait"), "Wait for the "+p.What+" task", jobs.ResourceRDSTask, func(ctx context.Context, r jobs.Reporter) (string, error) {
 		id := r.LastTaskID()
 		if id == 0 {
 			return "", errors.New("no native task to follow")
@@ -243,9 +262,76 @@ func (p WaitParams) Step(env Env) jobs.Step {
 	}), KindWait, p)
 }
 
+// SQLParams are a statement of a replace that queues no task: drop, close to
+// other sessions (single-user), open again (multi-user) or rename a database.
+// The steps look at the instance before they act, so a resumed job does not
+// repeat what was done (ops.Session.DropExisting, SingleUser, MultiUser,
+// Rename).
+type SQLParams struct {
+	// Op is ops.StepDrop, StepSingleUser, StepMultiUser or StepRename.
+	Op        string `json:"op"`
+	Statement string `json:"statement"`
+	Database  string `json:"database"`
+	// To is the new name of a rename; Fallback the database to rename back
+	// to To when it fails (see ops.Session.Rename).
+	To       string `json:"to,omitempty"`
+	Fallback string `json:"fallback,omitempty"`
+	// Outcome is what the item has kept once the step succeeded; it only
+	// reaches the item (jobs.Item.Replace), it changes no statement.
+	Outcome *core.ReplaceOutcome `json:"outcome,omitempty"`
+}
+
+// expected is the statement the parameters build, for a resume to compare.
+func (p SQLParams) expected() (string, error) {
+	switch p.Op {
+	case ops.StepDrop:
+		return mssql.DropDatabase(p.Database), nil
+	case ops.StepSingleUser:
+		return mssql.SetSingleUser(p.Database), nil
+	case ops.StepMultiUser:
+		return mssql.SetMultiUser(p.Database), nil
+	case ops.StepRename:
+		return mssql.RenameDatabase(p.Database, p.To), nil
+	}
+	return "", fmt.Errorf("unknown statement step %q", p.Op)
+}
+
+// Step runs the statement on a session of its own.
+func (p SQLParams) Step(env Env, id, title string) jobs.Step {
+	return jobs.WithKind(jobs.NewStep(id, title, jobs.NoResource, func(ctx context.Context, r jobs.Reporter) (string, error) {
+		sess, closeOps, err := env.OpenOps(ctx)
+		if err != nil {
+			return "", err
+		}
+		defer closeOps()
+		var detail string
+		switch p.Op {
+		case ops.StepDrop:
+			detail, err = sess.DropExisting(ctx, p.Database)
+		case ops.StepSingleUser:
+			detail, err = sess.SingleUser(ctx, p.Database)
+		case ops.StepMultiUser:
+			detail, err = sess.MultiUser(ctx, p.Database)
+		case ops.StepRename:
+			detail, err = sess.Rename(ctx, p.Database, p.To, p.Fallback)
+		default:
+			err = fmt.Errorf("unknown statement step %q", p.Op)
+		}
+		if err == nil {
+			reportReplace(r, p.Outcome)
+		}
+		return detail, err
+	}), KindSQL, p)
+}
+
 // PostParams name the database of the post-restore report.
 type PostParams struct {
 	Database string `json:"database"`
+	// Note, for a replace, is what it kept (the old database, the backup):
+	// it goes in the result of the item.
+	Note string `json:"note,omitempty"`
+	// Outcome is what the replace kept, for jobs.Item.Replace.
+	Outcome *core.ReplaceOutcome `json:"outcome,omitempty"`
 }
 
 // Step reads the report: a failed finding (not online, the login cannot
@@ -280,7 +366,12 @@ func (p PostParams) Step(env Env) jobs.Step {
 		if warnings > 0 {
 			detail += fmt.Sprintf(", %d warning(s)", warnings)
 		}
-		r.Result(db + " restored: " + detail)
+		result := db + " restored: " + detail
+		if p.Note != "" {
+			result += ". " + p.Note
+		}
+		reportReplace(r, p.Outcome)
+		r.Result(result)
 		return detail, nil
 	}), KindPost, p)
 }

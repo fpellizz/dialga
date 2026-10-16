@@ -8,6 +8,7 @@ import {
   planHint,
   planStepKey,
   previewPlan,
+  replaceOutcome,
   s3URI,
   sameRequest,
   upsertStep,
@@ -135,5 +136,22 @@ describe("plan helpers", () => {
     const steps = upsertStep([running], { ...running, status: "ok" });
     expect(steps).toEqual([{ ...running, status: "ok" }]);
     expect(upsertStep(steps, { step: "wait", label: "Wait", status: "running" })).toHaveLength(2);
+  });
+});
+
+describe("replaceOutcome", () => {
+  it("prefers the structured outcome and falls back to the texts of an older engine", () => {
+    const texts = ["kept as sales_old_1", "s3://b/p/sales_before_replace_2.bak"];
+    expect(replaceOutcome("sales", texts, "b")).toEqual({
+      kept: "sales_old_1",
+      backup: "s3://b/p/sales_before_replace_2.bak",
+    });
+    expect(
+      replaceOutcome("sales", texts, "b", {
+        strategy: "drop",
+        oldDatabase: "sales_old_9",
+        backupKey: "p/sales_before_replace_9.bak",
+      }),
+    ).toEqual({ kept: "sales_old_9", backup: "s3://b/p/sales_before_replace_9.bak" });
   });
 });

@@ -13,7 +13,7 @@ import {
 } from "./exportJob";
 import { type ExportItemRun, type ItemState, tally } from "./exportRun";
 import { ErrorBanner } from "./Feedback";
-import { useI18n } from "./i18n";
+import { type MessageKey, useI18n } from "./i18n";
 import {
   baseName,
   type Destination,
@@ -25,8 +25,10 @@ import {
   startItems,
 } from "./importWizard";
 import type { InspectResult } from "./inspect";
+import { PlanDialog } from "./PlanDialog";
 import { PlanPreviewView } from "./PlanPreview";
 import { type DatabaseReport, getDatabaseReport, type PlanPreview as Preview } from "./plans";
+import { ReplaceOutcome } from "./ReplaceOutcome";
 import { StepList } from "./StepList";
 import { TaskProgress } from "./TaskProgress";
 
@@ -76,8 +78,23 @@ function itemPreview(plan: JobPlan, item: JobItemPlan): Preview {
     ready: item.ready,
     digest: plan.digest,
     preview: "",
+    replace: item.replace,
     request: { database: item.database, key: item.key },
   };
+}
+
+/** The hint under the confirmation field: the instance, a database to replace, or the upload. */
+function confirmHint(
+  confirmation: string,
+  target: string,
+  destinations: readonly Destination[],
+): MessageKey {
+  if (confirmation === target) {
+    return "import.confirmHint";
+  }
+  return destinations.some((d) => d.replace && d.database === confirmation)
+    ? "import.confirmDatabase"
+    : "import.confirmReplace";
 }
 
 /** 4. What the import will do: the job of every backup, previewed in one call. */
@@ -246,6 +263,11 @@ export function ImportPreview({
             autoFocus={false}
           />
           {!item.ready && <p className="field-error">{t("import.restoreBlocked")}</p>}
+          {!item.ready &&
+            !destinations.find((d) => d.database === item.database)?.replace &&
+            item.checks.some((c) => c.step === "database" && c.status === "failed") && (
+              <p className="hint">{t("replace.exists", { db: item.database })}</p>
+            )}
         </section>
       ))}
 
@@ -263,7 +285,7 @@ export function ImportPreview({
           />
           <p id="import-confirm-hint" className="hint">
             {/* The target name: a protected instance. Anything else: objects the upload replaces. */}
-            {t(confirmation === target.name ? "import.confirmHint" : "import.confirmReplace")}
+            {t(confirmHint(confirmation, target.name, destinations))}
           </p>
         </div>
       )}
@@ -392,11 +414,17 @@ export function ImportProgress({
 function DatabaseResult({
   engine,
   target,
+  bucket,
   destination,
+  item,
+  onDropOld,
 }: {
   engine: EngineInfo;
   target: string;
+  bucket: string;
   destination: Destination;
+  item?: ExportItemRun;
+  onDropOld: (database: string) => void;
 }) {
   const { t } = useI18n();
   const [report, setReport] = useState<DatabaseReport | null>(null);
@@ -425,6 +453,16 @@ function DatabaseResult({
   return (
     <section className="plan" aria-label={title} aria-busy={!report && !error}>
       <h3>{title}</h3>
+      {destination.replace && (
+        <ReplaceOutcome
+          database={destination.database}
+          mode={destination.replace}
+          texts={[item?.result, ...(item?.steps ?? []).flatMap((s) => [s.label, s.detail])]}
+          bucket={bucket}
+          structured={item?.replace}
+          onDropOld={onDropOld}
+        />
+      )}
       {!report && !error && <div className="skeleton skeleton-row" aria-hidden="true" />}
       {error && (
         <div className="banner banner-fail" role="alert">
@@ -478,6 +516,8 @@ export function ImportResult({
 }) {
   const { t } = useI18n();
   const count = tally(run.items);
+  // The old database a swap kept, whose drop plan is open.
+  const [dropping, setDropping] = useState<string | null>(null);
   const stopped = run.phase === "stopped";
   const ok = run.phase === "done";
   return (
@@ -500,7 +540,15 @@ export function ImportResult({
         const item = run.items.find((i) => i.database === d.database);
         if (item?.state === "succeeded") {
           return (
-            <DatabaseResult key={d.database} engine={engine} target={target.name} destination={d} />
+            <DatabaseResult
+              key={d.database}
+              engine={engine}
+              target={target.name}
+              bucket={target.bucket}
+              destination={d}
+              item={item}
+              onDropOld={setDropping}
+            />
           );
         }
         return (
@@ -536,6 +584,15 @@ export function ImportResult({
           {t("import.again")}
         </button>
       </div>
+      {dropping && (
+        <PlanDialog
+          engine={engine}
+          target={target.name}
+          operation="drop"
+          request={{ database: dropping }}
+          onClose={() => setDropping(null)}
+        />
+      )}
     </div>
   );
 }

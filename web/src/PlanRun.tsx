@@ -153,12 +153,15 @@ export function PlanRunView({
   target,
   operation,
   request,
+  strategy,
 }: {
   run: PlanRunState;
   target: string;
   operation: Operation;
   /** The request of the preview that runs (labels, outcome). */
   request: PlanRequest;
+  /** The resolved replace strategy of the preview, when there is one. */
+  strategy?: string;
 }) {
   const { t } = useI18n();
   return (
@@ -169,7 +172,7 @@ export function PlanRunView({
           <span className="banner-text">{n}</span>
         </div>
       ))}
-      <StepList steps={run.steps} label={(s) => stepLabel(t, s, request)} />
+      <StepList steps={run.steps} label={(s) => stepLabel(t, s, request, strategy)} />
       {run.task && <TaskProgress task={run.task} />}
       {run.status === "running" && run.task && isActive(run.task) && (
         <p className="hint">{t("plan.runningHint", { id: run.task.id, target })}</p>

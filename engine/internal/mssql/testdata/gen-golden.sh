@@ -6,6 +6,7 @@ set -euo pipefail
 src=${MSSQL_IMPORT:?set MSSQL_IMPORT to the path of mssql-import.sh}
 out=${1:?usage: gen-golden.sh <output dir>}
 dry() { "$src" "$@" 2>&1 | sed -n '2,$p' | sed 's/^      //'; }
+# single-user, multi-user, rename and backup-before-replace .sql are written by hand
 dry finish golden_db > "$out/finish.sql"
 dry drop golden_db > "$out/drop.sql"
 dry cancel 42 > "$out/cancel.sql"

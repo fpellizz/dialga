@@ -38,6 +38,12 @@ type PlanRequest struct {
 	Differential bool   `json:"differential,omitempty"`
 	NoRecovery   bool   `json:"noRecovery,omitempty"`
 	TaskID       int    `json:"taskId,omitempty"`
+	// Replace restores onto a database that exists: "auto", "swap" or "drop"
+	// ("" refuses it). BackupFirst, for drop, backs the current database up to
+	// S3 first (default true); Stamp dates the names of the replace.
+	Replace     string `json:"replace,omitempty"`
+	BackupFirst *bool  `json:"backupFirst,omitempty"`
+	Stamp       string `json:"stamp,omitempty"`
 }
 
 // ExecuteRequest is the body of POST .../plans/{operation}/execute: the
@@ -48,6 +54,12 @@ type ExecuteRequest struct {
 	Differential bool   `json:"differential,omitempty"`
 	NoRecovery   bool   `json:"noRecovery,omitempty"`
 	TaskID       int    `json:"taskId,omitempty"`
+	// Replace restores onto a database that exists: "auto", "swap" or "drop"
+	// ("" refuses it). BackupFirst, for drop, backs the current database up to
+	// S3 first (default true); Stamp dates the names of the replace.
+	Replace     string `json:"replace,omitempty"`
+	BackupFirst *bool  `json:"backupFirst,omitempty"`
+	Stamp       string `json:"stamp,omitempty"`
 	// Confirm is the text the preview asked to retype (confirmation).
 	Confirm string `json:"confirm,omitempty"`
 	// Digest, when set, must be the digest of the preview: the plan has not
@@ -58,12 +70,14 @@ type ExecuteRequest struct {
 }
 
 func (r ExecuteRequest) plan() PlanRequest {
-	return PlanRequest{Database: r.Database, Key: r.Key, Differential: r.Differential, NoRecovery: r.NoRecovery, TaskID: r.TaskID}
+	return PlanRequest{Database: r.Database, Key: r.Key, Differential: r.Differential, NoRecovery: r.NoRecovery, TaskID: r.TaskID,
+		Replace: r.Replace, BackupFirst: r.BackupFirst, Stamp: r.Stamp}
 }
 
 func (r PlanRequest) params() ops.Params {
 	return ops.Params{Database: r.Database, Key: r.Key, TaskID: r.TaskID,
-		Restore: mssql.RestoreOptions{Differential: r.Differential, NoRecovery: r.NoRecovery}}
+		Restore: mssql.RestoreOptions{Differential: r.Differential, NoRecovery: r.NoRecovery},
+		Replace: ops.ReplaceOptions{Mode: r.Replace, BackupFirst: r.BackupFirst, Stamp: r.Stamp}}
 }
 
 // PlanPreview is the answer of POST .../plans/{operation}. Nothing is changed.
@@ -80,6 +94,9 @@ type PlanPreview struct {
 	// Request is the body with the defaults resolved (the export key): the
 	// body of the execute call, so the plan that runs is the one previewed.
 	Request PlanRequest `json:"request"`
+	// Replace says how a restore over an existing database goes: the strategy
+	// auto resolved to, the names it uses, what it keeps.
+	Replace *ops.Replacement `json:"replace,omitempty"`
 }
 
 // PlanDone is the data of the final "done" event of an execution.
@@ -89,6 +106,11 @@ type PlanDone struct {
 	Error string `json:"error,omitempty"`
 	// Task is the native task the operation started, last state read.
 	Task *mssql.Task `json:"task,omitempty"`
+	// Result is what a replace kept: the old database or the safety backup.
+	Result string `json:"result,omitempty"`
+	// Replace is the structured outcome of a replace: strategy, the old
+	// database a swap kept, the safety backup a drop took (as far as it got).
+	Replace *core.ReplaceOutcome `json:"replace,omitempty"`
 }
 
 // readBody decodes a small JSON body, rejecting unknown fields.
@@ -193,9 +215,12 @@ func (s *Server) previewPlan(w http.ResponseWriter, r *http.Request) {
 	_ = prep.Plan.Preview(&text)
 	resolved := req
 	resolved.Key = prep.Params.Key
+	if prep.Replace != nil {
+		resolved.Stamp = prep.Replace.Stamp
+	}
 	writeJSON(w, PlanPreview{
 		Plan: prep.Plan, Checks: prep.Checks, Ready: prep.Ready(), Confirmation: prep.Plan.Confirmation(),
-		Digest: prep.Digest(), Preview: text.String(), Request: resolved,
+		Digest: prep.Digest(), Preview: text.String(), Request: resolved, Replace: prep.Replace,
 	})
 }
 
@@ -260,11 +285,13 @@ func (s *Server) executePlan(w http.ResponseWriter, r *http.Request) {
 			s.opts.Log.Warn("plan: reading the task failed, retrying", "target", name, "err", err)
 		},
 	})
-	done := PlanDone{OK: err == nil, Task: task}
+	done := PlanDone{OK: err == nil, Task: task, Replace: prep.Outcome()}
 	if err != nil {
 		done.Error = err.Error()
 	} else if task != nil && !req.NoWait && task.Lifecycle != mssql.Success {
 		done.OK = false
+	} else {
+		done.Result = prep.Result()
 	}
 	send("done", done)
 	s.opts.Log.Info("plan finished", "target", name, "operation", op, "ok", done.OK)

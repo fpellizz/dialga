@@ -39,6 +39,9 @@ type Env struct {
 	TaskInterval time.Duration
 	// FreeSpace is the space left in a folder (default transfer.FreeBytes).
 	FreeSpace func(dir string) (uint64, error)
+	// Now dates the names of a replace when the request gives no stamp
+	// (default time.Now).
+	Now func() time.Time
 }
 
 func (e Env) interval() time.Duration {
@@ -62,7 +65,11 @@ type Plan struct {
 	Confirmation string `json:"confirmation,omitempty"`
 	// Digest identifies the actions: the same digest means the same
 	// statements and calls, so what runs is what the user previewed.
-	Digest   string     `json:"digest"`
+	Digest string `json:"digest"`
+	// Stamp dates the names a replace creates (the temporary and the old
+	// database, the safety backup); absent when no item replaces. Send it
+	// back in the request to start the job previewed.
+	Stamp    string     `json:"stamp,omitempty"`
 	Warnings []string   `json:"warnings,omitempty"`
 	Items    []ItemPlan `json:"items"`
 	// Preview is the dry-run text, as the CLI prints it.
@@ -88,6 +95,9 @@ type ItemPlan struct {
 	Skipped bool          `json:"skipped,omitempty"`
 	Checks  []check.Event `json:"checks"`
 	Actions []core.Action `json:"actions"`
+	// Replace says how the item replaces the existing database (strategy,
+	// names, the safety backup); absent otherwise.
+	Replace *ops.Replacement `json:"replace,omitempty"`
 	// Uploads are the files of an import as the upload plans them, and
 	// Rejected those it refuses, with the reason.
 	Uploads  []transfer.Item      `json:"uploads,omitempty"`
@@ -95,6 +105,8 @@ type ItemPlan struct {
 
 	steps   []jobs.Step
 	replace []string // what destructive actions replace, for the confirmation
+	// replaceDB is the database a replace removes or renames (the confirmation too).
+	replaceDB []string
 }
 
 func (it *ItemPlan) add(step, label string, status check.Status, detail string) {
@@ -153,7 +165,16 @@ func Build(ctx context.Context, env Env, req Request) (*Plan, error) {
 	defer closeOps()
 	p := &Plan{Kind: req.Kind, Target: env.Name, Instance: env.Target.Instance, Protected: env.Target.Protected,
 		Items: []ItemPlan{}, bucket: env.Target.Bucket}
-	b := &builder{env: env, sess: sess, plan: p, prefix: req.Prefix, keys: map[string]string{}, files: map[string]string{}}
+	stamp := req.Stamp
+	if stamp == "" && slices.ContainsFunc(req.Import, func(it ImportItem) bool { return it.Replace != "" }) {
+		// one stamp for the whole job, whatever the time each item takes to plan
+		now := time.Now
+		if env.Now != nil {
+			now = env.Now
+		}
+		stamp = now().UTC().Format("20060102150405")
+	}
+	b := &builder{env: env, sess: sess, plan: p, prefix: req.Prefix, stamp: stamp, keys: map[string]string{}, files: map[string]string{}}
 	for _, it := range req.Import {
 		if err := b.importItem(ctx, it); err != nil {
 			return nil, err
@@ -174,6 +195,7 @@ type builder struct {
 	sess   *ops.Session
 	plan   *Plan
 	prefix *string
+	stamp  string
 	// keys and files seen so far, to the database that uses them.
 	keys, files map[string]string
 }
@@ -243,7 +265,8 @@ func (b *builder) importItem(ctx context.Context, in ImportItem) error {
 	}
 
 	opts := mssql.RestoreOptions{Differential: in.Differential, NoRecovery: in.NoRecovery}
-	prep, err := b.sess.Restore(ctx, in.Database, "s3://"+t.Bucket+"/"+it.Key, opts)
+	over := ops.ReplaceOptions{Mode: in.Replace, BackupFirst: in.BackupFirst, Stamp: b.stamp, BackupSize: size}
+	prep, err := b.sess.RestoreOver(ctx, in.Database, "s3://"+t.Bucket+"/"+it.Key, opts, over)
 	if err != nil {
 		return fmt.Errorf("%s: %w", in.Database, err)
 	}
@@ -251,6 +274,15 @@ func (b *builder) importItem(ctx context.Context, in ImportItem) error {
 		if c.Step != "source" { // the upload puts the backup there
 			it.Checks = append(it.Checks, c)
 		}
+	}
+	if len(prep.Plan.Actions) == 0 { // a database that cannot be replaced: its check failed
+		b.plan.Items = append(b.plan.Items, it)
+		return nil
+	}
+	if prep.Replace != nil {
+		b.replaceItem(&it, upload, prep)
+		b.plan.Items = append(b.plan.Items, it)
+		return nil
 	}
 	restore := prep.Plan.Actions[0]
 	restore.Run = nil
@@ -275,6 +307,48 @@ func (b *builder) importItem(ctx context.Context, in ImportItem) error {
 	}
 	b.plan.Items = append(b.plan.Items, it)
 	return nil
+}
+
+// replaceItem plans the steps of a restore over an existing database after
+// the upload: the ones ops planned, as actions and as job steps.
+func (b *builder) replaceItem(it *ItemPlan, upload UploadParams, prep *ops.Prepared) {
+	r := prep.Replace
+	it.Replace = r
+	b.plan.Stamp = r.Stamp
+	it.replaceDB = append(it.replaceDB, prep.Params.Database)
+	if len(upload.Files) > 0 {
+		it.steps = append(it.steps, upload.Step(b.env, it.Actions[0].Title))
+	}
+	for i, st := range r.Steps {
+		a := prep.Plan.Actions[i]
+		a.Run = nil
+		var step jobs.Step
+		switch st.Op {
+		case ops.StepBackup:
+			step = TaskParams{Statement: st.Statement, Database: st.Database, Key: st.Key}.Step(b.env, st.ID, st.Title)
+		case ops.StepRestore:
+			step = TaskParams{Statement: st.Statement, Database: st.Database, Key: st.Key}.Step(b.env, st.ID, st.Title)
+		case ops.StepWait:
+			a = waitAction(st.What, b.env.interval())
+			a.ID = st.ID
+			step = WaitParams{What: st.What, ID: st.ID}.Step(b.env)
+		case ops.StepPost:
+			step = PostParams{Database: st.Database, Note: r.Result, Outcome: &core.ReplaceOutcome{
+				Strategy: r.Strategy, OldDatabase: r.Old, BackupKey: r.BackupKey}}.Step(b.env)
+		default:
+			sp := SQLParams{Op: st.Op, Statement: st.Statement, Database: st.Database, To: st.To, Fallback: st.Fallback}
+			// the step that keeps something says so as soon as it succeeds
+			switch st.ID {
+			case "rename-old":
+				sp.Outcome = &core.ReplaceOutcome{Strategy: r.Strategy, OldDatabase: r.Old}
+			case "drop":
+				sp.Outcome = &core.ReplaceOutcome{Strategy: r.Strategy, BackupKey: r.BackupKey}
+			}
+			step = sp.Step(b.env, st.ID, st.Title)
+		}
+		it.Actions = append(it.Actions, a)
+		it.steps = append(it.steps, step)
+	}
 }
 
 // uploadAction is the one action of the files of an item.
@@ -475,7 +549,7 @@ func (p *Plan) finish(skipFailing bool, target config.Target) {
 		InstanceKey: strings.Join([]string{target.AccountID, target.Region, target.Instance}, "/"),
 	}
 	p.core = core.Plan{Operation: string(p.Kind), Target: p.Target, Instance: p.Instance, Protected: p.Protected, Actions: []core.Action{}}
-	var replaced []string
+	var replaced, replacedDB []string
 	failing := 0
 	for i := range p.Items {
 		it := &p.Items[i]
@@ -490,18 +564,27 @@ func (p *Plan) finish(skipFailing bool, target config.Target) {
 			p.core.Actions = append(p.core.Actions, a)
 		}
 		replaced = append(replaced, it.replace...)
+		replacedDB = append(replacedDB, it.replaceDB...)
 		spec.Items = append(spec.Items, jobs.ItemSpec{Name: it.Database, Steps: it.steps})
 	}
-	switch len(replaced) {
-	case 0:
-	case 1:
-		p.core.Subject = replaced[0]
-	default:
+	switch all := append(slices.Clone(replacedDB), replaced...); {
+	case len(all) == 0:
+	case len(all) == 1:
+		p.core.Subject = all[0]
+	case len(replacedDB) == 0:
 		p.core.Subject = fmt.Sprintf("replace %d files", len(replaced))
+	case len(replaced) == 0:
+		p.core.Subject = fmt.Sprintf("replace %d databases", len(replacedDB))
+	default:
+		p.core.Subject = fmt.Sprintf("replace %d databases and %d files", len(replacedDB), len(replaced))
 	}
 	p.Ready = len(spec.Items) > 0 && (failing == 0 || skipFailing)
 	p.Confirmation = p.core.Confirmation()
 	data, _ := json.Marshal(p.core)
+	if p.Stamp != "" {
+		// The stamp only dates the new names: the checks run again at start.
+		data = []byte(strings.ReplaceAll(string(data), p.Stamp, "<stamp>"))
+	}
 	sum := sha256.Sum256(data)
 	p.Digest = hex.EncodeToString(sum[:16])
 	p.spec = spec

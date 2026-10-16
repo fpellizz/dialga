@@ -11,6 +11,20 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ### Aggiunto
 
+- **Restore su un database esistente** (`replace`). RDS rifiuta un restore
+  nativo sopra un database che esiste: ora `dialga restore --replace
+  auto|swap|drop` (e `dialga import`, il piano YAML con `replace:` e
+  `backupFirst:`, `POST .../plans/restore` e gli item di `POST /api/v1/jobs`)
+  lo fanno esplicitamente. `swap` ripristina in `<db>_dialga_new_<stamp>` e
+  scambia i nomi (il vecchio resta come `<db>_old_<stamp>`, con compensazione
+  se la seconda rinomina fallisce); `drop` salva prima il database su S3
+  (`<export>/<db>_before_replace_<stamp>.bak`, `--no-backup-first` per
+  saltarlo), lo elimina e ripristina; `auto` sceglie `swap` se due copie
+  stanno nello spazio libero, altrimenti `drop` con il backup, e dice
+  perché nel controllo `replace`. Conferma riscrivendo il nome del database,
+  controlli su sessioni attive e nomi liberi, T-SQL esatto in anteprima, e
+  ripresa sicura dei job interrotti. Le rinomine usano
+  `rdsadmin.dbo.rds_modify_db_name` (TODO: confermare su mssql-dev).
 - **Elenco dei bucket**. *Add instance* mostra il bucket come campo con
   elenco (combobox accessibile) riempito con i bucket dell'account nella
   regione scelta, con filtro mentre si scrive; un nome digitato resta sempre

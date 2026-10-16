@@ -5,12 +5,13 @@ import type { JobPlan } from "./exportJob";
 import { ImportPage } from "./ImportPage";
 import type { InspectResult } from "./inspect";
 import type { DatabaseReport } from "./plans";
-import { CONFIG_PATH, DEV, PROD, renderI18n } from "./test/fixtures";
+import { CONFIG_PATH, DEV, database, PROD, renderI18n } from "./test/fixtures";
 import {
   ENGINE,
   type FetchRequest,
   json,
   mockFetch,
+  type Route,
   requestsTo,
   sseStream,
   text,
@@ -25,6 +26,16 @@ const JOB = `GET /api/v1/jobs/${JOB_ID}`;
 const EVENTS = `GET /api/v1/jobs/${JOB_ID}/events`;
 const REPORT = "GET /api/v1/targets/dev-sql/databases/app_db/report";
 const PATH = "/data/backups/app_db.bak";
+
+/** The databases of a target: none, unless the test lists them (the Destination step reads them). */
+function mockWithDatabases(routes: Record<string, Route>, existing: string[] = []) {
+  const list = () => json({ databases: existing.map((name) => database(name)) });
+  return mockFetch({
+    "GET /api/v1/targets/dev-sql/databases": list,
+    "GET /api/v1/targets/prod-sql/databases": list,
+    ...routes,
+  });
+}
 
 /** A finished event stream: all the events, then the end. */
 function events(...list: [string, unknown][]): Response {
@@ -260,7 +271,7 @@ describe("ImportPage", () => {
   it("imports a backup end to end: verify, preview, job, report", async () => {
     const stream = sseStream();
     let reads = 0;
-    const fetch = mockFetch({
+    const fetch = mockWithDatabases({
       [TARGETS]: targets(DEV),
       [INSPECT]: () =>
         events(
@@ -390,7 +401,7 @@ describe("ImportPage", () => {
   });
 
   it("stops at a backup that cannot be restored and says what to do", async () => {
-    const fetch = mockFetch({
+    const fetch = mockWithDatabases({
       [TARGETS]: targets(DEV),
       [INSPECT]: () => events(["result", NOT_RESTORABLE], ["done", { ok: false }]),
     });
@@ -419,7 +430,7 @@ describe("ImportPage", () => {
   });
 
   it("refuses a relative path and shows why the inspection failed", async () => {
-    mockFetch({
+    mockWithDatabases({
       [TARGETS]: targets(DEV),
       [INSPECT]: () => text("/data/missing.bak: no such file or directory\n", 400),
     });
@@ -441,7 +452,7 @@ describe("ImportPage", () => {
 
   it("says why the start was refused (412) and previews the job again", async () => {
     const reason = "the plan changed since the preview: preview it again";
-    const fetch = mockFetch({
+    const fetch = mockWithDatabases({
       [TARGETS]: targets(DEV),
       [INSPECT]: () => events(["result", RESTORABLE], ["done", { ok: true }]),
       [JOBS]: (request) => (body(request).dryRun ? json(PLAN) : json({ reason, plan: PLAN }, 412)),
@@ -460,7 +471,7 @@ describe("ImportPage", () => {
   });
 
   it("shows the message of a confirmation the engine refuses (422) and stays on the preview", async () => {
-    mockFetch({
+    mockWithDatabases({
       [TARGETS]: targets(DEV),
       [INSPECT]: () => events(["result", RESTORABLE], ["done", { ok: true }]),
       [JOBS]: (request) =>
@@ -478,7 +489,7 @@ describe("ImportPage", () => {
   });
 
   it("says the engine has no job API and does not start", async () => {
-    mockFetch({
+    mockWithDatabases({
       [TARGETS]: targets(DEV),
       [INSPECT]: () => events(["result", RESTORABLE], ["done", { ok: true }]),
       [JOBS]: () => text("Method Not Allowed\n", 405),
@@ -495,7 +506,7 @@ describe("ImportPage", () => {
   });
 
   it("asks to retype the name of a protected instance before it starts", async () => {
-    mockFetch({
+    mockWithDatabases({
       [TARGETS]: targets(DEV, PROD),
       [INSPECT]: () => events(["result", RESTORABLE], ["done", { ok: true }]),
       [JOBS]: () =>
@@ -519,7 +530,7 @@ describe("ImportPage", () => {
   });
 
   it("asks to retype what the upload replaces", async () => {
-    mockFetch({
+    mockWithDatabases({
       [TARGETS]: targets(DEV),
       [INSPECT]: () => events(["result", RESTORABLE], ["done", { ok: true }]),
       [JOBS]: () => json({ ...PLAN, confirmation: "import/app_db.bak" }),
@@ -545,7 +556,7 @@ describe("ImportPage", () => {
         },
       ],
     };
-    const fetch = mockFetch({
+    const fetch = mockWithDatabases({
       [TARGETS]: targets(DEV),
       [INSPECT]: () => events(["result", RESTORABLE], ["done", { ok: true }]),
       [JOBS]: (request) =>
@@ -566,7 +577,7 @@ describe("ImportPage", () => {
 
   it("goes on in the engine when the page stops following the job", async () => {
     const stream = sseStream();
-    mockFetch({
+    mockWithDatabases({
       [TARGETS]: targets(DEV),
       [INSPECT]: () => events(["result", RESTORABLE], ["done", { ok: true }]),
       [JOBS]: jobs(),
@@ -597,7 +608,7 @@ describe("ImportPage", () => {
 
   it("shows the database that failed with its error, and the others", async () => {
     const stream = sseStream();
-    mockFetch({
+    mockWithDatabases({
       [TARGETS]: targets(DEV),
       [INSPECT]: () => events(["result", RESTORABLE], ["done", { ok: true }]),
       [JOBS]: jobs(),
@@ -617,8 +628,178 @@ describe("ImportPage", () => {
     expect(screen.getByText("Restored: 0 · failed: 1 · not completed: 0")).toBeInTheDocument();
   });
 
+  describe("over an existing database", () => {
+    const OLD = "app_db_old_20261016T100000";
+    const REPLACE_PLAN: JobPlan = {
+      ...PLAN,
+      confirmation: "app_db",
+      stamp: "20261016100000",
+      items: [
+        {
+          ...PLAN.items[0],
+          checks: [
+            { step: "database", label: "Target database", status: "ok", detail: "app_db exists" },
+            {
+              step: "replace",
+              label: "Replace",
+              status: "ok",
+              detail: "swap: two copies (2 × 8.0 GiB) fit in 100 GiB free",
+            },
+          ],
+        },
+      ],
+    };
+
+    async function toDestination() {
+      open();
+      await addAndVerify(PATH);
+      await userEvent.click(await screen.findByRole("button", { name: "Next" }));
+      await screen.findByRole("heading", { level: 2, name: "Step 3 of 6: Destination" });
+    }
+
+    it("offers nothing when the name is new", async () => {
+      mockWithDatabases({
+        [TARGETS]: targets(DEV),
+        [INSPECT]: () => events(["result", RESTORABLE], ["done", { ok: true }]),
+      });
+      await toDestination();
+      expect(screen.queryByRole("radiogroup")).toBeNull();
+    });
+
+    it("stops by default and sends the dry run without replace", async () => {
+      const fetch = mockWithDatabases(
+        {
+          [TARGETS]: targets(DEV),
+          [INSPECT]: () => events(["result", RESTORABLE], ["done", { ok: true }]),
+          [JOBS]: () => json(PLAN),
+        },
+        ["APP_DB"],
+      );
+      await toDestination();
+      const group = await screen.findByRole("radiogroup", {
+        name: "The database app_db already exists",
+      });
+      expect(within(group).getByRole("radio", { name: "Stop" })).toBeChecked();
+      await userEvent.click(screen.getByRole("button", { name: "Preview" }));
+      await screen.findByRole("heading", { level: 2, name: "Step 4 of 6: Preview" });
+      expect(body({ url: new URL(ENGINE.url), init: requestsTo(fetch, JOBS)[0] }).items).toEqual([
+        { database: "app_db", file: PATH },
+      ]);
+    });
+
+    it("hides the choice again when the name changes to a new one", async () => {
+      mockWithDatabases(
+        {
+          [TARGETS]: targets(DEV),
+          [INSPECT]: () => events(["result", RESTORABLE], ["done", { ok: true }]),
+        },
+        ["app_db"],
+      );
+      await toDestination();
+      await userEvent.click(await screen.findByRole("radio", { name: "Keep the old one (swap)" }));
+      await userEvent.type(screen.getByLabelText("Database name"), "_2");
+      expect(screen.queryByRole("radiogroup")).toBeNull();
+    });
+
+    it("swaps: sends replace, asks for the name, names the old database and offers to drop it", async () => {
+      const stream = sseStream();
+      const base = snapshot("succeeded", "restore");
+      const started = {
+        ...base,
+        items: [{ ...base.items[0], replace: { strategy: "swap", oldDatabase: OLD } }],
+      };
+      const fetch = mockWithDatabases(
+        {
+          [TARGETS]: targets(DEV),
+          [INSPECT]: () => events(["result", RESTORABLE], ["done", { ok: true }]),
+          [JOBS]: jobs(REPLACE_PLAN),
+          [EVENTS]: () => stream.response,
+          [JOB]: () => json(started),
+          [REPORT]: () => json(REPORT_OK),
+          "POST /api/v1/targets/dev-sql/plans/drop": () =>
+            json({
+              plan: {
+                operation: "drop",
+                target: "dev-sql",
+                instance: "my-sqlserver",
+                protected: false,
+                actions: [],
+              },
+              checks: [],
+              ready: true,
+              confirmation: OLD,
+              digest: "d",
+              preview: "",
+              request: { database: OLD },
+            }),
+        },
+        ["app_db"],
+      );
+      await toDestination();
+      await userEvent.click(await screen.findByRole("radio", { name: "Keep the old one (swap)" }));
+      await userEvent.click(screen.getByRole("button", { name: "Preview" }));
+      await screen.findByRole("heading", { level: 2, name: "Step 4 of 6: Preview" });
+      expect(body({ url: new URL(ENGINE.url), init: requestsTo(fetch, JOBS)[0] }).items).toEqual([
+        { database: "app_db", file: PATH, replace: "swap" },
+      ]);
+      expect(await screen.findByText(/swap: two copies/)).toBeInTheDocument();
+
+      const start = screen.getByRole("button", { name: "Start import" });
+      expect(start).toBeDisabled();
+      const confirm = screen.getByLabelText("Type app_db to confirm");
+      expect(confirm).toHaveAccessibleDescription("Replacing a database asks to retype its name.");
+      await userEvent.type(confirm, "app_db");
+      await userEvent.click(start);
+      await screen.findByRole("heading", { level: 2, name: "Step 5 of 6: Progress" });
+      expect(JSON.parse(String(requestsTo(fetch, JOBS)[1].body))).toMatchObject({
+        items: [{ database: "app_db", replace: "swap" }],
+        confirm: "app_db",
+        stamp: "20261016100000",
+      });
+      stream.send("job.succeeded", {});
+      stream.close();
+
+      const outcome = await screen.findByRole("region", { name: "Result of the replace" });
+      expect(
+        within(outcome).getByText(`The previous database was kept as ${OLD}.`),
+      ).toBeInTheDocument();
+      await userEvent.click(within(outcome).getByRole("button", { name: `Drop ${OLD}` }));
+      expect(await screen.findByRole("dialog", { name: `Drop ${OLD}` })).toBeInTheDocument();
+    });
+
+    it("sends drop with the safety backup unless it is switched off", async () => {
+      const fetch = mockWithDatabases(
+        {
+          [TARGETS]: targets(DEV),
+          [INSPECT]: () => events(["result", RESTORABLE], ["done", { ok: true }]),
+          [JOBS]: () => json(PLAN),
+        },
+        ["app_db"],
+      );
+      await toDestination();
+      await userEvent.click(await screen.findByRole("radio", { name: "Drop it and restore" }));
+      await userEvent.click(screen.getByRole("button", { name: "Preview" }));
+      await screen.findByRole("heading", { level: 2, name: "Step 4 of 6: Preview" });
+      expect(body({ url: new URL(ENGINE.url), init: requestsTo(fetch, JOBS)[0] }).items).toEqual([
+        { database: "app_db", file: PATH, replace: "drop", backupFirst: true },
+      ]);
+
+      await userEvent.click(screen.getByRole("button", { name: "Back" }));
+      await userEvent.click(
+        await screen.findByRole("checkbox", { name: "Back up the current database to S3 first" }),
+      );
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "Preview" }));
+      await screen.findByRole("heading", { level: 2, name: "Step 4 of 6: Preview" });
+      await waitFor(() => expect(requestsTo(fetch, JOBS)).toHaveLength(2));
+      expect(body({ url: new URL(ENGINE.url), init: requestsTo(fetch, JOBS)[1] }).items).toEqual([
+        { database: "app_db", file: PATH, replace: "drop", backupFirst: false },
+      ]);
+    });
+  });
+
   it("speaks Italian", async () => {
-    mockFetch({ [TARGETS]: targets(DEV) });
+    mockWithDatabases({ [TARGETS]: targets(DEV) });
     window.location.hash = "#import/dev-sql";
     renderI18n(<ImportPage engine={ENGINE} engineError="" />, "it");
     // The page title shows while the instances load; the wizard comes with them.

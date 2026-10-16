@@ -38,6 +38,8 @@ func (f *jobRDS) DatabaseState(_ context.Context, db string) (string, error) {
 
 func (f *jobRDS) ActiveTasks(context.Context, string) (int, error) { return 0, nil }
 
+func (f *jobRDS) ActiveSessions(context.Context, string) (int, error) { return 0, nil }
+
 func (f *jobRDS) StartTask(_ context.Context, _, db string) (mssql.Task, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
