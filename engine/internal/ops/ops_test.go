@@ -190,6 +190,7 @@ func TestRestorePreflight(t *testing.T) {
 		{"tasks running", nil, 2, objects, "sales.bak", mssql.RestoreOptions{}, "source:ok database:ok tasks:warning", "import/sales.bak"},
 		{"striped", nil, 0, objects, "import/p*.bak", mssql.RestoreOptions{}, "source:ok database:ok tasks:ok", "import/p*.bak"},
 		{"striped none", nil, 0, objects, "import/q*.bak", mssql.RestoreOptions{}, "source:failed database:ok tasks:ok", "import/q*.bak"},
+		{"pattern with one match", nil, 0, objects, "import/sal*.bak", mssql.RestoreOptions{}, "source:ok database:ok tasks:ok", "import/sales.bak"},
 		{"striped too many", nil, 0, many, "import/m*.bak", mssql.RestoreOptions{}, "source:failed database:ok tasks:ok", "import/m*.bak"},
 		{"differential", map[string]string{"sales": "RESTORING"}, 0, objects, "sales.bak", mssql.RestoreOptions{Differential: true}, "source:ok database:ok tasks:ok", "import/sales.bak"},
 		{"differential missing", nil, 0, objects, "sales.bak", mssql.RestoreOptions{Differential: true}, "source:ok database:failed tasks:ok", "import/sales.bak"},
@@ -227,6 +228,15 @@ func TestRestoreSourceDetail(t *testing.T) {
 	}
 	if p.Plan.Operation != OpRestore || p.Plan.Target != "dev-sql" || p.Plan.Instance != "dev-sqlserver" {
 		t.Fatalf("plan %+v", p.Plan)
+	}
+
+	// A pattern with one match: its exact key, in the singular.
+	p, err = newSession(&fakeSQL{}, fakeBucket{"import/sales.bak": 3 << 20, "import/hr.bak": 1}).
+		Restore(context.Background(), "sales", "import/sal*.bak", mssql.RestoreOptions{})
+	want := "s3://dev-backups/import/sales.bak (3.0 MiB), the only object matching import/sal*.bak"
+	if err != nil || p.Checks[0].Detail != want || strings.Contains(p.Plan.Actions[0].Statement, "*") ||
+		p.Plan.Actions[0].Title != "Restore sales from s3://dev-backups/import/sales.bak" {
+		t.Fatalf("err %v, checks %+v, plan %+v", err, p.Checks, p.Plan)
 	}
 }
 
