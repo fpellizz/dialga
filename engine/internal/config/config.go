@@ -47,6 +47,9 @@ const (
 	ModeTunnel = "tunnel"
 )
 
+// ErrTunnelNotYet rejects ModeTunnel until the engine opens the tunnel itself.
+var ErrTunnelNotYet = errors.New("connect.mode tunnel arrives in v0.4: open the tunnel yourself and use mode external")
+
 // Password source kinds (see SQL.Password).
 const (
 	PasswordPrompt         = "prompt"

@@ -17,6 +17,8 @@ import (
 
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/config"
+	"github.com/decisyon/dialga/engine/internal/mssql"
+	"github.com/decisyon/dialga/engine/internal/session"
 )
 
 // version is overridden at build time by ci/build-engine.sh
@@ -27,6 +29,7 @@ var version = "dev"
 const (
 	exitFailure     = 1 // error: bad configuration, AWS or API failure...
 	exitCheckFailed = 2 // the command ran, a verification did not pass
+	exitTaskFailed  = 3 // a native RDS task ended in ERROR or CANCELLED
 )
 
 // exitError ends a command with a given exit code without printing more.
@@ -44,6 +47,7 @@ type app struct {
 	getenv           func(string) string
 	readPassword     func(prompt string) (string, error)
 	runCheck         func(context.Context, check.Request, string, check.Emitter) bool
+	openTasks        func(context.Context, config.Target, string) (mssql.TaskReader, func(), error)
 }
 
 func main() {
@@ -53,6 +57,7 @@ func main() {
 		getenv:           os.Getenv,
 		readPassword:     readPasswordFromTerminal,
 		runCheck:         check.Run,
+		openTasks:        session.OpenTasks,
 	}
 	os.Exit(a.execute(os.Args[1:], os.Stdout, os.Stderr))
 }
@@ -94,7 +99,7 @@ func (a *app) rootCmd() *cobra.Command {
 	root.PersistentFlags().StringVar(&a.configPath, "config", "",
 		"configuration file (default: <user config dir>/dialga/config.yaml)")
 	root.PersistentFlags().StringVarP(&a.output, "output", "o", "text", "output format: text or json")
-	root.AddCommand(a.versionCmd(), a.serveCmd(), a.checkCmd(), a.configCmd())
+	root.AddCommand(a.versionCmd(), a.serveCmd(), a.checkCmd(), a.statusCmd(), a.waitCmd(), a.configCmd())
 	return root
 }
 

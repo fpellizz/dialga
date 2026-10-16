@@ -41,6 +41,19 @@ const en = {
   "step.tunnel": "Connection",
   "step.sql": "SQL Server login (TLS verified)",
   "step.tasks": "Databases and native backup tasks",
+  "tasks.show": "Show tasks",
+  "tasks.hide": "Hide tasks",
+  "tasks.title": "Native backup and restore tasks",
+  "tasks.empty": "No native tasks in the last 36 days.",
+  "tasks.updated": "Updated {time}",
+  "tasks.details": "Details",
+  "tasks.polling": "Refreshing every 30 seconds while a task is running.",
+  "lifecycle.CREATED": "Queued",
+  "lifecycle.IN_PROGRESS": "In progress",
+  "lifecycle.SUCCESS": "Succeeded",
+  "lifecycle.ERROR": "Failed",
+  "lifecycle.CANCEL_REQUESTED": "Cancelling",
+  "lifecycle.CANCELLED": "Cancelled",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -87,6 +100,19 @@ const it: Record<MessageKey, string> = {
   "step.tunnel": "Connessione",
   "step.sql": "Login SQL Server (TLS verificato)",
   "step.tasks": "Database e task di backup nativi",
+  "tasks.show": "Mostra task",
+  "tasks.hide": "Nascondi task",
+  "tasks.title": "Task nativi di backup e restore",
+  "tasks.empty": "Nessun task nativo negli ultimi 36 giorni.",
+  "tasks.updated": "Aggiornato {time}",
+  "tasks.details": "Dettagli",
+  "tasks.polling": "Aggiornamento ogni 30 secondi finché un task è in corso.",
+  "lifecycle.CREATED": "In coda",
+  "lifecycle.IN_PROGRESS": "In corso",
+  "lifecycle.SUCCESS": "Riuscito",
+  "lifecycle.ERROR": "Fallito",
+  "lifecycle.CANCEL_REQUESTED": "Annullamento",
+  "lifecycle.CANCELLED": "Annullato",
 };
 
 export const messages: Record<Lang, Record<MessageKey, string>> = { en, it };

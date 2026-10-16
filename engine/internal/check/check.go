@@ -9,24 +9,14 @@ package check
 
 import (
 	"context"
-	"crypto/tls"
-	"database/sql"
 	"errors"
 	"fmt"
 	"net"
-	"net/url"
 	"regexp"
-	"strconv"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/rds"
-	"github.com/aws/aws-sdk-go-v2/service/sts"
-	mssql "github.com/microsoft/go-mssqldb"
-	"github.com/microsoft/go-mssqldb/msdsn"
-
-	"github.com/decisyon/dialga/engine/internal/rdsca"
+	"github.com/decisyon/dialga/engine/internal/awsx"
+	"github.com/decisyon/dialga/engine/internal/mssql"
 )
 
 // Request selects the target to check. The SQL password never travels in
@@ -115,54 +105,40 @@ func Run(ctx context.Context, req Request, sqlPassword string, emit Emitter) boo
 	skip := func(s step, why string) { end(s, Skipped, why) }
 
 	start(stepAWS)
-	cfg, err := config.LoadDefaultConfig(ctx,
-		config.WithSharedConfigProfile(req.Profile), config.WithRegion(req.Region))
-	if err != nil {
+	cfg, account, err := awsx.Load(ctx, req.Profile, req.Region, req.ExpectedAccount)
+	if wrong := (*awsx.WrongAccountError)(nil); errors.As(err, &wrong) {
 		end(stepAWS, Failed, err.Error())
-		skip(stepInstance, "needs AWS credentials")
-		skip(stepTunnel, "needs the RDS instance")
-		skip(stepSQL, "needs the RDS instance")
-		skip(stepTasks, "needs a SQL session")
-		return false
-	}
-	ident, err := sts.NewFromConfig(cfg).GetCallerIdentity(ctx, &sts.GetCallerIdentityInput{})
-	if err != nil {
-		end(stepAWS, Failed, err.Error())
-		skip(stepInstance, "needs AWS credentials")
-		skip(stepTunnel, "needs the RDS instance")
-		skip(stepSQL, "needs the RDS instance")
-		skip(stepTasks, "needs a SQL session")
-		return false
-	}
-	account := aws.ToString(ident.Account)
-	if req.ExpectedAccount != "" && account != req.ExpectedAccount {
-		end(stepAWS, Failed, fmt.Sprintf("profile %s points to account %s, expected %s", req.Profile, account, req.ExpectedAccount))
 		skip(stepInstance, "wrong AWS account")
 		skip(stepTunnel, "wrong AWS account")
 		skip(stepSQL, "wrong AWS account")
 		skip(stepTasks, "wrong AWS account")
 		return false
 	}
-	end(stepAWS, OK, fmt.Sprintf("profile %s · account %s", req.Profile, account))
-
-	start(stepInstance)
-	out, err := rds.NewFromConfig(cfg).DescribeDBInstances(ctx, &rds.DescribeDBInstancesInput{
-		DBInstanceIdentifier: aws.String(req.Instance),
-	})
-	if err != nil || len(out.DBInstances) == 0 || out.DBInstances[0].Endpoint == nil {
-		end(stepInstance, Failed, errOr(err, "instance not found"))
+	if err != nil {
+		end(stepAWS, Failed, err.Error())
+		skip(stepInstance, "needs AWS credentials")
 		skip(stepTunnel, "needs the RDS instance")
 		skip(stepSQL, "needs the RDS instance")
 		skip(stepTasks, "needs a SQL session")
 		return false
 	}
-	db := out.DBInstances[0]
-	endpoint := aws.ToString(db.Endpoint.Address)
-	detail := fmt.Sprintf("%s · %s %s", aws.ToString(db.DBInstanceStatus), aws.ToString(db.Engine), aws.ToString(db.EngineVersion))
-	if len(db.OptionGroupMemberships) > 0 {
-		detail += " · option group " + aws.ToString(db.OptionGroupMemberships[0].Status)
+	end(stepAWS, OK, fmt.Sprintf("profile %s · account %s", req.Profile, account))
+
+	start(stepInstance)
+	inst, err := awsx.DescribeInstance(ctx, cfg, req.Instance)
+	if err != nil {
+		end(stepInstance, Failed, err.Error())
+		skip(stepTunnel, "needs the RDS instance")
+		skip(stepSQL, "needs the RDS instance")
+		skip(stepTasks, "needs a SQL session")
+		return false
 	}
-	instanceOK := aws.ToString(db.DBInstanceStatus) == "available"
+	endpoint := inst.Endpoint
+	detail := fmt.Sprintf("%s · %s %s", inst.Status, inst.Engine, inst.EngineVersion)
+	if inst.OptionGroupStatus != "" {
+		detail += " · option group " + inst.OptionGroupStatus
+	}
+	instanceOK := inst.Status == "available"
 	if !instanceOK {
 		end(stepInstance, Failed, detail)
 	} else {
@@ -170,11 +146,7 @@ func Run(ctx context.Context, req Request, sqlPassword string, emit Emitter) boo
 	}
 
 	start(stepTunnel)
-	endpointPort := int(aws.ToInt32(db.Endpoint.Port))
-	if endpointPort == 0 {
-		endpointPort = 1433
-	}
-	addr := sqlAddr(req, endpoint, endpointPort)
+	addr := mssql.Addr(req.Direct, req.LocalPort, endpoint, inst.Port)
 	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "tcp", addr)
 	if err != nil {
 		if req.Direct {
@@ -190,7 +162,7 @@ func Run(ctx context.Context, req Request, sqlPassword string, emit Emitter) boo
 	if req.Direct {
 		end(stepTunnel, OK, "direct · "+addr)
 	} else {
-		end(stepTunnel, OK, fmt.Sprintf("tunnel %s → %s:%d", addr, endpoint, endpointPort))
+		end(stepTunnel, OK, fmt.Sprintf("tunnel %s → %s:%d", addr, endpoint, inst.Port))
 	}
 
 	start(stepSQL)
@@ -199,7 +171,7 @@ func Run(ctx context.Context, req Request, sqlPassword string, emit Emitter) boo
 		skip(stepTasks, "needs a SQL session")
 		return false
 	}
-	sqlDB, err := openSQL(req, addr, endpoint, sqlPassword)
+	sqlDB, err := mssql.Open(addr, endpoint, req.SQLUser, sqlPassword)
 	if err != nil {
 		end(stepSQL, Failed, err.Error())
 		skip(stepTasks, "needs a SQL session")
@@ -228,54 +200,4 @@ func Run(ctx context.Context, req Request, sqlPassword string, emit Emitter) boo
 	}
 	end(stepTasks, OK, fmt.Sprintf("%d user databases · %d native tasks running", userDBs, running))
 	return instanceOK
-}
-
-// sqlAddr is where the engine opens the TDS connection: the local tunnel
-// port, or the RDS endpoint itself with Direct.
-func sqlAddr(req Request, endpoint string, endpointPort int) string {
-	if req.Direct {
-		return net.JoinHostPort(endpoint, strconv.Itoa(endpointPort))
-	}
-	return net.JoinHostPort("127.0.0.1", strconv.Itoa(req.LocalPort))
-}
-
-// openSQL connects to addr and verifies the server certificate against the
-// RDS roots for the endpoint name, so the check holds through a tunnel too.
-func openSQL(req Request, addr, endpoint, password string) (*sql.DB, error) {
-	pool, err := rdsca.Pool()
-	if err != nil {
-		return nil, err
-	}
-	u := &url.URL{
-		Scheme: "sqlserver",
-		User:   url.UserPassword(req.SQLUser, password),
-		Host:   addr,
-	}
-	q := url.Values{}
-	q.Set("database", "master")
-	q.Set("encrypt", "true")
-	q.Set("hostnameincertificate", endpoint)
-	q.Set("dial timeout", "10")
-	q.Set("app name", "dialga")
-	u.RawQuery = q.Encode()
-	cfg, err := msdsn.Parse(u.String())
-	if err != nil {
-		return nil, err
-	}
-	if cfg.TLSConfig == nil {
-		return nil, errors.New("TLS configuration missing")
-	}
-	cfg.TLSConfig.RootCAs = pool
-	cfg.TLSConfig.ServerName = endpoint
-	cfg.TLSConfig.MinVersion = tls.VersionTLS12
-	db := sql.OpenDB(mssql.NewConnectorConfig(cfg))
-	db.SetMaxOpenConns(1)
-	return db, nil
-}
-
-func errOr(err error, fallback string) string {
-	if err != nil {
-		return err.Error()
-	}
-	return fallback
 }
