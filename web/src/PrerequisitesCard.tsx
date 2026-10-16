@@ -99,6 +99,9 @@ export function PrerequisitesCard({ engine }: { engine: EngineInfo | null }) {
                         ? t("prereq.outdatedHint", { version: item.version ?? "" })
                         : t(`prereq.purpose.${item.id}`)}
                     </p>
+                    {!item.found && item.error && (
+                      <p className="mono muted item-detail">{item.error}</p>
+                    )}
                     {item.install.map((hint) => (
                       <div key={hint.distro} className="install">
                         <span className="hint">

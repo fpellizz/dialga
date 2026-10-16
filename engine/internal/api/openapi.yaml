@@ -903,6 +903,9 @@ components:
         outdated:
           type: boolean
           description: Found but too old (a Session Manager plugin not newer than 1.2.497.0 cannot run the integrated tunnel).
+        error:
+          type: string
+          description: Why the program cannot be used although it may be there (for example a docker daemon that does not answer).
         purpose: { type: string, description: What needs it (English; the GUI translates known ids). }
         install:
           type: array

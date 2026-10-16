@@ -229,6 +229,8 @@ export interface Prerequisite {
   version?: string;
   /** Found but too old for what needs it (the integrated tunnel). */
   outdated?: boolean;
+  /** Why it cannot be used although it may be there (engine text, English). */
+  error?: string;
   purpose: string;
   install: InstallHint[];
 }
