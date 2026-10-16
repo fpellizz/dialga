@@ -6,10 +6,10 @@
  * Activity) can replace runExports with the same ExportItemRun model, which
  * mirrors the engine's jobs.Item.
  */
-import type { StepEvent, Task } from "./api";
+import { failure, type StepEvent, type Task } from "./api";
 import type { EngineInfo } from "./engine";
 import { localPath } from "./exportPlan";
-import { executePlan, HttpError, type PlanPreview, s3URI, upsertStep } from "./plans";
+import { executePlan, type PlanPreview, s3URI, upsertStep } from "./plans";
 import { createSseParser } from "./sse";
 
 export type ItemState = "queued" | "running" | "succeeded" | "failed" | "cancelled";
@@ -107,7 +107,7 @@ interface DownloadBatch {
 
 /**
  * Downloads one object to a local folder (POST .../downloads, apply) and
- * streams its progress. A refusal before the stream is an HttpError.
+ * streams its progress. A refusal before the stream is an ApiError.
  */
 export async function downloadBackup(
   engine: EngineInfo,
@@ -126,10 +126,7 @@ export async function downloadBackup(
     },
   );
   if (!response.ok || !response.body) {
-    throw new HttpError(
-      response.status,
-      (await response.text()).trim() || `HTTP ${response.status}`,
-    );
+    throw await failure(response);
   }
   const out: { done?: TransferDone; rejected?: string } = {};
   const parse = createSseParser((message) => {

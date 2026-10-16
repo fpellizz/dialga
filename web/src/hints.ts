@@ -45,6 +45,7 @@ const RULES: { test: RegExp; hint: (m: RegExpMatchArray) => Hint }[] = [
     hint: () => ({ key: "hint.tunnel" }),
   },
   { test: /DBInstanceNotFound|instance not found/i, hint: () => ({ key: "hint.instance" }) },
+  { test: /database not found on the instance/, hint: () => ({ key: "hint.database" }) },
   { test: /bucket is in another region/, hint: () => ({ key: "hint.bucketRegion" }) },
   { test: /bucket not found|NoSuchBucket/, hint: () => ({ key: "hint.bucket" }) },
   {
@@ -75,16 +76,7 @@ export function hintFor(message: string, status?: number): Hint | undefined {
 /** The hint for a failed call: an ApiError carries the status. */
 export function errorHint(error: unknown): Hint | undefined {
   const message = error instanceof Error ? error.message : String(error);
-  return hintFor(message, statusOf(error));
-}
-
-/** The HTTP status of an ApiError, or of any error with a numeric status (plans.HttpError). */
-function statusOf(error: unknown): number | undefined {
-  if (error instanceof ApiError) {
-    return error.status;
-  }
-  const status = (error as { status?: unknown } | null)?.status;
-  return error instanceof Error && typeof status === "number" ? status : undefined;
+  return hintFor(message, error instanceof ApiError ? error.status : undefined);
 }
 
 /** The hint for a failed check step: its detail first, then what the step checks. */

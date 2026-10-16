@@ -5,10 +5,9 @@
  * 404 or 405 and the wizard chains the plan calls instead (exportRun.ts).
  * Shapes as in api.JobRequest, pipeline.Plan and jobs.Job.
  */
-import type { StepEvent, StepStatus, Task } from "./api";
+import { ApiError, failure, type StepEvent, type StepStatus, type Task } from "./api";
 import type { EngineInfo } from "./engine";
 import type { ExportItemRun, ItemState } from "./exportRun";
-import { HttpError } from "./plans";
 import { createSseParser } from "./sse";
 
 export interface JobItemRequest {
@@ -84,13 +83,6 @@ function headers(engine: EngineInfo): HeadersInit {
   return { Authorization: `Bearer ${engine.token}`, "Content-Type": "application/json" };
 }
 
-async function httpError(response: Response): Promise<HttpError> {
-  return new HttpError(
-    response.status,
-    (await response.text()).trim() || `HTTP ${response.status}`,
-  );
-}
-
 /** The engine has no POST /api/v1/jobs: answered when the route is missing. */
 export class NoJobsError extends Error {}
 
@@ -116,10 +108,10 @@ export async function previewJob(
     if (response.status === 405 || body === "404 page not found" || body === "") {
       throw new NoJobsError(body || `HTTP ${response.status}`);
     }
-    throw new HttpError(response.status, body);
+    throw new ApiError(response.status, body);
   }
   if (!response.ok) {
-    throw await httpError(response);
+    throw await failure(response);
   }
   return (await response.json()) as JobPlan;
 }
@@ -146,10 +138,10 @@ export async function startJob(
     } catch {
       // Plain text: keep it.
     }
-    throw new HttpError(412, reason || "HTTP 412");
+    throw new ApiError(412, reason || "HTTP 412");
   }
   if (!response.ok) {
-    throw await httpError(response);
+    throw await failure(response);
   }
   return (await response.json()) as Job;
 }
@@ -160,7 +152,7 @@ export async function getJob(engine: EngineInfo, id: string, signal?: AbortSigna
     signal,
   });
   if (!response.ok) {
-    throw await httpError(response);
+    throw await failure(response);
   }
   return (await response.json()) as Job;
 }
@@ -172,7 +164,7 @@ export async function cancelJob(engine: EngineInfo, id: string): Promise<void> {
     headers: headers(engine),
   });
   if (!response.ok && response.status !== 409) {
-    throw await httpError(response);
+    throw await failure(response);
   }
 }
 
@@ -218,7 +210,7 @@ export async function followJob(
     signal,
   });
   if (!response.ok || !response.body) {
-    throw await httpError(response);
+    throw await failure(response);
   }
   let ended = false;
   const parse = createSseParser((message) => {

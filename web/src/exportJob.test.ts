@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "./api";
 import { previewExport, resetBackends, runExport } from "./exportBackend";
 import { type Job, type JobPlan, mapJob, NoJobsError, previewJob, startJob } from "./exportJob";
-import { HttpError } from "./plans";
 import { ENGINE, json, mockFetch, requestsTo, text } from "./test/http";
 
 const JOB_ID = "20261016T090000Z-0a1b2c3d";
@@ -86,7 +86,7 @@ describe("previewJob", () => {
     );
     mockFetch({ "POST /api/v1/jobs": () => text('unknown target "x" (known: dev-sql)\n', 404) });
     const error = await previewJob(ENGINE, "x", [{ database: "sales" }]).catch((e) => e);
-    expect(error).toBeInstanceOf(HttpError);
+    expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({ status: 404 });
   });
 });
@@ -198,7 +198,7 @@ describe("startJob", () => {
         json({ reason: "the plan changed since the preview: preview it again", plan: PLAN }, 412),
     });
     const error = await startJob(ENGINE, "dev-sql", [{ database: "sales" }], PLAN).catch((e) => e);
-    expect(error).toBeInstanceOf(HttpError);
+    expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({
       status: 412,
       message: "the plan changed since the preview: preview it again",

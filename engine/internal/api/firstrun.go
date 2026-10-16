@@ -203,5 +203,6 @@ func summaryOf(name string, t config.Target) TargetSummary {
 		Name: name, Instance: t.Instance, Region: t.Region, Profile: t.AWSProfile,
 		AccountID: t.AccountID, Bucket: t.Bucket, SQLUser: t.SQL.User,
 		ConnectMode: t.Connect.Mode, LocalPort: t.Connect.LocalPort, Protected: t.Protected,
+		ImportPrefix: t.Prefixes.Import, ExportPrefix: t.Prefixes.Export,
 	}
 }

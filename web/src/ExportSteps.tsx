@@ -31,7 +31,7 @@ import {
 import { type ExportItemRun, type ItemState, tally } from "./exportRun";
 import { ErrorBanner } from "./Feedback";
 import { type Lang, messages, type Translate, useI18n } from "./i18n";
-import { planStepKey } from "./plans";
+import { stepLabel as planStepLabel } from "./PlanPreview";
 import { StepList } from "./StepList";
 import { TaskProgress } from "./TaskProgress";
 
@@ -45,14 +45,8 @@ const STATE_BADGE: Record<ItemState, string> = {
 
 /** The label of an export step, a pre-flight check or a download step. */
 function stepLabel(t: Translate, s: StepEvent, database: string, key: string): string {
-  if (s.step === "export") {
-    return t("planaction.export", { database, key });
-  }
-  if (s.step.startsWith("download:")) {
-    return s.label;
-  }
-  const known = planStepKey(s.step);
-  return known ? t(known) : s.label;
+  // The download steps keep the engine's label; the rest as in the plan dialogs.
+  return s.step.startsWith("download:") ? s.label : planStepLabel(t, s, { database, key });
 }
 
 /** Step 1: the instance and its online databases, several at once. */

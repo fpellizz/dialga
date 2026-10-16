@@ -20,17 +20,26 @@ function panel() {
   return screen.getByRole("region", { name: "Native backup and restore tasks" });
 }
 
+/** The icon button: named after the target, unlike the other Refresh buttons of the card. */
+function refresh() {
+  return screen.getByRole("button", { name: "Refresh the tasks of dev-sql" });
+}
+
 const tick = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
 
 describe("TasksPanel", () => {
   it("shows a skeleton until the first answer", async () => {
     const answer = deferred<Response>();
-    mockFetch({ [TASKS]: () => answer.promise });
+    const fetch = mockFetch({ [TASKS]: () => answer.promise });
     const { container } = renderI18n(<TasksPanel engine={ENGINE} target="dev-sql" />);
 
     expect(panel()).toHaveAttribute("aria-busy", "true");
     expect(container.querySelectorAll(".skeleton")).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "Refresh" })).toBeDisabled();
+    // Busy, not disabled: the button keeps the focus and ignores clicks.
+    expect(refresh()).toHaveAttribute("aria-disabled", "true");
+    expect(refresh()).toBeEnabled();
+    await userEvent.click(refresh());
+    expect(fetch).toHaveBeenCalledTimes(1);
 
     answer.resolve(json({ tasks: [] }));
     expect(await screen.findByText("No native tasks in the last 36 days.")).toBeInTheDocument();
@@ -89,16 +98,38 @@ describe("TasksPanel", () => {
       "an engine error",
       () => text("RDS instance my-sqlserver: not found\n", 502),
       "RDS instance my-sqlserver: not found",
+      undefined,
     ],
-    ["an empty error", () => text("", 500), "HTTP 500"],
-    ["a network error", () => Promise.reject(new TypeError("Failed to fetch")), "Failed to fetch"],
-  ])("shows %s without the Error: prefix", async (_name, answer, message) => {
-    mockFetch({ [TASKS]: answer });
-    const { container } = renderI18n(<TasksPanel engine={ENGINE} target="dev-sql" />);
-    expect(await screen.findByRole("alert")).toHaveTextContent(new RegExp(`^${message}$`));
-    expect(container.querySelector(".skeleton")).toBeNull();
-    expect(screen.getByRole("button", { name: "Refresh" })).toBeEnabled();
-  });
+    ["an empty error", () => text("", 500), "HTTP 500", undefined],
+    [
+      "a network error",
+      () => Promise.reject(new TypeError("Failed to fetch")),
+      "Failed to fetch",
+      "Restart Dialga. If it happens again, start it from a terminal to read the engine log.",
+    ],
+    [
+      "a login error",
+      () => text("SQL Server on 127.0.0.1:11433: mssql: login failed for user 'admin'\n", 502),
+      "SQL Server on 127.0.0.1:11433: mssql: login failed for user 'admin'",
+      "Check the SQL user of the target and the password the engine received.",
+    ],
+  ])(
+    "shows %s without the Error: prefix, with what to do",
+    async (_name, answer, message, hint) => {
+      mockFetch({ [TASKS]: answer });
+      const { container } = renderI18n(<TasksPanel engine={ENGINE} target="dev-sql" />);
+      const banner = await screen.findByRole("alert");
+      expect(banner.querySelector(".banner-text")).toHaveTextContent(new RegExp(`^${message}$`));
+      if (hint) {
+        expect(banner.querySelector(".banner-hint")).toHaveTextContent(hint);
+      } else {
+        expect(banner.querySelector(".banner-hint")).toBeNull();
+      }
+      expect(container.querySelector(".skeleton")).toBeNull();
+      expect(panel()).toHaveAttribute("aria-busy", "false");
+      expect(refresh()).not.toHaveAttribute("aria-disabled");
+    },
+  );
 
   it("refreshes on demand and clears an old error", async () => {
     const fetch = mockFetch({
@@ -108,7 +139,7 @@ describe("TasksPanel", () => {
     renderI18n(<TasksPanel engine={ENGINE} target="dev-sql" />);
     expect(await screen.findByRole("alert")).toHaveTextContent("SQL password: not set");
 
-    await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    await userEvent.click(refresh());
     expect(await screen.findByText("No native tasks in the last 36 days.")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(fetch).toHaveBeenCalledTimes(2);

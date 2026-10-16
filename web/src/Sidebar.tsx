@@ -5,33 +5,18 @@ import type { EngineInfo } from "./engine";
 import { type MessageKey, useI18n } from "./i18n";
 import { TunnelSummary } from "./TunnelIndicator";
 
-export type Page = "instances" | "databases" | "export" | "settings";
+export type Page = "instances" | "databases" | "import" | "export" | "settings";
 
 /** The window title of each page: "Databases · Dialga". */
 const PAGE_TITLE: Record<Page, MessageKey> = {
   instances: "nav.instances",
   databases: "nav.databases",
+  import: "nav.import",
   export: "nav.export",
   settings: "nav.settings",
 };
 
-/** The entries not built yet, around Export (the order of the plan). */
-const SOON_BEFORE: { icon: typeof Upload; key: MessageKey }[] = [
-  { icon: Upload, key: "nav.import" },
-];
-const SOON_AFTER: { icon: typeof Upload; key: MessageKey }[] = [
-  { icon: Activity, key: "nav.activity" },
-];
-
-function Soon({ icon: Icon, label, soon }: { icon: typeof Upload; label: string; soon: string }) {
-  return (
-    <span className="nav-link nav-disabled" aria-disabled="true">
-      <Icon size={16} aria-hidden="true" />
-      {label}
-      <span className="soon">{soon}</span>
-    </span>
-  );
-}
+const SOON: { icon: typeof Upload; key: MessageKey }[] = [{ icon: Activity, key: "nav.activity" }];
 
 export function Sidebar({
   page,
@@ -86,15 +71,20 @@ export function Sidebar({
           <Database size={16} className="nav-icon" aria-hidden="true" />
           {t("nav.databases")}
         </a>
-        {SOON_BEFORE.map(({ icon, key }) => (
-          <Soon key={key} icon={icon} label={t(key)} soon={t("nav.soon")} />
-        ))}
+        <a href="#import" className="nav-link" aria-current={current("import")}>
+          <Upload size={16} className="nav-icon" aria-hidden="true" />
+          {t("nav.import")}
+        </a>
         <a href="#export" className="nav-link" aria-current={current("export")}>
           <Download size={16} className="nav-icon" aria-hidden="true" />
           {t("nav.export")}
         </a>
-        {SOON_AFTER.map(({ icon, key }) => (
-          <Soon key={key} icon={icon} label={t(key)} soon={t("nav.soon")} />
+        {SOON.map(({ icon: Icon, key }) => (
+          <span key={key} className="nav-link nav-disabled" aria-disabled="true">
+            <Icon size={16} aria-hidden="true" />
+            {t(key)}
+            <span className="soon">{t("nav.soon")}</span>
+          </span>
         ))}
         <a href="#settings" className="nav-link nav-bottom" aria-current={current("settings")}>
           <Settings size={16} className="nav-icon" aria-hidden="true" />

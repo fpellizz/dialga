@@ -134,6 +134,8 @@ export function DatabasesPage({
   }, [engine, target, reload]);
 
   const list = loaded?.target === target ? loaded.list : null;
+  // Busy from the first render of a target, like its card: the request starts in an effect.
+  const busy = loading || (!!target && !list && !error);
   const rows = useMemo(
     () => (list ? sortDatabases(filterDatabases(list, query), sort) : []),
     [list, query, sort],
@@ -193,12 +195,12 @@ export function DatabasesPage({
             <button
               type="button"
               className="btn btn-outline"
-              onClick={() => !loading && setReload((n) => n + 1)}
-              aria-disabled={loading || undefined}
+              onClick={() => !busy && setReload((n) => n + 1)}
+              aria-disabled={busy || undefined}
               disabled={!target}
               aria-label={t("databases.refresh", { target })}
             >
-              <RefreshCw size={16} className={loading ? "spin" : undefined} aria-hidden="true" />
+              <RefreshCw size={16} className={busy ? "spin" : undefined} aria-hidden="true" />
               {t("instances.refresh")}
             </button>
             <button

@@ -67,6 +67,9 @@ type Session struct {
 	Bucket Objects
 	// Now dates the default export keys (default time.Now).
 	Now func() time.Time
+	// FreeStorage reads the free storage of the instance (CloudWatch); nil
+	// skips the space check of a restore.
+	FreeStorage func(context.Context) (int64, error)
 }
 
 // Open connects to the target: AWS credentials with the account guard, the
@@ -76,7 +79,11 @@ func Open(ctx context.Context, name string, t config.Target, password string) (*
 	if err != nil {
 		return nil, nil, err
 	}
-	s := &Session{Name: name, Target: t, SQL: mssql.Session{DB: db}, Bucket: awsx.NewBucket(cfg, t.Bucket)}
+	s := &Session{Name: name, Target: t, SQL: mssql.Session{DB: db}, Bucket: awsx.NewBucket(cfg, t.Bucket),
+		FreeStorage: func(ctx context.Context) (int64, error) {
+			free, err := awsx.FreeStorageBytes(ctx, cfg, t.Instance)
+			return int64(free), err
+		}}
 	return s, func() { _ = db.Close() }, nil
 }
 

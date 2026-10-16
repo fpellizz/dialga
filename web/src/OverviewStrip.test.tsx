@@ -19,6 +19,8 @@ describe("OverviewStrip", () => {
     const { container } = renderI18n(<OverviewStrip engine={ENGINE} target="dev-sql" />);
 
     expect(container.querySelectorAll(".skeleton")).toHaveLength(2);
+    // Busy from the first render, before any request.
+    expect(strip(container)).toHaveAttribute("aria-busy", "true");
     expect(screenView.observed()).toBe(1);
     expect(fetch).not.toHaveBeenCalled();
 
@@ -104,6 +106,9 @@ describe("OverviewStrip", () => {
     renderI18n(<OverviewStrip engine={ENGINE} target="dev-sql" />);
     expect(await screen.findByText("Databases and tasks not read")).toHaveClass("tone-warning");
     expect(screen.getByText("login failed for user 'admin'")).toBeInTheDocument();
+    expect(
+      screen.getByText("Check the SQL user of the target and the password the engine received."),
+    ).toHaveClass("overview-hint");
   });
 
   it("shows a status it does not know as the engine sent it", async () => {
@@ -124,6 +129,12 @@ describe("OverviewStrip", () => {
     expect(await screen.findByText("failed to get shared config profile, dev")).toHaveClass(
       "tone-destructive",
     );
+    expect(
+      screen.getByText(
+        "Create the profile dev in ~/.aws/config (aws configure sso), or fix aws_profile in the configuration.",
+      ),
+    ).toHaveClass("overview-hint");
+    expect(strip(container)).toHaveAttribute("aria-busy", "false");
     expect(container.querySelector(".skeleton")).toBeNull();
 
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));
@@ -142,10 +153,15 @@ describe("OverviewStrip", () => {
     await screen.findByText("Available");
     expect(strip(container)).toHaveAttribute("aria-busy", "false");
 
-    await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    const refresh = screen.getByRole("button", { name: "Refresh the overview of dev-sql" });
+    await userEvent.click(refresh);
     expect(fetch).toHaveBeenCalledTimes(2);
     expect(strip(container)).toHaveAttribute("aria-busy", "true");
-    expect(screen.getByRole("button", { name: "Refresh" })).toBeDisabled();
+    // Busy, not disabled: it keeps the focus, and a second click sends nothing.
+    expect(refresh).toHaveAttribute("aria-disabled", "true");
+    expect(refresh).toHaveFocus();
+    await userEvent.click(refresh);
+    expect(fetch).toHaveBeenCalledTimes(2);
     // The previous overview stays on screen while the new one loads.
     expect(screen.getByText("Available")).toBeInTheDocument();
 

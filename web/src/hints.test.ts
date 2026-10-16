@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { ApiError, type StepEvent } from "./api";
 import { errorHint, hintFor, stepHint } from "./hints";
 import { messages } from "./i18n";
-import { HttpError } from "./plans";
 
 describe("hintFor", () => {
   it("maps the engine messages that do not say what to do", () => {
@@ -74,8 +73,7 @@ describe("hintFor", () => {
   it("reads the status of an ApiError", () => {
     expect(errorHint(new ApiError(409, "invalid YAML"))).toEqual({ key: "hint.config" });
     expect(errorHint(new TypeError("Failed to fetch"))).toEqual({ key: "hint.engine" });
-    // The plan calls throw their own HttpError: its status counts too.
-    expect(errorHint(new HttpError(404, 'unknown target "x"'))).toEqual({
+    expect(errorHint(new ApiError(404, 'unknown target "x"'))).toEqual({
       key: "hint.unknownTarget",
     });
     expect(errorHint("plain text")).toBeUndefined();

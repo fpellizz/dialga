@@ -1441,6 +1441,96 @@ summary:focus-visible {
   min-width: 280px;
 }
 
+/* Import wizard */
+.import-target {
+  max-width: 420px;
+}
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 24px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-xl);
+  color: var(--muted-foreground);
+  text-align: center;
+}
+.dropzone p {
+  margin: 0;
+}
+.dropzone.dragging {
+  border-color: var(--primary);
+  background: color-mix(in oklab, var(--primary) 6%, transparent);
+  color: var(--foreground);
+}
+.textarea {
+  height: auto;
+  min-height: calc(var(--control-h) * 2);
+  padding: 8px 10px;
+  resize: vertical;
+}
+.inline-icon {
+  margin-right: 6px;
+  vertical-align: -3px;
+}
+.remedy {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  background: var(--warning-muted);
+  color: var(--warning-foreground-strong);
+}
+.space {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.space-warning .progress-bar {
+  background: var(--warning);
+}
+.space-failed .progress-bar {
+  background: var(--destructive);
+}
+.destination {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.destination > legend {
+  padding: 0 4px;
+}
+.plan-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.plan,
+.plan-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.confirm-import {
+  max-width: 420px;
+}
+.orphans {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.orphan-list {
+  margin: 0;
+  padding-left: 20px;
+}
+a.btn {
+  text-decoration: none;
+}
+.wizard-body p,
+.plan p {
+  margin: 0;
+}
+
 /* Wizard shell (Export, Import): the same class names as the Import wizard */
 .wizard {
   display: flex;
@@ -1619,7 +1709,4 @@ summary:focus-visible {
 }
 .row-select input {
   accent-color: var(--primary);
-}
-a.btn {
-  text-decoration: none;
 }

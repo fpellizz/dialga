@@ -16,8 +16,14 @@ test("navigates with the sidebar, the hash and history", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1, name: "Instances" })).toBeVisible();
   await expect(instances).toHaveAttribute("aria-current", "page");
   await expect(page.getByText("engine dev")).toBeVisible();
-  // The coming pages (Import, Activity) are not links yet.
-  await expect(nav.getByRole("link")).toHaveText(["Instances", "Databases", "Export", "Settings"]);
+  // Instances, Databases, Import and Export are pages; the coming ones are not links yet.
+  await expect(nav.getByRole("link")).toHaveText([
+    "Instances",
+    "Databases",
+    "Import",
+    "Export",
+    "Settings",
+  ]);
 
   await databases.click();
   await expect(page).toHaveURL(/#databases$/);
@@ -28,6 +34,9 @@ test("navigates with the sidebar, the hash and history", async ({ page }) => {
   await settings.click();
   await expect(page).toHaveURL(/#settings$/);
   await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeVisible();
+  // As a page load would: the window title, and the focus on the page title.
+  await expect(page).toHaveTitle("Settings · Dialga");
+  await expect(page.getByRole("heading", { level: 1, name: "Settings" })).toBeFocused();
   await expect(settings).toHaveAttribute("aria-current", "page");
   await expect(instances).not.toHaveAttribute("aria-current");
 
@@ -89,7 +98,7 @@ test("shows the errors of the configuration until it is fixed", async ({ page })
 
   // The engine reads the file again on every request: Refresh is enough.
   await writeConfig(FAKE_TARGET);
-  await page.getByRole("button", { name: "Refresh" }).click();
+  await page.getByRole("button", { name: "Refresh the instances" }).click();
   await expect(page.getByRole("region", { name: "e2e-fake" })).toBeVisible();
   await expect(banner).toHaveCount(0);
 });
@@ -102,14 +111,12 @@ test("runs a check that stops at the AWS step", async ({ page }) => {
   await expect(card.getByText("Open tunnel on port 11433")).toBeVisible();
 
   await card.getByRole("button", { name: "Run check" }).click();
-  // The banner, and the same outcome in the card's live region for screen readers.
-  await expect(card.locator(".banner-fail")).toHaveText(
-    "Some checks failed · Failed: 1 · warnings: 0",
-    {
-      timeout: 15_000,
-    },
-  );
-  await expect(card.getByRole("status").first()).toHaveText(/^Some checks failed/);
+  const verdict = card.locator(".banner-fail");
+  await expect(verdict).toHaveText("Some checks failed · Failed: 1 · warnings: 0", {
+    timeout: 15_000,
+  });
+  // The card's polite live region says the same, once.
+  await expect(card.getByRole("status")).toHaveText("Some checks failed · Failed: 1 · warnings: 0");
   // No DIALGA_SQL_PASSWORD in the engine environment: said up front.
   await expect(card.getByText(/^SQL login will be skipped: /)).toBeVisible();
 
@@ -118,6 +125,10 @@ test("runs a check that stops at the AWS step", async ({ page }) => {
   await expect(steps.first()).toContainText("AWS credentials");
   await expect(steps.first()).toContainText("dialga-e2e-missing");
   await expect(steps.first().locator(".badge")).toHaveText("Failed");
+  // What to do, from the engine's message.
+  await expect(steps.first().locator(".step-hint")).toHaveText(
+    "Create the profile dialga-e2e-missing in ~/.aws/config (aws configure sso), or fix aws_profile in the configuration.",
+  );
   await expect(card.locator(".steps .badge-skipped")).toHaveCount(7);
   await expect(card.getByRole("button", { name: "Run check" })).toBeEnabled();
 });

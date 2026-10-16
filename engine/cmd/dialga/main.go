@@ -80,8 +80,14 @@ func main() {
 	os.Exit(a.execute(os.Args[1:], os.Stdout, os.Stderr))
 }
 
+// stopSignals end a command the way Ctrl-C does, so its deferred cleanup
+// runs: an integrated tunnel terminates its SSM session instead of leaving
+// it to the idle timeout. SIGPIPE comes from a reader that went away
+// (dialga wait 42 | head -1); writes then fail instead of killing dialga.
+var stopSignals = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGPIPE}
+
 func (a *app) execute(args []string, stdout, stderr io.Writer) int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	ctx, stop := signal.NotifyContext(context.Background(), stopSignals...)
 	defer stop()
 	root := a.rootCmd()
 	root.SetArgs(args)
