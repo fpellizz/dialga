@@ -4,14 +4,15 @@
 |---|---|
 | **Data** | 2026-10-16 |
 | **Autore** | Fabio Pellizzaro (con Claude Code) |
-| **Versione documentata** | `0.x`, integrazione `feature/v0.2-wave1` (commit `43804bf`) |
+| **Versione documentata** | `0.2.0` |
 | **Destinatari** | Sviluppatori e amministratori DLOOP che importano o esportano database SQL Server su Amazon RDS |
 | **Piattaforma** | Linux x86_64 (app desktop e CLI); solo CLI su Windows e macOS |
 
 > **Sintesi**
 > - Dialga importa ed esporta database SQL Server su istanze **Amazon RDS** passando per **S3** (backup e restore nativi `rds_*`). Ha un'**app desktop** e una **CLI** (`dialga`), che usano lo stesso engine.
-> - Oggi fa: **controlli preliminari** (`check`), **task nativi** (`status`, `wait`), **tunnel SSM integrato** (`tunnel`), **elenco dei database** (`databases`) e **ispezione dei `.bak`** prima dell'upload (`inspect`). Tutto in **sola lettura** su AWS e su SQL Server.
-> - Import ed export veri e propri, configurazione guidata e coda delle attività sono **in arrivo** (segnati con `> In arrivo` in questa guida).
+> - Oggi fa: **controlli preliminari** (`check`, `doctor`), **configurazione guidata** (`config init`), **upload e download su S3** (`upload`, `download`), **operazioni native** (`restore`, `export`, `finish`, `cancel`, `drop`, `post`), **task nativi** (`status`, `wait`), **tunnel SSM integrato** (`tunnel`), **elenco dei database** (`databases`) e **ispezione dei `.bak`** (`inspect`).
+> - Ogni comando che modifica qualcosa mostra prima un'**anteprima** (dry-run) e cambia lo stato solo con `--apply`; i target protetti e le azioni distruttive chiedono di riscrivere un testo di conferma.
+> - Nell'app desktop ci sono le azioni sui database (Export, Report, Drop, Finish, Restore from S3), l'aggiunta guidata di un'istanza e il tunnel condiviso. I **wizard Import ed Export**, la schermata **Activity** (coda dei job) e la **ripresa dei job** sono **in arrivo** nella prossima versione (segnati con `> In arrivo` in questa guida).
 > - La password SQL **non è mai nel file di configurazione**: il file dice solo da dove leggerla.
 
 ## 1. Cosa c'è oggi
@@ -19,14 +20,19 @@
 | Funzione | CLI | App desktop | Stato |
 |---|---|---|---|
 | Controlli preliminari di un target | `dialga check` | Instances → *Run check* | Disponibile |
+| Diagnosi del computer (plugin SSM, runtime container, profili AWS) | `dialga doctor` | Settings → *Prerequisites* | Disponibile |
+| Configurazione guidata, aggiunta e rimozione dei target | `dialga config init`, `add-target`, `remove-target` | Instances → *Add instance*; Settings → *Targets* | Disponibile |
 | Task nativi di backup e restore | `dialga status`, `dialga wait` | Instances → *Show tasks* | Disponibile |
-| Tunnel SSM verso l'istanza | `dialga tunnel`, `connect.mode: tunnel` | Usato da sé in modalità `tunnel` | Disponibile |
+| Annullare un task nativo | `dialga cancel` | *Cancel* nel pannello dei task | Disponibile |
+| Tunnel SSM verso l'istanza | `dialga tunnel`, `connect.mode: tunnel` | Tunnel condiviso, indicatore sulla scheda e nella barra laterale | Disponibile |
 | Database dell'istanza | `dialga databases` | Databases | Disponibile |
 | Panoramica dell'istanza (stato, spazio, DB, task attivi) | — | Instances, nella scheda | Disponibile |
 | Ispezione dei `.bak` | `dialga inspect` | — (passo *Verifica* del wizard Importa) | CLI disponibile, GUI in arrivo |
-| Import, export, upload, download | — | Import, Export | In arrivo |
-| Configurazione guidata, diagnosi dei prerequisiti | — | — | In arrivo |
-| Coda e storico delle attività | — | Activity | In arrivo |
+| Upload e download su S3 | `dialga upload`, `dialga download` | — (nei wizard Importa ed Esporta) | CLI disponibile, GUI in arrivo |
+| Restore, export, finish, drop di un database | `dialga restore`, `export`, `finish`, `drop` | Databases: *Restore from S3*, *Export*, *Finish restore*, *Drop* | Disponibile |
+| Report dopo il restore | `dialga post` | Databases → *Report* | Disponibile |
+| Wizard Importa ed Esporta (pipeline completa) | — | Import, Export | In arrivo |
+| Coda e storico delle attività, ripresa dei job | — | Activity | In arrivo |
 
 ## 2. Installazione
 
@@ -80,13 +86,12 @@ dialga completion bash > ~/.local/share/bash-completion/completions/dialga
 
 ### 2.3 Primo avvio
 
-1. Prepara i prerequisiti (§3) e il file di configurazione (§4).
-2. Verifica da terminale: `dialga config validate`, poi `dialga check`.
-3. Avvia l'app dal menu (**Dialga**) o da terminale con `dialga-desktop`. Per i target con `sql.password: prompt` avviala da terminale con la password nell'ambiente (§4.3).
+1. Controlla il computer: `dialga doctor` (§5.11) dice cosa manca tra plugin SSM, runtime container e profili AWS.
+2. Crea la configurazione: `dialga config init` (§4.1) da terminale, oppure *Add instance* nell'app (§6.3).
+3. Verifica da terminale: `dialga config validate`, poi `dialga check`.
+4. Avvia l'app dal menu (**Dialga**) o da terminale con `dialga-desktop`. Per i target con `sql.password: prompt` avviala da terminale con la password nell'ambiente (§4.3).
 
 Dopo la rimozione restano la configurazione (`~/.config/dialga/`) e i dati della finestra (`~/.local/share/com.decisyon.dialga/`).
-
-> In arrivo: configurazione guidata al primo avvio (`dialga config init`, `dialga doctor`, aggiunta di un'istanza dalla GUI).
 
 ## 3. Prerequisiti
 
@@ -108,6 +113,8 @@ sudo dnf install https://s3.amazonaws.com/session-manager-downloads/plugin/lates
 
 Altre distribuzioni: documentazione AWS *Install the Session Manager plugin for the AWS CLI*.
 
+`dialga doctor` (§5.11) e, nell'app, *Settings → Prerequisites* dicono se plugin e runtime container ci sono e, se mancano, il comando di installazione per la tua distribuzione.
+
 L'immagine SQL Server per `inspect` non viene mai scaricata da Dialga. Scaricala una volta:
 
 ```bash
@@ -125,7 +132,7 @@ $ dialga config path
 /home/utente/.config/dialga/config.yaml
 ```
 
-Tutti i comandi accettano `--config <file>` per usarne un altro. Il file non lo crea nessuno: parti dall'esempio.
+Tutti i comandi accettano `--config <file>` per usarne un altro. Il file non esiste dopo l'installazione: lo crea il primo target che aggiungi (§4.1.1), oppure lo scrivi a mano partendo dall'esempio.
 
 ```bash
 cfg=$(dialga config path)
@@ -134,6 +141,33 @@ cfg=$(dialga config path)
 ```
 
 L'app desktop rilegge il file a ogni aggiornamento della schermata: non serve riavviarla.
+
+#### 4.1.1 Primo avvio: `dialga config init`
+
+Aggiunge un target alla configurazione, in modo guidato: profilo AWS, regione, istanza SQL Server trovata nell'account, bucket S3 (verificato con `HeadBucket`), login SQL, **da dove** arriva la password (mai la password), modalità di connessione e nome del target.
+
+```bash
+dialga config init [--profile P] [--region R] [--instance I] [--bucket B] [--sql-user U] [--password prompt|env:VAR] \
+  [--mode external|direct|tunnel] [--local-port N] [--name N] [--protected] [--replace] [--no-bucket-check] [-y]
+```
+
+- **Su un terminale** chiede ogni valore che le opzioni non danno e, alla fine, una conferma (`-y` salta la conferma).
+- **Senza terminale** i valori arrivano dalle opzioni, almeno `--instance` e `--bucket` (altrimenti: `not a terminal: give at least --instance and --bucket`).
+- Chiamate AWS, tutte in sola lettura: `sts:GetCallerIdentity` (la guardia sull'account), `rds:DescribeDBInstances`, `rds:DescribeOptionGroups`, `s3:HeadBucket`.
+- Un target con lo stesso nome non viene toccato senza `--replace`.
+- Default: regione del profilo (altrimenti `us-east-1`), profilo `$AWS_PROFILE` (altrimenti `default`), modalità `external` con `--local-port 11433`, nome ricavato dall'identificativo dell'istanza.
+
+#### 4.1.2 `dialga config add-target` e `remove-target`
+
+```bash
+dialga config add-target <nome> --instance I --account-id 123456789012 --bucket B --sql-user U [--region R] [--profile P] \
+  [--password prompt|env:VAR] [--mode ...] [--local-port N] [--protected] [--replace]
+dialga config remove-target <nome> [--confirm <nome>]
+```
+
+- `add-target` **non chiama AWS**: per un target nuovo servono `--instance`, `--account-id`, `--bucket` e `--sql-user`. Con `--replace` un target esistente cambia solo nei campi indicati.
+- `remove-target` su un terminale chiede di riscrivere il nome; senza terminale serve `--confirm <nome>` (`the confirmation does not match the target name: nothing removed` se non coincide). Rimuovere l'ultimo target rimuove il file.
+- Tutte e tre le scritture sono **atomiche** (file temporaneo e rinomina) con permessi **`0600`**. I **commenti del file non si conservano**; la versione precedente resta accanto al file come `config.yaml.bak`. Nel file non finisce mai una password, solo il riferimento (`prompt`, `env:VAR`).
 
 ### 4.2 Schema
 
@@ -196,17 +230,23 @@ read -rs DIALGA_SQL_PASSWORD && export DIALGA_SQL_PASSWORD && dialga-desktop
 |---|---|---|
 | `external` | Hai già un tunnel aperto (per esempio un altro `dialga tunnel` o `open-dloop-tunnels.sh`) | Si collega a `127.0.0.1:<local_port>` |
 | `direct` | La workstation è dentro il VPC | Si collega all'endpoint RDS |
-| `tunnel` | Caso normale, workstation fuori dal VPC | Apre da sé il tunnel SSM attraverso il bridge, lo usa e lo chiude alla fine di ogni operazione |
+| `tunnel` | Caso normale, workstation fuori dal VPC | Apre da sé il tunnel SSM attraverso il bridge. Un comando della CLI lo apre, lo usa e lo chiude alla fine; l'app lo tiene condiviso (sotto) |
 
 In tutte le modalità il certificato TLS di SQL Server viene **verificato** sul nome dell'endpoint RDS, anche attraverso il tunnel: non serve *Trust server certificate*.
 
-Con `tunnel` ogni operazione apre la sua sessione SSM (qualche secondo in più). Se lavori a lungo con un client SQL o con molti comandi di fila, tieni aperto un tunnel con `dialga tunnel` (§5.5) e usa un target `external` sulla stessa porta.
+Chi usa la porta locale, in modalità `tunnel`:
 
-> In arrivo: indicatore del tunnel condiviso nell'app (un solo tunnel per target, riusato dalle operazioni).
+| Chi | Porta locale | Quando si chiude |
+|---|---|---|
+| Un comando singolo della CLI (`check`, `status`, `restore`, …) | **Sempre una porta libera**, anche se `connect.local_port` è impostato | Alla fine del comando (anche con Ctrl-C, SIGTERM, SIGHUP o una pipe chiusa) |
+| `dialga tunnel` | `--port`, altrimenti `connect.local_port`, altrimenti una libera | Ctrl-C o SIGTERM |
+| App desktop | `connect.local_port` (`0` o assente = una libera): **un solo tunnel per target**, condiviso da panoramica, check, database e operazioni | Si chiude da solo dopo **10 minuti** senza utilizzatori se è stato aperto dall'uso; resta aperto finché non lo disconnetti se l'hai aperto con *Connect*; si chiude comunque all'uscita dall'app (§6.1) |
+
+Ogni comando singolo apre la sua sessione SSM (qualche secondo in più). Se lavori a lungo con un client SQL o con molti comandi di fila, tieni aperto un tunnel con `dialga tunnel` (§5.5) e usa un target `external` sulla stessa porta. L'indicatore del tunnel dell'app è nel §6.3.
 
 ### 4.5 Target protetti
 
-`protected: true` marca un'istanza di produzione: l'app mostra il badge **Protected** sulla scheda. I comandi di oggi sono tutti in sola lettura; con import ed export ogni modifica su un target protetto chiederà di **riscrivere il nome del target**, e ogni azione distruttiva (per esempio la cancellazione di un database) il nome del database.
+`protected: true` marca un'istanza di produzione: l'app mostra il badge **Protected** sulla scheda e *Protected target* nelle finestre di conferma. Ogni modifica su un target protetto (`restore`, `export`, `finish`, `cancel`, `drop`, `upload`, `download`) chiede di **riscrivere il nome del target**; su un target non protetto la conferma serve solo per le azioni distruttive: `drop` chiede il nome del database, un upload che sostituisce un oggetto o un download che sostituisce un file chiedono il testo indicato dal piano. I dettagli della conferma sono nel §5.10.
 
 ### 4.6 Verificare la configurazione
 
@@ -259,8 +299,8 @@ Gli esempi sono output reali, presi il 2026-10-16 su un'istanza SQL Server 2017 
 |---|---|
 | `0` | OK |
 | `1` | Errore (configurazione, AWS, connessione, file illeggibile…) |
-| `2` | Il comando è andato, ma una verifica non è passata (`check`, `inspect`) |
-| `3` | Il task RDS è finito in `ERROR` o `CANCELLED` (`wait`) |
+| `2` | Il comando è andato, ma una verifica non è passata (`check`, `inspect`, `doctor`; i controlli preliminari di `restore`, `export`, `finish`, `cancel`, `drop`; `post`; qualche file rifiutato da `upload`/`download`) |
+| `3` | Il task RDS è finito in `ERROR` o `CANCELLED` (`wait`, `restore`, `export`, `finish`, `cancel`, `drop`) |
 
 ### 5.2 `dialga check`
 
@@ -462,10 +502,11 @@ Exit code: `0` ripristinabile (o header letti, senza `-t`), `2` non ripristinabi
 | `dialga config path` | Stampa il percorso del file di configurazione |
 | `dialga config validate` | Controlla il file ed elenca i target (exit `1` se non è valido) |
 | `dialga config show` | Stampa il file con i default applicati (YAML) |
+| `dialga config init` | Aggiunge un target in modo guidato (§4.1.1) |
+| `dialga config add-target <nome>` | Aggiunge un target dalle opzioni, senza chiamate AWS (§4.1.2) |
+| `dialga config remove-target <nome>` | Rimuove un target, chiede di riscriverne il nome (§4.1.2) |
 
-Esempi nel §4.6.
-
-> In arrivo: `dialga config init` (creazione guidata del file) e `dialga doctor` (diagnosi dei prerequisiti: runtime container, plugin SSM, profili AWS).
+Esempi di `validate` e `show` nel §4.6.
 
 ### 5.9 `dialga version` e `dialga completion`
 
@@ -479,14 +520,142 @@ Il pacchetto stampa la versione del rilascio; una build locale di sviluppo stamp
 
 ### 5.10 Import ed export
 
-> In arrivo: `upload`, `restore`, `finish`, `post`, `export`, `download`, `cancel`, `drop` e la pipeline completa di import, con anteprima (dry-run) per default e `--apply` per eseguire. Questa sezione va completata quando i comandi sono nel branch di integrazione.
+I comandi che modificano qualcosa (`upload`, `download`, `restore`, `export`, `finish`, `cancel`, `drop`) seguono tutti la stessa regola.
+
+| Regola | Come funziona |
+|---|---|
+| **Anteprima per default** | Senza `--apply` stampano i controlli preliminari e il piano (ogni chiamata S3 o ogni istruzione T-SQL, identica a quella che girerà) e non cambiano nulla. Chiudono con `Rerun with --apply to run it.` |
+| **`--apply`** | Esegue il piano. Se un controllo preliminare è `FAIL` non parte nulla (`Some pre-flight checks failed: nothing was changed.`, exit `2`) |
+| **Conferma da riscrivere** | Su un target `protected` il piano chiede il **nome del target**; `drop` chiede il **nome del database**; un upload o un download che **sostituisce** qualcosa chiede il testo indicato dal piano (`Running it asks to retype "…"`). Su un terminale lo chiede; senza terminale va passato con `--confirm <testo>`. Un testo diverso ferma tutto: `not confirmed: the text does not match (expected "…"): nothing was changed` |
+| **Impronta del piano** | Il piano ha un'impronta (SHA-256) che l'app confronta con quella dell'anteprima: se nel frattempo il piano è cambiato, non parte (§6.4, §7.7). Con `-o json` l'anteprima include `digest` e `confirmation` |
+| **`-o json`** | Un solo documento JSON alla fine (`target`, `instance`, `operation`, `ready`, `checks`, `plan`, `digest`, `applied`, `steps`, `task`); per `upload`/`download` gli eventi `step` e `progress` escono su stderr come righe JSON |
+
+#### 5.10.1 `dialga upload`
+
+Carica uno o più `.bak` nel bucket del target, per default sotto il prefisso `import` e con il nome del file come chiave.
+
+```bash
+dialga upload <file.bak>... [-t target] [--prefix P] [--key K] [--overwrite] [--concurrency 1-32] [--apply] [--confirm testo]
+```
+
+| Opzione | Significato |
+|---|---|
+| `--prefix P` | Prefisso della chiave al posto di quello `import` del target (`""` = radice del bucket) |
+| `--key K` | Chiave dell'oggetto (solo con un file) |
+| `--overwrite` | Sostituisce gli oggetti già presenti in S3. Senza, un file che esiste già viene **rifiutato** e il piano lo dice (`already in s3://… : choose overwrite to replace it`); un oggetto non viene mai sostituito di nascosto (S3 riceve `If-None-Match: *`) |
+| `--concurrency N` | Parti in volo insieme (default `4`, da 1 a 32) |
+
+- **Multipart**: le parti sono dimensionate sul file (da 5 MiB, massimo 10 000 parti), ogni parte è ritentata da sola e ha un timeout.
+- **Checksum**: CRC64NVME, che S3 verifica; alla fine l'oggetto viene riletto (dimensione e checksum) e, se non coincidono, l'upload risulta fallito.
+- **Ctrl-C** (come SIGTERM, SIGHUP e una pipe chiusa) **annulla** l'upload: l'upload multipart viene abortito e **in S3 non resta nulla**. Se anche l'abort fallisce, l'errore stampa il comando `aws s3api abort-multipart-upload …` da lanciare.
+- **Pausa e ripresa**: l'engine sa mettere in pausa un upload tenendo le parti già in S3 e completarlo poi (`ListParts` su S3 è la verità). Nella v0.2.0 questa funzione non ha un comando né un pulsante: la usa la coda dei job, in arrivo (§6.7). Da CLI un upload interrotto si rifà da capo.
+- File che non possono partire (illeggibile, non regolare, nome con caratteri non ammessi, stessa chiave di un altro file, oggetto già presente senza `--overwrite`) sono elencati con il motivo e **gli altri vengono caricati**: exit `2`.
+
+#### 5.10.2 `dialga download`
+
+Scarica un oggetto del bucket del target.
+
+```bash
+dialga download <chiave|s3://bucket/chiave|nome> [dest] [-t target] [--overwrite] [--concurrency 1-32] [--apply] [--confirm testo]
+```
+
+- Il primo argomento è una chiave, un URL `s3://` sul bucket del target, oppure un nome semplice, cercato sotto il prefisso `export`. `dest` è un file o una cartella esistente (default: la cartella corrente).
+- GET parallele per intervalli (16 MiB) in un file temporaneo che diventa `dest` solo a download completo; il checksum CRC dell'oggetto è verificato quando esiste (`checksum mismatch: … the file was not kept` se non coincide). Prima si controlla lo spazio libero.
+- Un file locale che esiste già non viene sostituito senza `--overwrite`. Ctrl-C ferma il download e non lascia nulla.
+- Exit: `0` fatto, `2` il file è stato rifiutato (non esiste in S3, `dest` esiste già…), `1` errore.
+
+#### 5.10.3 `dialga restore`
+
+Ripristina un `.bak` del bucket in un **nuovo** database con `rds_restore_database`, poi segue il task fino alla fine.
+
+```bash
+dialga restore <db> <chiave> [-t target] [--norecovery] [--differential] [--no-wait] [--interval 30s] [--apply] [--confirm testo]
+```
+
+- `<chiave>`: un nome semplice è cercato sotto il prefisso `import` e poi nella radice del bucket; una chiave con `/` è presa com'è; `s3://<bucket>/<chiave>` deve indicare il bucket del target. Un `*` ripristina un backup spezzato su più file (al massimo 10).
+- `--norecovery` lascia il database in `RESTORING` per un successivo restore differenziale; `--differential` ripristina un differenziale su un database lasciato `RESTORING`; `dialga finish` conclude.
+- `--no-wait` avvia il task nativo e torna subito (`Follow it with: dialga wait <id> -t <target>`).
+- **Avviso spazio libero** (nei controlli preliminari, `WARN`): se il backup occupa più dell'80% dello spazio libero dell'istanza, o più di tutto lo spazio libero, il restore parte ugualmente ma l'avviso ricorda che il database ripristinato occupa **la somma dei suoi file**, non la dimensione del `.bak` (`dialga inspect` la dà). Con lo spazio non leggibile da CloudWatch l'avviso lo dice.
+- Alla fine di un restore riuscito stampa `Next: dialga post <db> -t <target>` (con `--norecovery`, come proseguire).
+
+L'anteprima stampa `Pre-flight checks of restore on <target> (instance <istanza>):` con un esito per controllo, poi `Dry run: restore on <target> (instance <istanza>). Nothing is changed.` e le azioni numerate, ognuna con la sua istruzione T-SQL.
+
+#### 5.10.4 `dialga export`
+
+Esegue il backup di un database nel bucket con `rds_backup_database`, poi segue il task.
+
+```bash
+dialga export <db> [chiave] [-t target] [--no-wait] [--interval 30s] [--apply] [--confirm testo]
+```
+
+La chiave di default è `<prefisso export>/<db>_<AAAAMMGG-HHMMSS>.bak` (UTC); un nome semplice va sotto il prefisso `export`. **Non sovrascrive mai un oggetto** esistente. Per portare il file sulla workstation: `dialga download`.
+
+#### 5.10.5 `dialga finish`, `cancel`, `drop`
+
+| Comando | Cosa fa | Note |
+|---|---|---|
+| `dialga finish <db>` | Porta online un database lasciato `RESTORING` da `restore --norecovery` (`rds_finish_restore`) | Dopo l'ultimo differenziale |
+| `dialga cancel <task-id>` | Chiede a RDS di annullare un task nativo non finito (`rds_cancel_task`) | RDS lo ferma al passo successivo: `cancel already requested` (`WARN`) se già richiesto |
+| `dialga drop <db>` | Elimina un database (`rds_drop_database`): un restore fallito, una copia di prova | **Non si annulla.** `--apply` chiede di riscrivere il nome del database, anche su un target non protetto. Avvisa se ci sono task nativi in corso su quel database |
+
+Tutti accettano `-t`, `--apply` e `--confirm`.
+
+#### 5.10.6 `dialga post`
+
+Report di un database ripristinato, **in sola lettura**.
+
+```bash
+dialga post <db> [-t target] [-o json]
+```
+
+Mostra proprietà, file, **se il login SQL può entrare** nel database, gli **utenti SQL orfani** (senza login sull'istanza), gli utenti Windows e gli oggetti per tipo. Per ogni utente orfano suggerisce di creare il login e di associargli l'utente:
+
+```sql
+CREATE LOGIN [utente] WITH PASSWORD = '...';
+ALTER USER [utente] WITH LOGIN = [utente];
+```
+
+| Verdetto | Esito |
+|---|---|
+| Database `ONLINE`, login che entra, nessun orfano | `OK` |
+| Utenti orfani; utenti o gruppi Windows (inutilizzabili su RDS senza Active Directory) | `WARN` |
+| Database mancante o non online (`RESTORING`: serve `dialga finish`); il login non entra (i database ripristinati sono di `rdsa`) | `FAIL`, e utenti e oggetti non vengono letti |
+
+Exit: `0` OK (anche con avvisi), `2` database mancante o non online, o login che non entra, `1` errore.
+
+#### 5.10.7 Cosa continua a girare su RDS dopo Ctrl-C
+
+Un task nativo (`restore`, `export`, `finish`, `drop`) è eseguito da RDS, non da Dialga. Dopo l'`--apply`:
+
+- **Ctrl-C** (o SIGTERM, SIGHUP, una pipe chiusa) ferma solo l'**attesa**: `wait interrupted: task N keeps running on the instance`. Il task **continua sull'istanza** fino alla fine.
+- L'istruzione `rds_*` già inviata non viene interrotta: Dialga la lascia finire. Quello che non parte più sono i passi successivi (per esempio l'attesa).
+- Per riprendere a seguirlo: `dialga wait <task-id> -t <target>`. Per fermarlo davvero: `dialga cancel <task-id>`.
+- Un upload o un download, invece, **si fermano** con Ctrl-C e non lasciano nulla (§5.10.1, §5.10.2).
+
+### 5.11 `dialga doctor`
+
+Controlla **questo computer**, un verdetto per voce, **senza chiamate AWS** (`dialga check` verifica un target contro AWS).
+
+```bash
+dialga doctor [-o json]
+```
+
+| Voce | Cosa guarda |
+|---|---|
+| *Session Manager plugin* | Presenza e versione (serve una versione successiva alla 1.2.497.0) |
+| *Container runtime* | podman o docker (serve a `inspect`) |
+| *AWS profiles* | Profili in `~/.aws/config` e `~/.aws/credentials` |
+| *Configuration* | Il file di configurazione: esiste, quanti target ha (se manca: `add a target with dialga config init`) |
+| *Target <nome>* | Profilo AWS presente sul computer e origine della password SQL (`WARN` se la variabile indicata è vuota) |
+
+Per le voci mancanti stampa il comando di installazione per la tua distribuzione (Fedora, Debian/Ubuntu). Chiude con `Ready.`, `Ready, with warnings.` oppure `Not ready: fix the items marked FAIL.` Exit: `0` pronto (anche con avvisi), `2` qualcosa da correggere, `1` errore.
 
 ## 6. App desktop
 
 ### 6.1 Avvio
 
 - Dal menu: **Dialga**. Da terminale: `dialga-desktop` (serve per passare la password SQL, §4.3, e per vedere i messaggi dell'engine, che compaiono con il prefisso `engine:`).
-- L'app avvia l'engine (`dialga serve`) in background e lo chiude quando la finestra si chiude. In basso nella barra laterale c'è il suo stato: `engine <versione>`, *Starting engine…* oppure *Engine not available*.
+- L'app avvia l'engine (`dialga serve`) in background. All'uscita lo ferma **con garbo**: gli chiede di chiudersi, così chiude i suoi tunnel SSM e termina le sessioni, e aspetta fino a 10 secondi prima di forzarlo. Un engine forzato (o un'app uccisa con `kill -9`) lascia le sessioni SSM aperte fino al timeout di inattività (§7.3). In basso nella barra laterale c'è il suo stato: `engine <versione>`, *Starting engine…* oppure *Engine not available*.
 - Lingua dell'interfaccia: **inglese** di default, **italiano** in *Settings → Language*. Qui sotto le etichette sono in inglese, con l'italiano tra parentesi.
 
 ### 6.2 Barra laterale
@@ -496,11 +665,20 @@ Il pacchetto stampa la versione del rilascio; una build locale di sviluppo stamp
 | **Instances** (Istanze) | Una scheda per target (§6.3) |
 | **Databases** (Database) | Database utente di un'istanza (§6.4) |
 | **Import**, **Export**, **Activity** (Importa, Esporta, Attività) | Disabilitate, con l'etichetta *Soon* (*Presto*) |
-| **Settings** (Impostazioni) | Lingua, tema, percorso della configurazione, versione (§6.5) |
+| **Settings** (Impostazioni) | Lingua, tema, prerequisiti, target, percorso della configurazione, versione (§6.5) |
+
+In fondo alla barra laterale, sotto lo stato dell'engine, c'è il riepilogo dei tunnel: *1 tunnel open* / *N tunnels open* (*1 tunnel aperto* / *N tunnel aperti*), con *N connecting* (*N in connessione*) mentre se ne apre qualcuno. Il dettaglio di ogni tunnel è sulla scheda dell'istanza (§6.3).
 
 ### 6.3 Instances
 
-Una scheda per ogni target della configurazione. Se il file non esiste, la schermata mostra *No instances yet* con il percorso in cui crearlo; se ha errori, *The configuration file has errors* con il dettaglio.
+Una scheda per ogni target della configurazione. Se il file non esiste, la schermata mostra *No instances yet* con il percorso in cui verrà creato e il pulsante *Add instance*; se ha errori, *The configuration file has errors* con il dettaglio.
+
+**Add instance** (*Aggiungi istanza*): finestra che trova un'istanza SQL Server e la salva come target. Non cambia nulla su AWS.
+
+1. *AWS profile* (*Profilo AWS*, da `~/.aws/config` e `~/.aws/credentials`; senza profili la finestra lo dice) e *Region* (*Regione*), poi *Discover instances* (*Cerca le istanze*): mostra l'account e le istanze SQL Server trovate.
+2. Scegli l'*Instance* (*Istanza*): un'etichetta dice se ha l'opzione di backup nativo (*Native backup option*) o se manca (*No native backup option*: l'import e l'export falliranno finché non viene aggiunta).
+3. Compila *S3 bucket*, *SQL login*, la password (*Ask when needed* oppure *Environment variable*: la password non viene mai salvata, solo dove cercarla), *Connection* (*Open tunnel*, *Direct*, *Integrated tunnel*; con *Open tunnel* anche *Local port*), *Target name* e, per la produzione, *Protected*. *Replace the existing target* sostituisce un target con lo stesso nome.
+4. *Save* (*Salva*) scrive il file con le stesse regole di `dialga config init` (§4.1.2) e mostra *Target … saved. Run check to verify it.*
 
 **Intestazione e dati del target**: nome del target, istanza e regione, badge **Protected** se `protected: true`; poi *Account*, *Profile*, *Bucket* e *Connection*:
 
@@ -528,7 +706,17 @@ Se la parte AWS fallisce (credenziali, account) la panoramica mostra l'errore e 
 
 **Show tasks** (*Mostra task*): pannello dei task nativi (gli stessi di `dialga status`): ID, tipo, database, badge dello stato, *Updated* (ora dell'ultimo aggiornamento), barra di avanzamento per i task attivi, *Details* con il log RDS del task. Finché un task è in corso il pannello si aggiorna ogni 30 secondi (*Refreshing every 30 seconds while a task is running*).
 
-> In arrivo: indicatore del tunnel condiviso sulla scheda; pulsanti *Import* ed *Export* che aprono i wizard sul target.
+**Tunnel** (solo target con `connect.mode: tunnel`): indicatore sulla scheda, sopra la panoramica, con lo stato (*Connecting…*, *Connected*, *Reconnecting…*, *Not connected*, *Connection failed*), il bridge (*via i-…*) e quanti utilizzatori lo usano (*N in use*). È il tunnel **condiviso** del target: uno solo, usato da panoramica, check, database e operazioni (§4.4).
+
+| Pulsante | Effetto |
+|---|---|
+| *Connect* (*Connetti*) | Apre il tunnel su richiesta: resta aperto finché non lo disconnetti |
+| *Disconnect* (*Disconnetti*) | Lo chiude |
+| (nessuno) | Un tunnel aperto dall'uso si chiude da solo dopo 10 minuti senza utilizzatori |
+
+**Panoramica** (*overview strip*): si carica solo quando la scheda diventa visibile nella finestra, così le schede fuori schermo non costano chiamate AWS; il resto è descritto sopra.
+
+> In arrivo: pulsanti *Import* ed *Export* sulla scheda, che aprono i wizard sul target.
 
 ### 6.4 Databases
 
@@ -537,13 +725,39 @@ Se la parte AWS fallisce (credenziali, account) la panoramica mostra l'errore e 
 - **Filter** (*Filtra*): cerca in nome, owner, stato e recovery model; il contatore dice *N of M databases*.
 - Badge accanto allo stato: *Read-only* (*Sola lettura*), *Single user* (*Utente singolo*), *Restricted* (*Accesso limitato*). Owner in grigio: nessun login ha il SID dell'owner.
 - Stati vuoti: *No user databases* (solo database di sistema), *No databases match the filter* (con *Clear filter*), *No instances configured* (con *Go to Instances*).
+- **Azioni** (colonna *Actions*, *Azioni*), una per riga, dipendono dallo stato:
+
+  | Azione | Quando | Cosa apre |
+  |---|---|---|
+  | *Report* | Sempre | Il report di `dialga post` (§5.10.6): *Properties*, *Files*, *Checks* (*Login access*, *Orphaned users*, *Windows users*), l'elenco degli utenti SQL senza login con il comando per ricreare il login, *Objects* per tipo. Se il login non entra, lo dice e non legge utenti e oggetti |
+  | *Export* (*Esporta*) | Database `ONLINE` | Il piano di `dialga export` |
+  | *Finish restore* (*Concludi ripristino*) | Database `RESTORING` | Il piano di `dialga finish` |
+  | *Drop* (*Elimina*) | Sempre | Il piano di `dialga drop`, distruttivo |
+
+  In alto, il pulsante *Restore from S3* (*Ripristina da S3*) apre il piano di `dialga restore`: nome del database, chiave S3 del backup (con il suggerimento sulla ricerca sotto il prefisso `import`), *Differential backup* e *Leave the database restoring*.
+- Quando un piano ha avviato un task, un avviso dice *Task #N keeps running on <target>* con il link *Follow it in Instances*; *Dismiss* lo chiude.
 - In caso di errore: *The list is read with a SQL session: the engine needs the SQL password and a reachable instance*. Vedi §7.2 e §7.3.
+
+#### La finestra del piano
+
+Ogni azione che modifica qualcosa (Restore, Export, Finish, Drop, Cancel) apre la stessa finestra, in quattro momenti.
+
+1. **Anteprima.** Compili i valori e premi *Preview* (*Anteprima*): l'engine esegue i controlli preliminari (*Pre-flight checks*, *Controlli preliminari*) e mostra *What runs* (*Cosa viene eseguito*): le azioni numerate, con il badge *Destructive* (*Distruttiva*) per quelle che non si annullano. Sotto *Details* (*Dettagli*) di ogni azione c'è il **T-SQL esatto** che girerà, lo stesso di `dialga <comando>` senza `--apply`. Se un controllo è fallito la finestra dice *Some pre-flight checks failed: the plan cannot run* e offre *Preview again*.
+2. **Conferma.** Se il piano la richiede compare *Type … to confirm* (*Scrivi … per confermare*): il nome del target se è *Protected target*, il nome del database per *Drop* (*This drops … for good: it cannot be undone*). Il pulsante di esecuzione (*Restore*, *Export*, *Finish restore*, *Cancel task*, *Drop database*) si abilita solo con il testo esatto. Se cambi un valore dopo l'anteprima, compare *The values changed: preview again before running* e occorre rifare l'anteprima.
+3. **Esecuzione dal vivo.** I passi compaiono mentre avanzano (stessi badge del §6.6); per un restore o un export c'è la barra *Progress* (*Avanzamento*) del task nativo con la percentuale. Prima di partire l'app invia l'**impronta del piano** vista nell'anteprima: se la situazione è cambiata nel frattempo, non parte e dice *The situation changed since the preview: review the new preview before running*.
+4. **Esito.** Messaggio finale per operazione (restore completato con rimando al report, backup completato con l'URI `s3://…`, database eliminato, …). Se il task è finito in errore: *The task ended as … Read its log*.
+
+**Chiudere la finestra durante un task smette di seguirlo, non lo ferma**: il task continua sull'istanza (§5.10.7). Si segue dal pannello dei task della scheda (§6.3) o con `dialga wait <id> -t <target>`.
+
+**Cancel su un task in corso**: nel pannello *Show tasks* (§6.3) ogni task in coda (*Queued*) o in corso (*In progress*) ha il pulsante *Cancel*; apre il piano *Cancel task #N* (`rds_cancel_task`), con la stessa finestra. L'annullamento è una richiesta: RDS ferma il task al passo successivo (badge *Cancelling*, poi *Cancelled*).
 
 ### 6.5 Settings
 
 | Sezione | Contenuto |
 |---|---|
 | *Appearance* (Aspetto) | *Language*: English, Italiano. *Theme*: System, Light, Dark (Sistema, Chiaro, Scuro). Le scelte restano su questo computer |
+| *Prerequisites* (Prerequisiti) | Una riga per *Session Manager plugin* e *Container runtime* (come `dialga doctor`, §5.11): *Found* (*Trovato*), *Missing* (*Mancante*) o *Update needed* (*Da aggiornare*, plugin troppo vecchio per il tunnel integrato). Per ciò che manca c'è *Install on <distribuzione>* con il comando da copiare; *Check again* (*Controlla di nuovo*) rilegge |
+| *Targets* (Target) | Le istanze del file di configurazione. *Remove* (*Rimuovi*) chiede di scrivere il nome del target (*Type … to confirm*) e lo toglie dal file: su AWS non cambia nulla |
 | *Configuration file* (File di configurazione) | Percorso del file in uso; eventuali errori del file |
 | *About* (Informazioni) | Versione dell'engine e indirizzo dell'API locale |
 
@@ -565,7 +779,7 @@ Se la parte AWS fallisce (credenziali, account) la panoramica mostra l'errore e 
 
 ### 6.7 Funzioni in arrivo
 
-> In arrivo: wizard **Importa** (File → Verifica, con il verdetto di `inspect` per ogni file e lo spazio → Destinazione → Anteprima → Avanzamento → Esito), wizard **Esporta**, schermata **Activity** (coda e storico dei job, con eventi e log), configurazione al primo avvio e aggiunta di un'istanza dalla GUI.
+> In arrivo nella prossima versione: wizard **Importa** (File → Verifica, con il verdetto di `inspect` per ogni file e lo spazio → Destinazione → Anteprima → Avanzamento → Esito) e wizard **Esporta**, schermata **Activity** (coda e storico dei job, con eventi e log) e **ripresa dei job** (anche degli upload messi in pausa). Fino ad allora le singole operazioni si fanno dalle azioni di Databases (§6.4) o dalla CLI (§5.10).
 
 ## 7. Risoluzione dei problemi
 
@@ -617,7 +831,7 @@ I messaggi sono quelli che stampano la CLI e l'app (in inglese).
 | `N running instances tagged Name=<tag> in <vpc> (…): keep one, or set connect.bridge_tag` | Più bridge con lo stesso tag | Tenerne uno, o dare al bridge giusto un tag univoco |
 | `no instance tagged Name=<tag> in <vpc>, the VPC of the RDS instance (only in …)` | Il bridge è in un altro VPC | Serve un bridge nel VPC dell'istanza RDS |
 | `127.0.0.1:N is in use (another tunnel?): choose another local port` | La porta locale è occupata | Un'altra porta (`--port`, `connect.local_port`), oppure `0` per una libera |
-| Sessione SSM ancora `Active` (es. in `aws ssm describe-sessions --state Active`) dopo un `kill -9` o un crash di `dialga` | Con SIGKILL il processo non può chiudere il tunnel; la sessione resta fino al timeout di inattività | `aws ssm terminate-session --session-id <id>` (solo le tue sessioni). Ctrl-C, SIGTERM, SIGHUP e una pipe chiusa (`| head`) chiudono invece la sessione da soli |
+| Sessione SSM ancora `Active` (es. in `aws ssm describe-sessions --state Active`) dopo un `kill -9` o un crash di `dialga` (o dell'engine dell'app) | Con SIGKILL il processo non può chiudere il tunnel; la sessione resta fino al timeout di inattività | `aws ssm terminate-session --session-id <id>` (solo le tue sessioni). Ctrl-C, SIGTERM, SIGHUP e una pipe chiusa (`| head`) chiudono invece la sessione da soli |
 | `ssm StartSession on i-…: … AccessDeniedException` | Mancano i permessi SSM | Statement `TunnelStartSession` e `TunnelTerminateOwnSession` della policy |
 | `the tunnel did not answer on 127.0.0.1:N within 30s` | La sessione SSM si apre ma non inoltra (rete del bridge, security group verso l'istanza) | Riprova; se persiste, l'amministratore controlla il bridge e il security group dell'istanza RDS |
 
@@ -664,6 +878,50 @@ Se capita spesso, valuta con l'amministratore un aggiornamento di major version 
 | *The configuration file has errors* | File non valido | `dialga config validate` dice quale chiave |
 | La panoramica mostra un errore AWS | Credenziali o account (§7.1) | Correggi, poi *Retry* |
 
+### 7.7 Operazioni native, upload e download
+
+| Messaggio | Causa | Cosa fare |
+|---|---|---|
+| `not confirmed: the text does not match (expected "<testo>"): nothing was changed` | Il testo riscritto non coincide con quello chiesto dal piano (nome del target, o del database per `drop`) | Riscrivi esattamente il testo; non è stato cambiato nulla |
+| `this plan asks to retype "<testo>": run it on a terminal or pass --confirm` (per `upload`/`download`: `this <operazione> asks to retype "<testo>": pass --confirm <testo>`) | Conferma richiesta ma il comando non ha un terminale | Passa `--confirm <testo>` |
+| *The plan changed since the preview: preview it again* (app); *The situation changed since the preview* | Tra anteprima ed esecuzione il piano è cambiato: l'impronta non coincide | Rileggi la nuova anteprima e riesegui |
+| `Some pre-flight checks failed: nothing was changed.` (exit `2`) | Un controllo preliminare è `FAIL` | Leggi il controllo in `FAIL` e correggi: nulla è partito |
+| `<db> already exists (<stato>): choose another name or drop it first` | Il restore vuole un database nuovo | Altro nome, oppure `dialga drop <db>` (distruttivo) |
+| `<db> does not exist: a differential restore needs it RESTORING (full restore with --norecovery first)` | `--differential` su un database assente o non `RESTORING` | Prima un restore completo con `--norecovery` |
+| `object not found: s3://… (upload it first)` / `no object matches … (upload the files first)` | La chiave non esiste nel bucket | `dialga upload`, o controlla la chiave: un nome semplice è cercato sotto `import` poi nella radice |
+| `the bucket must be <bucket>: RDS reaches only the bucket of the target` | `s3://` su un altro bucket | Usa il bucket del target |
+| `RDS restores at most 10 files per backup: … matches N` | Il `*` trova più di 10 file | Restringi lo schema |
+| `… already in s3://<bucket>/<chiave> (…): choose overwrite to replace it` (upload) | **Oggetto già in S3** | `--overwrite` se vuoi sostituirlo, oppure `--key`/`--prefix` per un'altra chiave |
+| `… appeared during the upload and was not replaced` | Un oggetto con quella chiave è comparso durante l'upload | Controlla chi l'ha scritto; poi rifai con `--overwrite` se serve |
+| `<dest> already exists (…): choose overwrite to replace it` (download) | Il file locale esiste già | `--overwrite`, oppure un altro `dest` |
+| `not enough free space in <cartella>: X needed, Y free` | Il download non entra nel disco | Libera spazio o scegli un'altra cartella |
+| `export … already exists: an export never overwrites, choose another key` | La chiave dell'export esiste già in S3 | Un'altra chiave (o lascia quella di default, che contiene l'ora) |
+| `the backup alone is X and Y is free: the restored database takes at least that much` (`WARN` del restore) | **Spazio probabilmente insufficiente** sull'istanza | Il restore parte comunque: `dialga inspect` dà la somma dei file, `dialga status` mostra se fallisce; libera spazio o aumenta lo storage |
+| `s3://… changed since the plan` / `<file> changed since the plan: plan the upload again` / `… changed during the upload` | L'oggetto o il file è cambiato tra piano ed esecuzione | Rifai l'anteprima |
+| `checksum mismatch: S3 has …, the download …; the file was not kept` | Download danneggiato | Riprova; il file parziale non resta |
+| `uploaded, but S3 has CRC64NVME … and the file …` / `uploaded, but S3 has N bytes instead of M` | La rilettura finale non coincide | Non usare l'oggetto: rifai l'upload con `--overwrite` |
+| `upload cancelled (…): the multipart upload was aborted, nothing is left in S3` | Ctrl-C, SIGTERM, SIGHUP o pipe chiusa | Normale: rifai l'upload quando vuoi |
+| `…aborting the multipart upload failed too (…): remove it with aws s3api abort-multipart-upload …` | L'abort non è riuscito | Lancia il comando indicato per non lasciare parti (a pagamento) in S3 |
+| `…may exist all the same: check it before using it` | L'esito del completamento non è certo | Controlla l'oggetto in S3 (dimensione e checksum) |
+| `wait interrupted: task N keeps running on the instance` | Ctrl-C durante l'attesa | Il task continua: `dialga wait N -t <target>` (§5.10.7) |
+| `task N not found (RDS keeps 36 days of history)` / `task N already ended in <stato>` (`cancel`) | Task inesistente o già finito | `dialga status` per gli id validi |
+| `<db> is RESTORING: dialga finish <db> brings it online` (`post`) | Restore con `--norecovery` non concluso | `dialga finish <db>` |
+| `<utente> cannot enter <db>: restored databases are owned by rdsa …` (`post`) | Il login non può entrare nel database ripristinato | Il messaggio rimanda al runbook di import (*troubleshooting: master user access to the restored database*); lo stesso messaggio compare nel report dell'app. TODO: confermare dove pubblicare il runbook (vedi §7.5) |
+| `N SQL user(s) without a login on the instance: …` (`post`, `WARN`) | Utenti orfani dopo un restore da un altro server | Per ognuno `CREATE LOGIN` e `ALTER USER … WITH LOGIN` (§5.10.6) |
+| Sessione SSM ancora `Active` dopo un `kill -9` di `dialga` o dell'app | Con SIGKILL il tunnel non si chiude | Vedi §7.3 |
+
+### 7.8 Configurazione guidata
+
+| Messaggio | Causa | Cosa fare |
+|---|---|---|
+| `not a terminal: give at least --instance and --bucket` | `config init` senza terminale | Passa le opzioni |
+| `target already exists: <nome> (use --replace to change it)` | Il nome è già in uso | `--replace`, o un altro nome |
+| `a new target needs --instance, --account-id, --bucket, --sql-user` (elenco di quelli mancanti) | `add-target` incompleto | Aggiungi le opzioni |
+| `AWS profile "<p>" is not in the AWS shared files (known: …)` / `no AWS profiles on this computer: create one with aws configure (or aws configure sso)` | Profilo assente | `aws configure` (o `aws configure sso`) |
+| `bucket <b>: … (--no-bucket-check keeps it anyway)` | `HeadBucket` fallito | Controlla nome, regione e permessi; `--no-bucket-check` salva comunque |
+| `no RDS SQL Server instance in account <A>, <regione>` / `instance "<i>" not found (found: …)` | Profilo o regione sbagliati | Controlla profilo e regione |
+| `the confirmation does not match the target name: nothing removed` / `not a terminal: confirm with --confirm <nome>` | `remove-target` | Riscrivi il nome, o `--confirm <nome>` |
+
 ## 8. Riferimenti
 
 | Documento | Contenuto |
@@ -671,6 +929,7 @@ Se capita spesso, valuta con l'amministratore un aggiornamento di major version 
 | `docs/config.example.yaml` | Configurazione di esempio commentata |
 | `docs/iam-policy.md`, `docs/iam-policy.json` | Policy IAM minima per gli utenti |
 | `docs/release.md` | Come si rilascia e si installa una versione |
+| `engine/internal/api/openapi.yaml` | Contratto OpenAPI dell'API locale dell'app (`GET /api/v1/openapi.yaml` sull'engine in esecuzione) |
 | `CHANGELOG.md` | Modifiche per versione |
 | `dialga <comando> --help` | Opzioni di ogni comando |
 | Documentazione AWS | *Importing and exporting SQL Server databases using native backup and restore* (RDS for SQL Server); *Install the Session Manager plugin for the AWS CLI* |
