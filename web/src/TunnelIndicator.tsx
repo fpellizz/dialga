@@ -9,15 +9,9 @@ import {
   useRef,
   useState,
 } from "react";
-import {
-  closeTunnel,
-  errorText,
-  listTunnels,
-  openTunnel,
-  type TunnelState,
-  watchTunnel,
-} from "./api";
+import { closeTunnel, listTunnels, openTunnel, type TunnelState, watchTunnel } from "./api";
 import type { EngineInfo } from "./engine";
+import { ErrorBanner } from "./Feedback";
 import { useI18n } from "./i18n";
 import {
   retryDelay,
@@ -88,7 +82,8 @@ export function TunnelIndicator({ engine, target }: { engine: EngineInfo; target
   const { changed } = useContext(TunnelsContext);
   const [announce, setAnnounce] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  // The refused Connect/Disconnect, shown with ErrorBanner (its hint included).
+  const [error, setError] = useState<unknown>(null);
   const previous = useRef<TunnelState | null>(null);
 
   const state = useTunnel(engine, target, (next) => {
@@ -96,19 +91,23 @@ export function TunnelIndicator({ engine, target }: { engine: EngineInfo; target
     if (key) {
       setAnnounce(t(key, { target, port: next.localPort ?? 0 }));
     }
-    if (previous.current?.status !== next.status) {
+    // The first state is what the summary read already: only a change reloads it.
+    if (previous.current && previous.current.status !== next.status) {
       changed();
     }
     previous.current = next;
   });
 
   async function act(action: typeof openTunnel) {
+    if (busy) {
+      return;
+    }
     setBusy(true);
-    setError("");
+    setError(null);
     try {
       await action(engine, target);
     } catch (e) {
-      setError(errorText(e));
+      setError(e);
     } finally {
       setBusy(false);
     }
@@ -141,7 +140,8 @@ export function TunnelIndicator({ engine, target }: { engine: EngineInfo; target
             type="button"
             className="btn btn-outline btn-sm"
             onClick={() => act(live ? closeTunnel : openTunnel)}
-            disabled={busy}
+            // Busy, not disabled: the button keeps the focus and ignores clicks.
+            aria-disabled={busy || undefined}
           >
             {busy ? (
               <LoaderCircle size={14} className="spin" aria-hidden="true" />
@@ -154,10 +154,12 @@ export function TunnelIndicator({ engine, target }: { engine: EngineInfo; target
           </button>
         </div>
       )}
-      {(error || (state?.failed && state.detail)) && (
-        <p className="tunnel-detail tone-destructive">{error || state?.detail}</p>
+      {error !== null ? (
+        <ErrorBanner error={error} />
+      ) : (
+        state?.failed && state.detail && <ErrorBanner error={state.detail} />
       )}
-      {!error && state?.status === "reconnecting" && state.detail && (
+      {error === null && state?.status === "reconnecting" && state.detail && (
         <p className="tunnel-detail tone-warning">{state.detail}</p>
       )}
       <span className="sr-only" role="status" aria-live="polite">
