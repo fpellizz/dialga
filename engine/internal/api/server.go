@@ -36,6 +36,7 @@ import (
 	"github.com/decisyon/dialga/engine/internal/config"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/session"
+	"github.com/decisyon/dialga/engine/internal/transfer"
 	"github.com/decisyon/dialga/engine/internal/validate"
 )
 
@@ -57,7 +58,10 @@ type Options struct {
 	// OpenTasks opens a session to read the native tasks of a target
 	// (default session.OpenTasks; tests replace it).
 	OpenTasks func(context.Context, config.Target, string) (mssql.TaskReader, func(), error)
-	Log       *slog.Logger
+	// OpenS3 opens the S3 client of a target for the transfers (default
+	// transfer.Open; tests replace it).
+	OpenS3 func(context.Context, config.Target) (transfer.Client, error)
+	Log    *slog.Logger
 }
 
 // Server is the HTTP API of the engine.

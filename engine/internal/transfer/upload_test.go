@@ -3,6 +3,7 @@ package transfer
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"math"
 	"math/rand/v2"
@@ -23,11 +24,12 @@ const testBucket = "dev-sqlserver-backups"
 // randomFile writes size random bytes to a new file.
 func randomFile(t *testing.T, name string, size int) (string, []byte) {
 	t.Helper()
-	data := make([]byte, size)
+	data := make([]byte, size+8)
 	rnd := rand.New(rand.NewPCG(uint64(size), 7))
-	for i := range data {
-		data[i] = byte(rnd.UintN(256))
+	for i := 0; i < size; i += 8 {
+		binary.LittleEndian.PutUint64(data[i:], rnd.Uint64())
 	}
+	data = data[:size]
 	path := filepath.Join(t.TempDir(), name)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		t.Fatal(err)

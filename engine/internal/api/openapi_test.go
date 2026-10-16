@@ -12,6 +12,7 @@ import (
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/core"
 	"github.com/decisyon/dialga/engine/internal/mssql"
+	"github.com/decisyon/dialga/engine/internal/transfer"
 )
 
 type openAPIDoc struct {
@@ -86,6 +87,17 @@ func TestOpenAPISchemasMatchTheGoTypes(t *testing.T) {
 		"Done":          {Done{}},
 		"Task":          {mssql.Task{}},
 		"TaskList":      {TaskList{}},
+
+		"UploadsRequest":   {UploadsRequest{}},
+		"DownloadRequest":  {DownloadRequest{}},
+		"TransferPlan":     {transfer.Batch{}},
+		"Plan":             {core.Plan{}},
+		"Action":           {core.Action{}},
+		"TransferItem":     {transfer.Item{}},
+		"Rejection":        {transfer.Rejection{}},
+		"TransferProgress": {transfer.Progress{}},
+		"TransferResult":   {transfer.Result{}},
+		"TransferDone":     {TransferDone{}},
 	}
 	schemas := loadSpec(t).Components.Schemas
 	for name, schema := range schemas {

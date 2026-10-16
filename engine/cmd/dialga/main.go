@@ -19,6 +19,7 @@ import (
 	"github.com/decisyon/dialga/engine/internal/config"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/session"
+	"github.com/decisyon/dialga/engine/internal/transfer"
 )
 
 // version is overridden at build time by ci/build-engine.sh
@@ -48,6 +49,7 @@ type app struct {
 	readPassword     func(prompt string) (string, error)
 	runCheck         func(context.Context, check.Request, string, check.Emitter) bool
 	openTasks        func(context.Context, config.Target, string) (mssql.TaskReader, func(), error)
+	openS3           func(context.Context, config.Target) (transfer.Client, error)
 }
 
 func main() {
@@ -58,6 +60,7 @@ func main() {
 		readPassword:     readPasswordFromTerminal,
 		runCheck:         check.Run,
 		openTasks:        session.OpenTasks,
+		openS3:           transfer.Open,
 	}
 	os.Exit(a.execute(os.Args[1:], os.Stdout, os.Stderr))
 }
