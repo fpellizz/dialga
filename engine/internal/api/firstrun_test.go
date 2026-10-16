@@ -132,7 +132,7 @@ func TestSaveTargetFirstRunThenReplace(t *testing.T) {
 		summary.Name != "prod-sql" || summary.LocalPort != 11434 || !summary.Protected {
 		t.Fatalf("add: status %d, body %s", rec.Code, rec.Body)
 	}
-	if strings.Contains(rec.Body.String(), "PROD_SQL_PASSWORD") {
+	if strings.Contains(rec.Body.String(), "env:PROD_SQL_PASSWORD") {
 		t.Fatal("the password reference came back")
 	}
 	cfg, err := config.Load(path)

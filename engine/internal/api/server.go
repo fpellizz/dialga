@@ -292,6 +292,8 @@ func Serve(ctx context.Context, opts Options, ready io.Writer) error {
 
 func (s *Server) guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// So the webview can read it on a 428.
+		w.Header().Set("Access-Control-Expose-Headers", "Dialga-Password-Target")
 		host, _, err := net.SplitHostPort(r.Host)
 		if err != nil || (host != "127.0.0.1" && host != "localhost") {
 			http.Error(w, "forbidden host", http.StatusForbidden)
@@ -304,7 +306,6 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			}
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Add("Vary", "Origin")
-			w.Header().Set("Access-Control-Expose-Headers", "Dialga-Password-Target")
 		}
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE")

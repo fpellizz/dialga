@@ -29,6 +29,9 @@ type PasswordInfo struct {
 	Available bool `json:"available"`
 	// CanRemember: a system keyring is usable on this machine.
 	CanRemember bool `json:"canRemember"`
+	// EnvVar is the variable the password is read from: the VAR of env:VAR,
+	// DIALGA_SQL_PASSWORD for prompt. Only the name, never the value.
+	EnvVar string `json:"envVar,omitempty"`
 }
 
 // PasswordRequest is the body of PUT /api/v1/targets/{name}/password.
@@ -49,7 +52,14 @@ func (s *Server) passwordRoutes() []route {
 
 func (s *Server) passwordInfo(name string, t config.Target) PasswordInfo {
 	st := s.opts.Passwords.Status(name, t)
-	return PasswordInfo{Source: st.Source, Available: st.Available, CanRemember: st.CanRemember}
+	info := PasswordInfo{Source: st.Source, Available: st.Available, CanRemember: st.CanRemember}
+	switch src, _ := t.SQL.PasswordSource(); src.Kind {
+	case config.PasswordEnv:
+		info.EnvVar = src.Ref
+	case config.PasswordPrompt:
+		info.EnvVar = session.EnvPassword
+	}
+	return info
 }
 
 // writePasswordNeeded answers 428: the client asks the user for the password

@@ -128,7 +128,7 @@ func TestListTargets(t *testing.T) {
 	if len(list.Targets) != 1 || list.Targets[0].Name != "dev-sql" || list.Targets[0].AccountID != "123456789012" || list.Error != "" {
 		t.Fatalf("list %+v", list)
 	}
-	if strings.Contains(rec.Body.String(), "TEST_SQL_PASSWORD") {
+	if strings.Contains(rec.Body.String(), "env:TEST_SQL_PASSWORD") {
 		t.Fatal("the password reference leaked into the target list")
 	}
 }

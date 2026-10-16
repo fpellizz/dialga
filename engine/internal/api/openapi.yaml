@@ -1084,6 +1084,7 @@ components:
           type: boolean
           description: The engine can resolve it without asking (memory, environment variable set, keyring entry present; always true for secretsmanager, read when used).
         canRemember: { type: boolean, description: A system keyring is usable on this machine. }
+        envVar: { type: string, description: "The variable the password is read from: VAR for env:VAR, DIALGA_SQL_PASSWORD for prompt. Only the name, never the value." }
     PasswordRequest:
       type: object
       required: [password, remember]

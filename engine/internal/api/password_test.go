@@ -37,7 +37,7 @@ func TestPasswordFlow(t *testing.T) {
 	fake := &fakeDatabases{}
 	h := newDatabasesServer(t, &doc, nil, fake, fakeDescribe{})
 
-	if got := targetPassword(t, h); got != (PasswordInfo{Source: "prompt", Available: false, CanRemember: true}) {
+	if got := targetPassword(t, h); got != (PasswordInfo{Source: "prompt", Available: false, CanRemember: true, EnvVar: "DIALGA_SQL_PASSWORD"}) {
 		t.Fatalf("before: %+v", got)
 	}
 	rec := do(h, http.MethodGet, "/api/v1/targets/dev-sql/databases")
@@ -211,24 +211,45 @@ func TestCheckStreamSaysThePasswordIsNeeded(t *testing.T) {
 	}
 }
 
-func TestCORSExposesThePasswordHeader(t *testing.T) {
+func TestCORSForThePasswordRoutes(t *testing.T) {
 	doc := promptConfig
 	h := newDatabasesServer(t, &doc, nil, &fakeDatabases{}, fakeDescribe{})
+	for _, method := range []string{http.MethodPut, http.MethodDelete} {
+		req := httptest.NewRequest(http.MethodOptions, "/api/v1/targets/dev-sql/password", nil)
+		req.Host = "127.0.0.1:5000"
+		req.Header.Set("Origin", "tauri://localhost")
+		req.Header.Set("Access-Control-Request-Method", method)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent || !strings.Contains(rec.Header().Get("Access-Control-Allow-Methods"), method) ||
+			rec.Header().Get("Access-Control-Allow-Origin") != "tauri://localhost" {
+			t.Fatalf("preflight %s: %d %v", method, rec.Code, rec.Header())
+		}
+	}
 	req := httptest.NewRequest(http.MethodOptions, "/api/v1/targets/dev-sql/password", nil)
 	req.Host = "127.0.0.1:5000"
-	req.Header.Set("Origin", "tauri://localhost")
+	req.Header.Set("Origin", "https://evil.example")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if !strings.Contains(rec.Header().Get("Access-Control-Allow-Methods"), "PUT") {
-		t.Fatalf("preflight: %v", rec.Header())
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("foreign origin: %d", rec.Code)
 	}
-	req = httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
-	req.Host = "127.0.0.1:5000"
-	req.Header.Set("Origin", "tauri://localhost")
-	req.Header.Set("Authorization", "Bearer "+testToken)
-	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	if rec.Header().Get("Access-Control-Expose-Headers") != "Dialga-Password-Target" {
-		t.Fatalf("headers: %v", rec.Header())
+	// Every response carries the exposed header, a 428 included.
+	rec = do(h, http.MethodGet, "/api/v1/targets/dev-sql/databases")
+	if rec.Code != http.StatusPreconditionRequired || rec.Header().Get("Access-Control-Expose-Headers") != "Dialga-Password-Target" {
+		t.Fatalf("428: %d %v", rec.Code, rec.Header())
+	}
+	if rec = do(h, http.MethodGet, "/api/v1/health"); rec.Header().Get("Access-Control-Expose-Headers") != "Dialga-Password-Target" {
+		t.Fatalf("health: %v", rec.Header())
+	}
+}
+
+func TestEnvVarNameOnly(t *testing.T) {
+	keyring.MockInit()
+	doc := testConfig // env:TEST_SQL_PASSWORD
+	h := newDatabasesServer(t, &doc, map[string]string{"TEST_SQL_PASSWORD": "value-not-to-leak"}, &fakeDatabases{}, fakeDescribe{})
+	rec := do(h, http.MethodGet, "/api/v1/targets")
+	if !strings.Contains(rec.Body.String(), `"envVar":"TEST_SQL_PASSWORD"`) || strings.Contains(rec.Body.String(), "value-not-to-leak") {
+		t.Fatalf("%s", rec.Body)
 	}
 }
