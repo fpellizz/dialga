@@ -1,7 +1,7 @@
 import type { EngineInfo } from "./engine";
 import { createSseParser } from "./sse";
 
-export type StepStatus = "running" | "ok" | "failed" | "skipped";
+export type StepStatus = "running" | "ok" | "warning" | "failed" | "skipped";
 
 export interface StepEvent {
   step: string;

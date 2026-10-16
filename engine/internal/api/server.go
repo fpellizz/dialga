@@ -88,6 +88,22 @@ type TargetList struct {
 	Targets    []TargetSummary `json:"targets"`
 }
 
+// Health is the answer of GET /api/v1/health.
+type Health struct {
+	Status  string `json:"status"`
+	Version string `json:"version"`
+}
+
+// Notice is the data of a "notice" event: a warning sent before the steps.
+type Notice struct {
+	Message string `json:"message"`
+}
+
+// Done is the data of the final "done" event of a check.
+type Done struct {
+	OK bool `json:"ok"`
+}
+
 // TaskList is the answer of GET /api/v1/targets/{name}/tasks.
 type TaskList struct {
 	Tasks []mssql.Task `json:"tasks"`
@@ -111,12 +127,39 @@ func New(opts Options) (*Server, error) {
 		opts.OpenTasks = session.OpenTasks
 	}
 	s := &Server{opts: opts, mux: http.NewServeMux()}
-	s.mux.HandleFunc("GET /api/v1/health", s.health)
-	s.mux.HandleFunc("GET /api/v1/targets", s.listTargets)
-	s.mux.HandleFunc("POST /api/v1/targets/{name}/checks", s.checkTarget)
-	s.mux.HandleFunc("GET /api/v1/targets/{name}/tasks", s.listTasks)
+	for _, rt := range s.routes() {
+		s.mux.HandleFunc(rt.method+" "+rt.path, rt.handler)
+	}
 	return s, nil
 }
+
+// route is one endpoint of the API.
+type route struct {
+	method, path string
+	handler      http.HandlerFunc
+}
+
+// routes is the single list of endpoints: the mux serves it and the contract
+// test compares it with openapi.yaml.
+func (s *Server) routes() []route {
+	list := []route{
+		{http.MethodGet, "/api/v1/health", s.health},
+		{http.MethodGet, "/api/v1/openapi.yaml", s.openAPI},
+		{http.MethodGet, "/api/v1/targets", s.listTargets},
+		{http.MethodPost, "/api/v1/targets/{name}/checks", s.checkTarget},
+		{http.MethodGet, "/api/v1/targets/{name}/tasks", s.listTasks},
+	}
+	for _, more := range extraRoutes {
+		list = append(list, more(s)...)
+	}
+	return list
+}
+
+// extraRoutes are the endpoints defined in their own files: each one adds
+// its routes from init(), so a new endpoint never edits the list above.
+//
+//	func init() { extraRoutes = append(extraRoutes, (*Server).uploadRoutes) }
+var extraRoutes []func(*Server) []route
 
 // Handler returns the guarded handler.
 func (s *Server) Handler() http.Handler { return s.guard(s.mux) }
@@ -198,7 +241,7 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, map[string]string{"status": "ok", "version": s.opts.Version})
+	writeJSON(w, Health{Status: "ok", Version: s.opts.Version})
 }
 
 func (s *Server) listTargets(w http.ResponseWriter, _ *http.Request) {
@@ -256,11 +299,11 @@ func (s *Server) checkTarget(w http.ResponseWriter, r *http.Request) {
 	// Without a password the SQL steps are skipped; say why up front.
 	password, perr := session.PasswordFromEnv(t, s.opts.Getenv)
 	if perr != nil {
-		send("notice", map[string]string{"message": "SQL login will be skipped: " + perr.Error()})
+		send("notice", Notice{Message: "SQL login will be skipped: " + perr.Error()})
 	}
 	s.opts.Log.Info("check started", "target", name, "instance", t.Instance)
 	passed := s.opts.RunCheck(r.Context(), req, password, func(e check.Event) { send("step", e) })
-	send("done", map[string]bool{"ok": passed})
+	send("done", Done{OK: passed})
 	s.opts.Log.Info("check finished", "target", name, "ok", passed)
 }
 

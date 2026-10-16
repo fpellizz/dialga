@@ -111,9 +111,21 @@ func TestCheckPassedText(t *testing.T) {
 		t.Fatalf("code %d, out %q", code, out)
 	}
 	want := check.Request{Profile: "default", Region: "eu-west-1", Instance: "dev-sqlserver", LocalPort: 11433,
-		SQLUser: "admin", ExpectedAccount: "123456789012"}
+		SQLUser: "admin", Bucket: "dev-sqlserver-backups", ExpectedAccount: "123456789012"}
 	if *req != want || *password != "s3cret" {
 		t.Fatalf("request %+v, password %q", *req, *password)
+	}
+}
+
+func TestCheckWarningsDoNotFail(t *testing.T) {
+	a, _, _ := testApp(t, testConfig, check.OK, check.Warning)
+	a.runCheck = func(_ context.Context, _ check.Request, _ string, emit check.Emitter) bool {
+		emit(check.Event{Step: "s", Label: "Storage", Status: check.Warning, Detail: "no CloudWatch"})
+		return true
+	}
+	code, out, _ := run(a, "check")
+	if code != 0 || !strings.Contains(out, "WARN  Storage") || !strings.Contains(out, "All checks passed, with warnings.") {
+		t.Fatalf("code %d, out %q", code, out)
 	}
 }
 

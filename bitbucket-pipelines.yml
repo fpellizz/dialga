@@ -21,14 +21,21 @@
 #                               "Workflows: write" (GitHub refuses pushes
 #                               that touch .github/workflows without it)
 #
-#  When jobs run:
-#    push, any other branch -> checks (engine, web, desktop, secrets)
-#    pull request           -> checks + engine integration tests
-#    push to main           -> checks + integration + engine dist + mirror
-#    tag v* (e.g. v0.1.0)   -> checks + integration + engine dist + Linux
-#                              bundles, then the MANUAL upload to Downloads
-#    custom (Run pipeline)  -> "integration", "release-dry-run" (dist and
-#                              bundles, no upload), "mirror-to-github"
+#  When jobs run (fewer builds, decision of 2026-10-16):
+#    push to a branch       -> nothing: the pull request runs the checks
+#    pull request           -> checks + engine integration tests, each step
+#                              only when its part of the repo changed
+#                              (changesets against the destination branch;
+#                              any change to this file or ci/ runs all)
+#    push to main (merge)   -> secrets scan + mirror: the checks already ran
+#                              on the pull request, merged as is
+#    tag v* (e.g. v0.1.0)   -> everything, unconditionally: checks +
+#                              integration + engine dist + Linux bundles,
+#                              then the MANUAL upload to Downloads
+#    custom (Run pipeline)  -> "checks" (all checks + integration, any
+#                              branch), "integration", "release-dry-run"
+#                              (dist and bundles, no upload),
+#                              "mirror-to-github"
 #
 #  Every step skips itself while its part of the monorepo (engine/,
 #  web/, desktop/) does not exist yet. Layout contract: CLAUDE.md.
@@ -283,34 +290,35 @@ definitions:
             fi
 
 pipelines:
-  default:
-    - parallel:
-        - step: *engine-test
-        - step: *engine-lint
-        - step: *web-test
-        - step: *desktop-check
-        - step: *secret-scan
-
   pull-requests:
     "**":
       - parallel:
-          - step: *engine-test
-          - step: *engine-lint
-          - step: *web-test
-          - step: *desktop-check
+          - step:
+              <<: *engine-test
+              condition: &engine-changed
+                changesets:
+                  includePaths: ["engine/**", "ci/**", "bitbucket-pipelines.yml"]
+          - step:
+              <<: *engine-lint
+              condition: *engine-changed
+          - step:
+              <<: *web-test
+              condition:
+                changesets:
+                  includePaths: ["web/**", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "ci/**", "bitbucket-pipelines.yml"]
+          - step:
+              <<: *desktop-check
+              condition:
+                changesets:
+                  includePaths: ["desktop/**", "ci/**", "bitbucket-pipelines.yml"]
           - step: *secret-scan
-      - step: *engine-integration
+      - step:
+          <<: *engine-integration
+          condition: *engine-changed
 
   branches:
     main:
-      - parallel:
-          - step: *engine-test
-          - step: *engine-lint
-          - step: *web-test
-          - step: *desktop-check
-          - step: *secret-scan
-      - step: *engine-integration
-      - step: *engine-dist
+      - step: *secret-scan
       - step: *mirror-github
 
   tags:
@@ -328,6 +336,14 @@ pipelines:
       - step: *mirror-github
 
   custom:
+    checks:
+      - parallel:
+          - step: *engine-test
+          - step: *engine-lint
+          - step: *web-test
+          - step: *desktop-check
+          - step: *secret-scan
+      - step: *engine-integration
     integration:
       - step: *engine-integration
     release-dry-run:

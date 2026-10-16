@@ -23,6 +23,11 @@ func TestRequestValidate(t *testing.T) {
 		{"expected account", func(r *Request) { r.ExpectedAccount = "123456789012" }, false},
 		{"expected account too short", func(r *Request) { r.ExpectedAccount = "12345" }, true},
 		{"direct needs no local port", func(r *Request) { r.Direct = true; r.LocalPort = 0 }, false},
+		{"bucket", func(r *Request) { r.Bucket = "mssql-dev-backups-123456789012" }, false},
+		{"bucket with dots", func(r *Request) { r.Bucket = "my.backups.bucket" }, false},
+		{"bucket upper case", func(r *Request) { r.Bucket = "My-Bucket" }, true},
+		{"bucket with slash", func(r *Request) { r.Bucket = "bucket/key" }, true},
+		{"bucket too short", func(r *Request) { r.Bucket = "ab" }, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
