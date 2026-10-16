@@ -248,6 +248,14 @@ Su richiesta dell'utente ("che sto attrezzo veda la luce il prima possibile", me
 - Esito strutturato `ReplaceOutcome {strategy, oldDatabase?, backupKey?}` su `PlanDone.replace` e `jobs.Item.replace` (`oldDatabase` solo dopo la rinomina riuscita, `backupKey` solo a backup finito); strategia risolta con nomi e chiave su `PlanPreview.replace` e `JobItemPlan.replace`. La GUI li usa (il parsing dei testi resta solo come ripiego per engine vecchi) e riconosce il restore temporaneo da `strategy == "swap"` + id `restore`. Id dei passi: `backup`, `wait-backup`, `drop`, `single-user`, `rename-old`, `rename-new`, `multi-user`, `multi-user-old` (+ `restore`, `wait`, `post`; nei job con prefisso `<db>/`); check `replace`, `sessions`, `names`, `destination`. Replace non si combina con `differential` né `noRecovery` (la GUI nasconde la scelta).
 - Limite: nel progresso e nell'esito dell'import le etichette dei passi del replace sono i titoli inglesi dell'engine (l'anteprima è tradotta).
 
+### Elenco dei bucket (branch `feature/bucket-picker`, 2026-10-16)
+
+- Engine: `discover.Buckets` (`engine/internal/discover/buckets.go`) chiama `ListBuckets` con il filtro `BucketRegion` (solo i bucket della regione del target), paginato, ordinato per nome; `AccessDenied` diventa `discover.ErrBucketListDenied`. Tutti i fake di `discover.Service` devono implementare `Buckets`.
+- API: `GET /api/v1/discovery/buckets?profile=&region=` → `{buckets:[{name, region?, createdAt?}]}`; 403 con testo fisso senza `s3:ListAllMyBuckets` (il web lo riconosce dallo status), 502 per gli altri errori AWS.
+- CLI: `config init`/`add-target` propongono i bucket come scelta numerata + "other (type it)"; con `--bucket` l'elenco non viene chiesto; senza permesso si scrive il nome.
+- Web: `BucketField.tsx` (combobox ARIA 1.2 editabile, nome sempre digitabile), usato da Add instance, l'unico punto dove il bucket si modifica; il ruolo del campo è `combobox`, non più `textbox`.
+- IAM: statement facoltativo `OptionalListBuckets` (`s3:ListAllMyBuckets` su `*`, approvato da Fabio il 2026-10-16) in `docs/iam-policy.{json,md}`: elenca solo i nomi e non si può restringere a singoli bucket.
+
 ## Contratto di layout atteso dalle pipeline
 
 Ogni job **si salta da solo** finché la sua parte non esiste: `exit 0` in Bitbucket, job `layout`/`meta` su GitHub.

@@ -9,6 +9,7 @@ import {
   saveTarget,
   type TargetSummary,
 } from "./api";
+import { BucketField } from "./BucketField";
 import { engineLabel, instanceBadge, instanceStatusKey } from "./databases";
 import type { EngineInfo } from "./engine";
 import { ErrorBanner } from "./Feedback";
@@ -460,14 +461,15 @@ export function AddInstanceDialog({
           {selected && (
             <fieldset className="form-section">
               <legend>{t("add.details")}</legend>
-              <TextField
-                field="bucket"
-                label={t("add.bucket")}
+              <BucketField
+                id={fieldId("bucket")}
+                engine={engine}
+                profile={form.profile}
+                region={form.region}
                 value={form.bucket}
                 onChange={(v) => set("bucket", v)}
                 hint={t("add.bucketHint")}
                 error={err("bucket")}
-                mono
               />
               <TextField
                 field="sqlUser"

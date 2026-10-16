@@ -390,15 +390,59 @@ func (a *app) runInit(cmd *cobra.Command, f *targetFlags, name string, noBucketC
 	})
 }
 
-// initBucket asks for the bucket (on a terminal) and checks it with
-// HeadBucket: a failure asks again, or is an error without a terminal,
-// unless noCheck.
+// otherBucket is the last row of the bucket choice: type the name.
+const otherBucket = "other (type it)"
+
+// pickBucket offers the buckets of the region as a numbered choice plus
+// "other (type it)". It returns "" when the user wants to type the name, or
+// when there is nothing to choose from (no s3:ListAllMyBuckets, no buckets):
+// the listing is a convenience, never an obstacle.
+func (a *app) pickBucket(cmd *cobra.Command, p *prompter, current, profile, region string) (string, error) {
+	list, err := a.discovery().Buckets(cmd.Context(), profile, region)
+	switch {
+	case errors.Is(err, discover.ErrBucketListDenied):
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "note: %v.\n", err)
+		return "", nil
+	case err != nil:
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "note: cannot list the buckets (%v): type the bucket name.\n", err)
+		return "", nil
+	case len(list) == 0:
+		return "", nil
+	}
+	keys := make([]string, 0, len(list)+1)
+	rows := make([]string, 0, len(list)+1)
+	for _, b := range list {
+		keys, rows = append(keys, b.Name), append(rows, b.Name)
+	}
+	keys, rows = append(keys, otherBucket), append(rows, otherBucket)
+	def := slices.Index(keys, current)
+	if def < 0 {
+		def = 0
+	}
+	i, err := p.choose("S3 bucket (of the SQLSERVER_BACKUP_RESTORE option)", keys, rows, def)
+	if err != nil || keys[i] == otherBucket {
+		return "", err
+	}
+	return keys[i], nil
+}
+
+// initBucket asks for the bucket (on a terminal: from the listed buckets, or
+// typed) and checks it with HeadBucket: a failure asks again, or is an error
+// without a terminal, unless noCheck.
 func (a *app) initBucket(cmd *cobra.Command, p *prompter, bucket, profile, region string, noCheck bool) (string, error) {
 	errOut := cmd.ErrOrStderr()
 	for attempt := 0; ; attempt++ {
 		if p != nil && (attempt > 0 || !cmd.Flags().Changed("bucket")) {
 			var err error
-			if bucket, err = p.ask("S3 bucket (of the SQLSERVER_BACKUP_RESTORE option)", bucket, validBucket); err != nil {
+			picked := ""
+			if attempt == 0 {
+				if picked, err = a.pickBucket(cmd, p, bucket, profile, region); err != nil {
+					return "", err
+				}
+			}
+			if picked != "" {
+				bucket = picked
+			} else if bucket, err = p.ask("S3 bucket (of the SQLSERVER_BACKUP_RESTORE option)", bucket, validBucket); err != nil {
 				return "", err
 			}
 		}

@@ -200,6 +200,14 @@ const en = {
   "add.bucket": "S3 bucket",
   "add.bucketHint":
     "The bucket the SQLSERVER_BACKUP_RESTORE option reads. Run check verifies it after saving.",
+  "add.bucketToggle": "Show the buckets",
+  "add.bucketsLoading": "Loading the buckets of {region}…",
+  "add.bucketsFound": "{count} bucket(s) in {region}: choose one or type the name.",
+  "add.bucketsNone": "No buckets in {region}: type the bucket name.",
+  "add.bucketsNoMatch": "No bucket matches: the name you typed is kept.",
+  "add.bucketsDenied":
+    "The AWS user cannot list buckets (s3:ListAllMyBuckets): type the bucket name.",
+  "add.bucketsFailed": "The bucket list is not available: type the bucket name.",
   "add.sqlUser": "SQL login",
   "add.sqlUserHint": "The master user of the instance, unless you change it.",
   "add.password": "SQL password",
@@ -960,6 +968,14 @@ const it: Record<MessageKey, string> = {
   "add.bucket": "Bucket S3",
   "add.bucketHint":
     "Il bucket che legge l'opzione SQLSERVER_BACKUP_RESTORE. Il check lo verifica dopo il salvataggio.",
+  "add.bucketToggle": "Mostra i bucket",
+  "add.bucketsLoading": "Caricamento dei bucket di {region}…",
+  "add.bucketsFound": "{count} bucket in {region}: scegline uno o digita il nome.",
+  "add.bucketsNone": "Nessun bucket in {region}: digita il nome del bucket.",
+  "add.bucketsNoMatch": "Nessun bucket corrisponde: il nome digitato viene mantenuto.",
+  "add.bucketsDenied":
+    "L'utente AWS non può elencare i bucket (s3:ListAllMyBuckets): digita il nome del bucket.",
+  "add.bucketsFailed": "L'elenco dei bucket non è disponibile: digita il nome del bucket.",
   "add.sqlUser": "Login SQL",
   "add.sqlUserHint": "Il master user dell'istanza, se non lo cambi.",
   "add.password": "Password SQL",

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -41,6 +42,14 @@ func (f *fakeDiscovery) Prerequisites(context.Context) []discover.Prerequisite {
 	return []discover.Prerequisite{{ID: discover.PrereqSSMPlugin, Program: "session-manager-plugin", Found: true,
 		Path: "/usr/bin/session-manager-plugin", Version: "1.2.707.0", Purpose: "tunnels",
 		Install: []discover.InstallHint{{Distro: "fedora", Command: "sudo dnf install x"}}}}
+}
+
+func (f *fakeDiscovery) Buckets(_ context.Context, profile, region string) ([]discover.Bucket, error) {
+	f.profile, f.region = profile, region
+	if f.err != nil {
+		return nil, f.err
+	}
+	return []discover.Bucket{{Name: "a-bucket", Region: region}, {Name: "b-bucket", Region: region}}, nil
 }
 
 func (f *fakeDiscovery) CheckBucket(context.Context, string, string, string) error { return nil }
@@ -94,6 +103,34 @@ func TestPrerequisitesAndProfiles(t *testing.T) {
 	h, _ = newFirstRunServer(t, nil, &fakeDiscovery{err: errors.New("permission denied")})
 	if rec := send(h, http.MethodGet, "/api/v1/discovery/profiles", ""); rec.Code != http.StatusInternalServerError {
 		t.Fatalf("unreadable files: status %d", rec.Code)
+	}
+}
+
+func TestDiscoveryBuckets(t *testing.T) {
+	fake := &fakeDiscovery{}
+	h, _ := newFirstRunServer(t, nil, fake)
+	rec := send(h, http.MethodGet, "/api/v1/discovery/buckets?profile=sales&region=us-east-1", "")
+	var got BucketList
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &got) != nil {
+		t.Fatalf("status %d, body %s", rec.Code, rec.Body)
+	}
+	if len(got.Buckets) != 2 || got.Buckets[0].Name != "a-bucket" || fake.profile != "sales" || fake.region != "us-east-1" {
+		t.Fatalf("got %+v, asked %s/%s", got, fake.profile, fake.region)
+	}
+	for _, q := range []string{"profile=&region=us-east-1", "profile=sales&region=nowhere"} {
+		if rec := send(h, http.MethodGet, "/api/v1/discovery/buckets?"+q, ""); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: status %d", q, rec.Code)
+		}
+	}
+	h, _ = newFirstRunServer(t, nil, &fakeDiscovery{err: fmt.Errorf("list: %w", discover.ErrBucketListDenied)})
+	rec = send(h, http.MethodGet, "/api/v1/discovery/buckets?profile=sales&region=us-east-1", "")
+	if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "s3:ListAllMyBuckets") {
+		t.Fatalf("denied: status %d, body %s", rec.Code, rec.Body)
+	}
+	h, _ = newFirstRunServer(t, nil, &fakeDiscovery{err: errors.New("SSO session expired")})
+	rec = send(h, http.MethodGet, "/api/v1/discovery/buckets?profile=sales&region=us-east-1", "")
+	if rec.Code != http.StatusBadGateway || !strings.Contains(rec.Body.String(), "SSO session expired") {
+		t.Fatalf("AWS failure: status %d, body %s", rec.Code, rec.Body)
 	}
 }
 

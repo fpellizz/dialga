@@ -8,6 +8,7 @@ import { deferred, ENGINE, type FetchMock, json, mockFetch, type Route, text } f
 
 const PROFILES = "GET /api/v1/discovery/profiles";
 const INSTANCES = "GET /api/v1/discovery/instances";
+const BUCKETS = "GET /api/v1/discovery/buckets";
 const SAVE = "POST /api/v1/config/targets";
 
 const ACCOUNT = "123456789012";
@@ -32,7 +33,11 @@ function found(...instances: DiscoveredInstance[]): Route {
 }
 
 function open(routes: Record<string, Route>, existing: string[] = []) {
-  const fetch = mockFetch({ [PROFILES]: () => json({ profiles: PROFILE_LIST }), ...routes });
+  const fetch = mockFetch({
+    [PROFILES]: () => json({ profiles: PROFILE_LIST }),
+    [BUCKETS]: () => json({ buckets: [] }),
+    ...routes,
+  });
   const onClose = vi.fn();
   const onSaved = vi.fn();
   renderI18n(
@@ -47,6 +52,10 @@ function dialog() {
 
 function field(name: string) {
   return within(dialog()).getByRole("textbox", { name });
+}
+
+function bucket() {
+  return within(dialog()).getByRole("combobox", { name: "S3 bucket" });
 }
 
 /** The query strings of the discovery requests. */
@@ -91,7 +100,7 @@ describe("AddInstanceDialog", () => {
       screen.getByText("Discover the instances of the profile, then choose one."),
     ).toBeInTheDocument();
     // Bucket, login and name come after an instance is chosen.
-    expect(within(dialog()).queryByRole("textbox", { name: "S3 bucket" })).toBeNull();
+    expect(within(dialog()).queryByRole("combobox", { name: "S3 bucket" })).toBeNull();
   });
 
   it("lets the region follow the profile until it is edited", async () => {
@@ -171,7 +180,7 @@ describe("AddInstanceDialog", () => {
       await screen.findByText(`Account ${ACCOUNT}. SQL Server instances found: 2.`),
     ).toBeInTheDocument();
     // Two instances: nothing is chosen for the user.
-    expect(screen.queryByRole("textbox", { name: "S3 bucket" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "S3 bucket" })).toBeNull();
 
     await userEvent.click(screen.getByRole("radio", { name: /^sales-prod-sqlserver/ }));
     expect(
@@ -240,7 +249,7 @@ describe("AddInstanceDialog", () => {
     expect(screen.getByRole("button", { name: "Discover instances" })).toHaveFocus();
 
     await discover();
-    await screen.findByRole("textbox", { name: "S3 bucket" });
+    await screen.findByRole("combobox", { name: "S3 bucket" });
     await userEvent.click(screen.getByRole("radio", { name: "Environment variable" }));
     // The integrated tunnel is the default: a port is asked for an open tunnel only.
     expect(screen.getByRole("radio", { name: "Integrated tunnel" })).toBeChecked();
@@ -253,11 +262,11 @@ describe("AddInstanceDialog", () => {
     await userEvent.type(field("Target name"), DEV.name);
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(field("S3 bucket")).toHaveAttribute("aria-invalid", "true");
-    expect(field("S3 bucket")).toHaveAccessibleDescription(
+    expect(bucket()).toHaveAttribute("aria-invalid", "true");
+    expect(bucket()).toHaveAccessibleDescription(
       /Enter a bucket name: lower case letters, digits, dots and -\.$/,
     );
-    expect(field("S3 bucket")).toHaveFocus();
+    expect(bucket()).toHaveFocus();
     expect(field("Variable name")).toHaveAccessibleDescription(
       "Enter a variable name: letters, digits and _, not starting with a digit.",
     );
@@ -269,8 +278,8 @@ describe("AddInstanceDialog", () => {
     expect(saved(fetch)).toEqual([]);
 
     // Fixing a field clears its message at once.
-    await userEvent.type(field("S3 bucket"), "my-sqlserver-backups");
-    expect(field("S3 bucket")).not.toHaveAttribute("aria-invalid");
+    await userEvent.type(bucket(), "my-sqlserver-backups");
+    expect(bucket()).not.toHaveAttribute("aria-invalid");
     await userEvent.click(
       screen.getByRole("checkbox", { name: `Replace the existing target ${DEV.name}` }),
     );
@@ -291,7 +300,7 @@ describe("AddInstanceDialog", () => {
     );
     await discover();
     await userEvent.type(
-      await screen.findByRole("textbox", { name: "S3 bucket" }),
+      await screen.findByRole("combobox", { name: "S3 bucket" }),
       "my-sqlserver-backups",
     );
     await userEvent.click(screen.getByRole("radio", { name: "Environment variable" }));
@@ -335,7 +344,7 @@ describe("AddInstanceDialog", () => {
     );
     await discover();
     await userEvent.type(
-      await screen.findByRole("textbox", { name: "S3 bucket" }),
+      await screen.findByRole("combobox", { name: "S3 bucket" }),
       "my-sqlserver-backups",
     );
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -364,5 +373,136 @@ describe("AddInstanceDialog", () => {
     );
     await close();
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  describe("bucket picker", () => {
+    const BUCKET_LIST = ["alpha-backups", "beta-backups", "gamma-exports"].map((name) => ({
+      name,
+      region: "eu-west-1",
+    }));
+
+    /** The options of the bucket list; none while it is closed. */
+    function bucketOptions() {
+      const list = within(dialog()).queryByRole("listbox", { name: "S3 bucket" });
+      return list ? within(list).queryAllByRole("option") : [];
+    }
+
+    async function openBucketStep(routes: Record<string, Route> = {}) {
+      const opened = open({ [INSTANCES]: found(discovered("my-sqlserver")), ...routes });
+      await waitFor(() =>
+        expect(screen.getByRole("combobox", { name: "AWS profile" })).toHaveValue("default"),
+      );
+      await discover();
+      await screen.findByRole("combobox", { name: "S3 bucket" });
+      return opened;
+    }
+
+    it("lists the buckets of the profile and region and picks one", async () => {
+      const { fetch } = await openBucketStep({ [BUCKETS]: () => json({ buckets: BUCKET_LIST }) });
+      expect(
+        await screen.findByText("3 bucket(s) in eu-west-1: choose one or type the name."),
+      ).toBeInTheDocument();
+      const request = new URL(
+        String(fetch.mock.calls.find(([u]) => String(u).includes("/buckets"))?.[0]),
+      );
+      expect(request.searchParams.get("profile")).toBe("default");
+      expect(request.searchParams.get("region")).toBe("eu-west-1");
+
+      expect(bucket()).toHaveAttribute("aria-expanded", "false");
+      await userEvent.click(within(dialog()).getByRole("button", { name: "Show the buckets" }));
+      expect(bucket()).toHaveAttribute("aria-expanded", "true");
+      expect(bucketOptions().map((o) => o.textContent)).toEqual([
+        "alpha-backups",
+        "beta-backups",
+        "gamma-exports",
+      ]);
+      await userEvent.click(
+        bucketOptions().find((o) => o.textContent === "beta-backups") as HTMLElement,
+      );
+      expect(bucket()).toHaveValue("beta-backups");
+      expect(bucket()).toHaveAttribute("aria-expanded", "false");
+      expect(bucket()).toHaveFocus();
+      // The picked bucket is the selected option when the list opens again.
+      await userEvent.click(within(dialog()).getByRole("button", { name: "Show the buckets" }));
+      expect(bucketOptions().map((o) => o.getAttribute("aria-selected"))).toEqual([
+        "false",
+        "true",
+        "false",
+      ]);
+    });
+
+    it("filters while typing, keeps a typed name and works by keyboard", async () => {
+      await openBucketStep({ [BUCKETS]: () => json({ buckets: BUCKET_LIST }) });
+      await screen.findByText(/3 bucket\(s\)/);
+      await userEvent.type(bucket(), "BACKUPS");
+      expect(bucketOptions().map((o) => o.textContent)).toEqual(["alpha-backups", "beta-backups"]);
+      await userEvent.keyboard("{ArrowDown}{ArrowDown}");
+      expect(bucket()).toHaveAttribute("aria-activedescendant", bucketOptions()[1].id);
+      await userEvent.keyboard("{Escape}");
+      // The first Escape closes the list, not the dialog.
+      expect(bucket()).toHaveAttribute("aria-expanded", "false");
+      expect(dialog()).toHaveAttribute("open");
+      expect(bucket()).toHaveValue("BACKUPS");
+
+      await userEvent.clear(bucket());
+      await userEvent.type(bucket(), "not-listed");
+      expect(bucketOptions()).toHaveLength(0);
+      expect(
+        screen.getByText("No bucket matches: the name you typed is kept."),
+      ).toBeInTheDocument();
+      expect(bucket()).toHaveValue("not-listed");
+
+      await userEvent.clear(bucket());
+      await userEvent.type(bucket(), "gamma{ArrowDown}{Enter}");
+      expect(bucket()).toHaveValue("gamma-exports");
+    });
+
+    it("is busy while the list loads and still accepts a typed name", async () => {
+      const list = deferred<Response>();
+      await openBucketStep({ [BUCKETS]: () => list.promise });
+      expect(screen.getByText("Loading the buckets of eu-west-1…")).toBeInTheDocument();
+      expect(bucket().closest(".form-field")).toHaveAttribute("aria-busy", "true");
+      await userEvent.type(bucket(), "typed-early");
+      list.resolve(json({ buckets: BUCKET_LIST }));
+      await waitFor(() =>
+        expect(bucket().closest(".form-field")).toHaveAttribute("aria-busy", "false"),
+      );
+      expect(bucket()).toHaveValue("typed-early");
+    });
+
+    it("falls back to typing, with the reason, when the AWS user cannot list buckets", async () => {
+      await openBucketStep({
+        [BUCKETS]: () =>
+          text("the AWS user cannot list buckets (s3:ListAllMyBuckets): type the bucket name", 403),
+      });
+      const denied = await screen.findByText(
+        "The AWS user cannot list buckets (s3:ListAllMyBuckets): type the bucket name.",
+      );
+      expect(denied).toHaveAttribute("role", "status");
+      expect(bucket()).toHaveAccessibleDescription(/s3:ListAllMyBuckets/);
+      expect(within(dialog()).queryByRole("alert")).toBeNull();
+      expect(within(dialog()).queryByRole("button", { name: "Show the buckets" })).toBeNull();
+      await userEvent.type(bucket(), "typed-backups");
+      expect(bucket()).toHaveValue("typed-backups");
+    });
+
+    it("shows other failures in an alert and keeps the field free", async () => {
+      await openBucketStep({ [BUCKETS]: () => text("SSO session expired", 502) });
+      expect(await within(dialog()).findByRole("alert")).toHaveTextContent("SSO session expired");
+      expect(
+        screen.getByText("The bucket list is not available: type the bucket name."),
+      ).toBeInTheDocument();
+      await userEvent.type(bucket(), "typed-backups");
+      expect(bucket()).toHaveValue("typed-backups");
+    });
+
+    it("still validates what is typed or picked", async () => {
+      await openBucketStep({ [BUCKETS]: () => json({ buckets: BUCKET_LIST }) });
+      await userEvent.type(bucket(), "Bad_Name");
+      await userEvent.click(screen.getByRole("button", { name: "Save" }));
+      expect(bucket()).toHaveAttribute("aria-invalid", "true");
+      expect(bucket()).toHaveFocus();
+      expect(bucket()).toHaveAccessibleDescription(/Enter a bucket name/);
+    });
   });
 });

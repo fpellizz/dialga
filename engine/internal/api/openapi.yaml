@@ -524,6 +524,46 @@ paths:
           content:
             text/plain:
               schema: { type: string }
+  /api/v1/discovery/buckets:
+    get:
+      summary: The S3 buckets a profile sees in a region
+      description: |
+        Read-only: s3:ListBuckets (IAM action s3:ListAllMyBuckets, optional:
+        it only fills the bucket picker). Only the buckets of the region.
+      parameters:
+        - name: profile
+          in: query
+          required: true
+          schema: { type: string, pattern: "^[A-Za-z0-9._@+-]{1,64}$" }
+        - name: region
+          in: query
+          required: true
+          schema: { type: string, pattern: "^[a-z]{2}(-[a-z]+)+-[0-9]$" }
+      responses:
+        "200":
+          description: The buckets, sorted by name.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BucketDiscovery" }
+        "400":
+          description: Invalid profile or region.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403":
+          description: |
+            The AWS user cannot list buckets (s3:ListAllMyBuckets): the text
+            is "the AWS user cannot list buckets (s3:ListAllMyBuckets): type
+            the bucket name". Also host or Origin not allowed.
+          content:
+            text/plain:
+              schema: { type: string }
+        "502":
+          description: AWS did not answer (credentials, expired SSO session).
+          content:
+            text/plain:
+              schema: { type: string }
   /api/v1/config/targets:
     post:
       summary: Add a target to the configuration file, or replace it
@@ -1529,6 +1569,20 @@ components:
         instances:
           type: array
           items: { $ref: "#/components/schemas/DiscoveredInstance" }
+    BucketDiscovery:
+      type: object
+      required: [buckets]
+      properties:
+        buckets:
+          type: array
+          items: { $ref: "#/components/schemas/DiscoveredBucket" }
+    DiscoveredBucket:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        region: { type: string }
+        createdAt: { type: string, format: date-time }
     TargetInput:
       type: object
       description: A target as the GUI form fills it. No password, only where to find it.

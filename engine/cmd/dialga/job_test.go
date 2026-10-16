@@ -124,8 +124,24 @@ func TestImportApply(t *testing.T) {
 	if s3.Get(testBucket, "import/a.bak") == nil || rds.states["sales"] != "ONLINE" || rds.states["hr"] != "ONLINE" {
 		t.Fatal("the instance is not as imported")
 	}
-	if !strings.Contains(errOut, "upload 100%") {
-		t.Fatalf("no progress on stderr: %q", errOut)
+	// Progress events are best effort (a small upload can end before the
+	// command subscribes): TestJobReportProgress covers the printer.
+}
+
+func TestJobReportProgress(t *testing.T) {
+	var out, errOut strings.Builder
+	r := &jobReport{out: &out, errOut: &errOut, shown: map[string]int{}}
+	for _, done := range []int64{5, 10, 15, 100} {
+		r.event(jobs.Event{Type: jobs.EventUploadProgress, Item: "sales",
+			Transfer: &jobs.TransferProgress{Direction: jobs.Upload, Bytes: done << 20, Total: 100 << 20}})
+	}
+	lines := strings.Split(strings.TrimSpace(errOut.String()), "\n")
+	if len(lines) != 3 || !strings.Contains(lines[0], "upload   5%") || !strings.Contains(lines[1], "upload  10%") ||
+		!strings.Contains(lines[2], "upload 100%  100 MiB of 100 MiB") {
+		t.Fatalf("progress lines %q", lines)
+	}
+	if out.Len() != 0 {
+		t.Fatalf("progress on stdout: %q", out.String())
 	}
 }
 

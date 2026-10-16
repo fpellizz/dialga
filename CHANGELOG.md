@@ -25,6 +25,14 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
   controlli su sessioni attive e nomi liberi, T-SQL esatto in anteprima, e
   ripresa sicura dei job interrotti. Le rinomine usano
   `rdsadmin.dbo.rds_modify_db_name` (TODO: confermare su mssql-dev).
+- **Elenco dei bucket**. *Add instance* mostra il bucket come campo con
+  elenco (combobox accessibile) riempito con i bucket dell'account nella
+  regione scelta, con filtro mentre si scrive; un nome digitato resta sempre
+  valido. `dialga config init` propone i bucket come scelta numerata più
+  «other (type it)» (`--bucket` ha la precedenza). Senza `s3:ListAllMyBuckets`
+  l'elenco non c'è e si digita il nome. API: `GET /api/v1/discovery/buckets`
+  (403 con testo fisso senza il permesso, 502 per gli altri errori). Policy
+  IAM: nuovo statement facoltativo `OptionalListBuckets`.
 
 ## [0.4.0] - 2026-10-16
 
