@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
@@ -91,7 +91,8 @@ describe("App", () => {
 
     goTo("#databases");
     const title = await screen.findByRole("heading", { level: 1, name: "Databases" });
-    expect(title).toHaveFocus();
+    // The hashchange renders outside act: the focus comes with the passive effect.
+    await waitFor(() => expect(title).toHaveFocus());
     expect(title).toHaveAttribute("tabindex", "-1");
     expect(document.title).toBe("Databases · Dialga");
   });

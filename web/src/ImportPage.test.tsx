@@ -211,9 +211,9 @@ async function addAndVerify(...paths: string[]) {
   await userEvent.type(await screen.findByLabelText("File paths"), paths.join("\n"));
   await userEvent.click(screen.getByRole("button", { name: "Add files" }));
   await userEvent.click(screen.getByRole("button", { name: "Next" }));
-  expect(
-    await screen.findByRole("heading", { level: 2, name: "Step 2 of 6: Verify" }),
-  ).toHaveFocus();
+  await waitFor(() =>
+    expect(screen.getByRole("heading", { level: 2, name: "Step 2 of 6: Verify" })).toHaveFocus(),
+  );
 }
 
 /** Verify → Destination → Preview, with the defaults. */
@@ -263,16 +263,18 @@ describe("ImportPage", () => {
 
     // 3. Destination
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(
-      await screen.findByRole("heading", { level: 2, name: "Step 3 of 6: Destination" }),
-    ).toHaveFocus();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("heading", { level: 2, name: "Step 3 of 6: Destination" }),
+      ).toHaveFocus(),
+    );
     expect(screen.getByLabelText("Database name")).toHaveValue("app_db");
     expect(screen.getByLabelText("S3 folder")).toHaveValue("import");
     // The stepper goes back to a done step, and forward again with Next.
     await userEvent.click(screen.getByRole("button", { name: "Go back to Verify" }));
-    expect(
-      await screen.findByRole("heading", { level: 2, name: "Step 2 of 6: Verify" }),
-    ).toHaveFocus();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 2, name: "Step 2 of 6: Verify" })).toHaveFocus(),
+    );
     await userEvent.click(screen.getByRole("button", { name: "Next" }));
     await screen.findByRole("heading", { level: 2, name: "Step 3 of 6: Destination" });
     expect(screen.getByText("s3://my-sqlserver-backups/import/app_db.bak")).toBeInTheDocument();
@@ -342,9 +344,9 @@ describe("ImportPage", () => {
     });
 
     // 6. Result: the post report with the orphaned users.
-    expect(
-      await screen.findByRole("heading", { level: 2, name: "Step 6 of 6: Result" }),
-    ).toHaveFocus();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 2, name: "Step 6 of 6: Result" })).toHaveFocus(),
+    );
     expect(screen.getByText("Import complete: 1 restored.")).toBeInTheDocument();
     const result = await screen.findByRole("region", { name: "Database app_db" });
     expect(
@@ -366,9 +368,9 @@ describe("ImportPage", () => {
     );
 
     await userEvent.click(screen.getByRole("button", { name: "Import more files" }));
-    expect(
-      await screen.findByRole("heading", { level: 2, name: "Step 1 of 6: Files" }),
-    ).toHaveFocus();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 2, name: "Step 1 of 6: Files" })).toHaveFocus(),
+    );
   });
 
   it("stops at a backup that cannot be restored and says what to do", async () => {
@@ -393,9 +395,9 @@ describe("ImportPage", () => {
 
     // Removing the only backup goes back to the files.
     await userEvent.click(screen.getByRole("button", { name: "Remove from the import" }));
-    expect(
-      await screen.findByRole("heading", { level: 2, name: "Step 1 of 6: Files" }),
-    ).toHaveFocus();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 2, name: "Step 1 of 6: Files" })).toHaveFocus(),
+    );
     expect(screen.queryByText("app_db.bak")).not.toBeInTheDocument();
     expect(requestsTo(fetch, INSPECT)).toHaveLength(1);
   });
@@ -442,9 +444,9 @@ describe("ImportPage", () => {
       screen.getByText("The instance changed since the preview: preview again before going on."),
     ).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Back to the preview" }));
-    expect(
-      await screen.findByRole("heading", { level: 2, name: "Step 4 of 6: Preview" }),
-    ).toHaveFocus();
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { level: 2, name: "Step 4 of 6: Preview" })).toHaveFocus(),
+    );
     await screen.findByText("Checked again after the upload.");
     expect(requestsTo(fetch, RESTORE)).toHaveLength(2);
   });
