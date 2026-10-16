@@ -14,11 +14,14 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/decisyon/dialga/engine/internal/check"
+	"github.com/decisyon/dialga/engine/internal/config"
 	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/ops"
 	"github.com/decisyon/dialga/engine/internal/pipeline"
+	"github.com/decisyon/dialga/engine/internal/session"
 	"github.com/decisyon/dialga/engine/internal/transfer"
+	"github.com/decisyon/dialga/engine/internal/tunnels"
 	"github.com/decisyon/dialga/engine/internal/validate"
 )
 
@@ -185,10 +188,23 @@ func (a *app) runJob(cmd *cobra.Command, f jobFlags, req pipeline.Request) error
 	if err != nil {
 		return err
 	}
-	env := pipeline.Env{
-		Name: name, Target: t, S3: client, TaskInterval: f.interval,
-		OpenOps: func(ctx context.Context) (*ops.Session, func(), error) { return a.openOps(ctx, name, t, password) },
+	openOps := func(ctx context.Context) (*ops.Session, func(), error) { return a.openOps(ctx, name, t, password) }
+	if t.Connect.Mode == config.ModeTunnel {
+		// One tunnel for the whole job, opened now: the pre-flight and every
+		// step go through it; it closes when the job has ended.
+		shared := tunnels.New(tunnels.Options{Open: a.jobTunnel})
+		defer func() { _ = shared.Close() }()
+		if _, err := shared.Open(ctx, t); err != nil {
+			return fmt.Errorf("integrated tunnel: %w", err)
+		}
+		via := a.openOpsVia
+		if via == nil {
+			via = ops.OpenWith
+		}
+		open := via(session.Sessions{Tunnels: shared})
+		openOps = func(ctx context.Context) (*ops.Session, func(), error) { return open(ctx, name, t, password) }
 	}
+	env := pipeline.Env{Name: name, Target: t, S3: client, TaskInterval: f.interval, OpenOps: openOps}
 	plan, err := pipeline.Build(ctx, env, req)
 	if err != nil {
 		return err

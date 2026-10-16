@@ -23,6 +23,7 @@ import (
 	"github.com/decisyon/dialga/engine/internal/ops"
 	"github.com/decisyon/dialga/engine/internal/session"
 	"github.com/decisyon/dialga/engine/internal/transfer"
+	"github.com/decisyon/dialga/engine/internal/tunnels"
 )
 
 // version is overridden at build time by ci/build-engine.sh
@@ -62,6 +63,10 @@ type app struct {
 	// discover answers config init and doctor (nil: discover.System).
 	discover discover.Service
 	openS3   func(context.Context, config.Target) (transfer.Client, error)
+	// openOpsVia and jobTunnel open the sessions and the tunnel of a job in
+	// tunnel mode (cmd_job.go; nil: ops.OpenWith and the integrated tunnel).
+	openOpsVia func(session.Sessions) func(context.Context, string, config.Target, string) (*ops.Session, func(), error)
+	jobTunnel  tunnels.Opener
 }
 
 func main() {

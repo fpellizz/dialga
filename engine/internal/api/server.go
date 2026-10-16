@@ -140,6 +140,10 @@ type TaskList struct {
 	Tasks []mssql.Task `json:"tasks"`
 }
 
+// opsOpenWith opens the sessions of the native operations (ops.OpenWith;
+// tests replace it).
+var opsOpenWith = ops.OpenWith
+
 // New builds a server; Token must be at least 32 characters.
 func New(opts Options) (*Server, error) {
 	if len(opts.Token) < 32 {
@@ -167,7 +171,8 @@ func New(opts Options) (*Server, error) {
 		opts.DescribeTarget = session.DescribeTarget
 	}
 	if opts.OpenOps == nil {
-		opts.OpenOps = ops.Open
+		// The jobs and the operations borrow the shared tunnels too.
+		opts.OpenOps = opsOpenWith(session.Sessions{Tunnels: opts.Tunnels})
 	}
 	if opts.TaskInterval <= 0 {
 		opts.TaskInterval = 30 * time.Second
