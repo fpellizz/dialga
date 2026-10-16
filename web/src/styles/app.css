@@ -1552,7 +1552,7 @@ a.btn {
   color: var(--muted-foreground);
   font-weight: 500;
 }
-.wizard-steps li > span,
+.wizard-step-label,
 .wizard-jump {
   display: inline-flex;
   align-items: center;
