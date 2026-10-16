@@ -169,7 +169,7 @@ func (s *Server) saveTarget(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(summaryOf(in.Name, saved))
+	_ = json.NewEncoder(w).Encode(s.summaryOf(in.Name, saved))
 }
 
 // removeTarget deletes a target: ?confirm= must repeat its name. 204
@@ -194,13 +194,15 @@ func (s *Server) removeTarget(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	s.opts.Passwords.ForgetMemory(name)
 	s.opts.Log.Info("target removed", "target", name)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func summaryOf(name string, t config.Target) TargetSummary {
+func (s *Server) summaryOf(name string, t config.Target) TargetSummary {
 	return TargetSummary{
-		Name: name, Instance: t.Instance, Region: t.Region, Profile: t.AWSProfile,
+		Password: s.passwordInfo(name, t),
+		Name:     name, Instance: t.Instance, Region: t.Region, Profile: t.AWSProfile,
 		AccountID: t.AccountID, Bucket: t.Bucket, SQLUser: t.SQL.User,
 		ConnectMode: t.Connect.Mode, LocalPort: t.Connect.LocalPort, Protected: t.Protected,
 		ImportPrefix: t.Prefixes.Import, ExportPrefix: t.Prefixes.Export,

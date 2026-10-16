@@ -9,7 +9,6 @@ import (
 
 	"github.com/decisyon/dialga/engine/internal/config"
 	"github.com/decisyon/dialga/engine/internal/jobs"
-	"github.com/decisyon/dialga/engine/internal/session"
 )
 
 // ResumeRequest is the body of POST /api/v1/jobs/{id}/resume (optional).
@@ -73,9 +72,8 @@ func (s *Server) resumeJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("not confirmed: this %s asks to retype %q in confirm", job.Kind, name), http.StatusUnprocessableEntity)
 		return
 	}
-	password, err := session.PasswordFromEnv(t, s.opts.Getenv)
-	if err != nil {
-		http.Error(w, "SQL password: "+err.Error(), http.StatusUnprocessableEntity)
+	password, ok := s.sqlPassword(r.Context(), w, name, t)
+	if !ok {
 		return
 	}
 	env, err := s.opts.JobEnv(r.Context(), name, t, password)

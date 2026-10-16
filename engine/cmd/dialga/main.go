@@ -52,6 +52,7 @@ type app struct {
 	stdin            io.Reader
 	stdoutIsTerminal bool
 	getenv           func(string) string
+	passwords        *session.Passwords // nil: NewPasswords(getenv), the system keyring
 	readPassword     func(prompt string) (string, error)
 	runCheck         func(context.Context, check.Request, string, check.Emitter) bool
 	openTasks        func(context.Context, config.Target, string) (mssql.TaskReader, func(), error)

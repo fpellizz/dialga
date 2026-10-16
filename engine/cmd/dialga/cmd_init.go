@@ -297,8 +297,9 @@ func (a *app) runInit(cmd *cobra.Command, f *targetFlags, name string, noBucketC
 	if !set("password") {
 		password = config.PasswordPrompt
 		if p != nil {
-			_, _ = fmt.Fprintln(errOut, "Where the SQL password comes from (never the password): prompt asks on the terminal"+
-				" (the desktop app reads DIALGA_SQL_PASSWORD), env:VAR reads the variable VAR.")
+			_, _ = fmt.Fprintln(errOut, "Where the SQL password comes from (never the password): prompt asks (terminal or app)"+
+				" or reads DIALGA_SQL_PASSWORD, env:VAR reads the variable VAR, keyring the system keyring"+
+				" (dialga password set), secretsmanager:<ARN> AWS Secrets Manager.")
 			if password, err = p.ask("SQL password source", password, config.SupportedPasswordSource); err != nil {
 				return err
 			}

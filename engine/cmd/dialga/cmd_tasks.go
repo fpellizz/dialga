@@ -163,7 +163,7 @@ func (a *app) targetTasks(ctx context.Context, target string) (string, config.Ta
 	if err != nil {
 		return "", config.Target{}, nil, nil, err
 	}
-	password, err := a.sqlPassword(t)
+	password, err := a.sqlPassword(name, t)
 	if err != nil {
 		return "", config.Target{}, nil, nil, fmt.Errorf("SQL password: %w", err)
 	}
