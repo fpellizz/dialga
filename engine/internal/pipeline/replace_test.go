@@ -81,6 +81,9 @@ func TestRunReplaceSwap(t *testing.T) {
 	if !strings.Contains(it.Result, "kept as sales_old_"+replaceStamp) {
 		t.Fatalf("result %q", it.Result)
 	}
+	if o := it.Replace; o == nil || o.Strategy != "swap" || o.OldDatabase != "sales_old_"+replaceStamp || o.BackupKey != "" {
+		t.Fatalf("outcome %+v", o)
+	}
 }
 
 func TestRunReplaceDropBacksUpFirst(t *testing.T) {
@@ -93,6 +96,9 @@ func TestRunReplaceDropBacksUpFirst(t *testing.T) {
 	key := "export/sales_before_replace_" + replaceStamp + ".bak"
 	if got, want := stepStatuses(job.Items[0]), "upload:succeeded,backup:succeeded,wait-backup:succeeded,drop:succeeded,restore:succeeded,wait:succeeded,post:succeeded"; got != want {
 		t.Fatalf("steps %s\nwant  %s", got, want)
+	}
+	if o := job.Items[0].Replace; o == nil || o.Strategy != "drop" || o.BackupKey != key || o.OldDatabase != "" {
+		t.Fatalf("outcome %+v", o)
 	}
 	if s3.Get(testBucket, key) == nil || rds.states["sales"] != "ONLINE" || !strings.Contains(job.Items[0].Result, key) {
 		t.Fatalf("backup %v, states %v, result %q", s3.Get(testBucket, key), rds.states, job.Items[0].Result)

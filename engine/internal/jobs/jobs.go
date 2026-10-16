@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/decisyon/dialga/engine/internal/core"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 )
 
@@ -217,8 +218,11 @@ type Item struct {
 	Upload          *UploadState `json:"upload,omitempty"`
 	// Checksum is that of the file the item uploaded or downloaded.
 	Checksum *ChecksumInfo `json:"checksum,omitempty"`
-	Error    string        `json:"error,omitempty"`
-	Result   string        `json:"result,omitempty"`
+	// Replace is what a restore over an existing database did or kept (the
+	// old database, the safety backup); set as the steps succeed.
+	Replace *core.ReplaceOutcome `json:"replace,omitempty"`
+	Error   string               `json:"error,omitempty"`
+	Result  string               `json:"result,omitempty"`
 }
 
 // Job is one execution on a target, with its items and its event log.

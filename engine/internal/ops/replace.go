@@ -356,11 +356,30 @@ func (s *Session) runStep(p *Prepared, st ReplaceStep) func(context.Context) (st
 		default:
 			err = fmt.Errorf("unknown replace step %q", st.Op)
 		}
+		if err == nil {
+			p.keptOld = p.keptOld || st.ID == "rename-old"
+			p.backedUp = p.backedUp || st.ID == "wait-backup"
+		}
 		if err != nil && p.dropped {
 			err = fmt.Errorf("%w (%s was dropped: %s)", err, p.Params.Database, p.Replace.recovery())
 		}
 		return detail, err
 	}
+}
+
+// Outcome is what the replace has done or kept so far.
+func (p *Prepared) Outcome() *core.ReplaceOutcome {
+	if p.Replace == nil {
+		return nil
+	}
+	o := &core.ReplaceOutcome{Strategy: p.Replace.Strategy}
+	if p.keptOld {
+		o.OldDatabase = p.Replace.Old
+	}
+	if p.backedUp {
+		o.BackupKey = p.Replace.BackupKey
+	}
+	return o
 }
 
 // recovery tells what is left to recover the database from after a drop.
