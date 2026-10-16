@@ -185,6 +185,7 @@ export function ExportPage({
         download.enabled
           ? { folder: download.folder.trim(), overwrite: download.overwrite }
           : undefined,
+        targets?.targets.find((x) => x.name === target)?.bucket,
       );
       setPreview(result);
       const ready = result.items.filter((i) => i.ready).length;
@@ -192,7 +193,7 @@ export function ExportPage({
     } catch (e) {
       setPreviewError(e);
     }
-  }, [engine, target, selected, keys, download, t]);
+  }, [engine, target, selected, keys, download, targets, t]);
 
   function goTo(next: StepId) {
     setStepError(null);
@@ -279,8 +280,12 @@ export function ExportPage({
       } else {
         setRunError(e);
         setAnnouncement(t("export.announce.failed"));
-        // Refused before anything started (412, 422): back to the preview.
+        // Refused before anything started (412, 422): back to the preview;
+        // 412 means the plan changed or a check failed: preview it again.
         setStep(started ? "result" : "preview");
+        if (!started && (e as { status?: unknown } | null)?.status === 412) {
+          void runPreviews();
+        }
       }
     } finally {
       if (abort.current === controller) {

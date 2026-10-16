@@ -495,7 +495,7 @@ const en = {
   "export.progress.cancel": "Cancel export",
   "export.progress.starting": "Starting the export…",
   "export.progress.stopHintJob":
-    "The engine runs the export as a job: stopping only stops following it here, it goes on in Activity. Cancel export stops it.",
+    "The engine runs the export as a job: stopping only stops following it here, it goes on in Activity. Cancel export stops the wait and the downloads; a backup already running on RDS goes on.",
   "export.via.job":
     "The engine runs the export as one job: it goes on if you leave this page, and shows in Activity.",
   "export.via.plans":
@@ -1008,7 +1008,7 @@ const it: Record<MessageKey, string> = {
   "export.progress.cancel": "Annulla export",
   "export.progress.starting": "Avvio dell'export…",
   "export.progress.stopHintJob":
-    "L'engine esegue l'export come job: smettere di seguirlo qui non lo ferma, continua in Attività. Annulla export lo ferma.",
+    "L'engine esegue l'export come job: smettere di seguirlo qui non lo ferma, continua in Attività. Annulla export ferma l'attesa e i download; un backup già avviato su RDS continua.",
   "export.via.job":
     "L'engine esegue l'export come un unico job: continua anche se lasci questa pagina e compare in Attività.",
   "export.via.plans":

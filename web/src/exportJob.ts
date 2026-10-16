@@ -137,6 +137,17 @@ export async function startJob(
     headers: headers(engine),
     body: JSON.stringify({ kind: "export", target, items, digest: plan.digest, confirm }),
   });
+  if (response.status === 412) {
+    // {reason, plan}: a pre-flight check failed or the plan changed since the preview.
+    const text = await response.text();
+    let reason = text.trim();
+    try {
+      reason = (JSON.parse(text) as { reason?: string }).reason ?? reason;
+    } catch {
+      // Plain text: keep it.
+    }
+    throw new HttpError(412, reason || "HTTP 412");
+  }
   if (!response.ok) {
     throw await httpError(response);
   }
@@ -178,8 +189,9 @@ export async function followJob(
   plan: JobPlan,
   onChange: (items: ExportItemRun[]) => void,
   signal: AbortSignal,
+  bucket?: string,
 ): Promise<ExportItemRun[]> {
-  let items = mapJob(job, plan);
+  let items = mapJob(job, plan, bucket);
   onChange(items);
   let reading: Promise<void> | null = null;
   let again = false;
@@ -192,7 +204,7 @@ export async function followJob(
       do {
         again = false;
         const snapshot = await getJob(engine, job.id, signal);
-        items = mapJob(snapshot, plan);
+        items = mapJob(snapshot, plan, bucket);
         onChange(items);
       } while (again && !signal.aborted);
     })().finally(() => {
@@ -248,12 +260,14 @@ const ITEM_STATE: Record<string, ItemState> = {
   interrupted: "failed",
 };
 
-/** A job snapshot as the progress and result steps show it. */
-export function mapJob(job: Job, plan: JobPlan): ExportItemRun[] {
+/**
+ * A job snapshot as the progress and result steps show it. The S3 URI is
+ * s3://<bucket>/<planned key> (the key is stable between preview and start).
+ */
+export function mapJob(job: Job, plan: JobPlan, bucket?: string): ExportItemRun[] {
   return job.items.map((item) => {
     const planned = plan.items.find((p) => p.database === item.name);
-    const destination = planned?.checks.find((c) => c.step === "destination")?.detail ?? "";
-    const s3 = /s3:\/\/\S+/.exec(destination)?.[0];
+    const s3 = bucket && planned?.key ? `s3://${bucket}/${planned.key}` : undefined;
     const downloadStep = item.steps.find((s) => s.id === "download");
     const run: ExportItemRun = {
       database: item.name,

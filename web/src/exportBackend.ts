@@ -43,6 +43,8 @@ export interface ExportPreview {
   ready: boolean;
   items: ExportPreviewItem[];
   download?: { folder: string; overwrite: boolean };
+  /** The bucket of the target: the S3 URIs are s3://<bucket>/<key>. */
+  bucket?: string;
   /** What run sends back. */
   job?: { plan: JobPlan; request: JobItemRequest[] };
   plans?: PlanPreview[];
@@ -62,12 +64,21 @@ export function resetBackends(): void {
   jobRoute.clear();
 }
 
-/** The dry run of the export of the chosen databases. Nothing is changed. */
+/** s3://<bucket>/<key>; without the bucket, what the plan said. */
+export function s3Location(bucket: string | undefined, key: string, fallback: string): string {
+  return bucket && key ? `s3://${bucket}/${key}` : fallback;
+}
+
+/**
+ * The dry run of the export of the chosen databases. Nothing is changed.
+ * bucket is the one of the target (TargetSummary.bucket).
+ */
 export async function previewExport(
   engine: EngineInfo,
   target: string,
   choices: ExportChoice[],
   download?: { folder: string; overwrite: boolean },
+  bucket?: string,
 ): Promise<ExportPreview> {
   if (jobRoute.get(engine.url) !== false) {
     const request: JobItemRequest[] = choices.map((c) => ({
@@ -78,7 +89,7 @@ export async function previewExport(
     try {
       const plan = await previewJob(engine, target, request);
       jobRoute.set(engine.url, true);
-      return fromJob(target, plan, request, download);
+      return fromJob(target, plan, request, download, bucket);
     } catch (e) {
       if (!(e instanceof NoJobsError)) {
         throw e;
@@ -86,7 +97,7 @@ export async function previewExport(
       jobRoute.set(engine.url, false);
     }
   }
-  return previewPlans(engine, target, choices, download);
+  return previewPlans(engine, target, choices, download, bucket);
 }
 
 function fromJob(
@@ -94,6 +105,7 @@ function fromJob(
   plan: JobPlan,
   request: JobItemRequest[],
   download?: { folder: string; overwrite: boolean },
+  bucket?: string,
 ): ExportPreview {
   return {
     via: "job",
@@ -102,12 +114,12 @@ function fromJob(
     confirmation: plan.confirmation || undefined,
     ready: plan.ready,
     download,
+    bucket,
     items: plan.items.map((it) => {
-      const uri = it.checks.find((c) => c.step === "destination")?.detail ?? "";
       return {
         database: it.database,
         key: it.key,
-        s3Uri: /s3:\/\/\S+/.exec(uri)?.[0] ?? it.key,
+        s3Uri: s3Location(bucket, it.key, it.key),
         localFile: it.file || undefined,
         ready: it.ready,
         checks: it.checks,
@@ -134,6 +146,7 @@ async function previewPlans(
   target: string,
   choices: ExportChoice[],
   download?: { folder: string; overwrite: boolean },
+  bucket?: string,
 ): Promise<ExportPreview> {
   const items: ExportPreviewItem[] = [];
   const plans: PlanPreview[] = [];
@@ -155,7 +168,7 @@ async function previewPlans(
       items.push({
         database: choice.database,
         key,
-        s3Uri: previewURI(preview),
+        s3Uri: s3Location(bucket, key, previewURI(preview)),
         localFile: download ? localPath(download.folder, key) : undefined,
         ready: preview.ready,
         checks: preview.checks,
@@ -181,6 +194,7 @@ async function previewPlans(
     ready: items.length > 0 && items.every((i) => i.ready),
     items,
     download,
+    bucket,
     plans,
   };
 }
@@ -207,7 +221,7 @@ export async function runExport(
       confirm,
     );
     onJob?.(job.id);
-    return followJob(engine, job, preview.job.plan, onChange, signal);
+    return followJob(engine, job, preview.job.plan, onChange, signal, preview.bucket);
   }
   return runExports(
     engine,

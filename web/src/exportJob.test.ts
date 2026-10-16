@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { previewExport, resetBackends, runExport } from "./exportBackend";
-import { type Job, type JobPlan, mapJob, NoJobsError, previewJob } from "./exportJob";
+import { type Job, type JobPlan, mapJob, NoJobsError, previewJob, startJob } from "./exportJob";
 import { HttpError } from "./plans";
 import { ENGINE, json, mockFetch, requestsTo, text } from "./test/http";
 
@@ -102,10 +102,13 @@ describe("previewExport", () => {
         ),
       [`GET /api/v1/jobs/${JOB_ID}`]: () => json(DONE),
     });
-    const preview = await previewExport(ENGINE, "dev-sql", [{ database: "sales", key: "" }], {
-      folder: "/home/u/backups",
-      overwrite: false,
-    });
+    const preview = await previewExport(
+      ENGINE,
+      "dev-sql",
+      [{ database: "sales", key: "" }],
+      { folder: "/home/u/backups", overwrite: false },
+      "my-sqlserver-backups",
+    );
     expect(preview.via).toBe("job");
     expect(preview.items[0]).toMatchObject({
       database: "sales",
@@ -188,6 +191,21 @@ describe("previewExport", () => {
   });
 });
 
+describe("startJob", () => {
+  it("reads the reason of a 412 refusal", async () => {
+    mockFetch({
+      "POST /api/v1/jobs": () =>
+        json({ reason: "the plan changed since the preview: preview it again", plan: PLAN }, 412),
+    });
+    const error = await startJob(ENGINE, "dev-sql", [{ database: "sales" }], PLAN).catch((e) => e);
+    expect(error).toBeInstanceOf(HttpError);
+    expect(error).toMatchObject({
+      status: 412,
+      message: "the plan changed since the preview: preview it again",
+    });
+  });
+});
+
 describe("mapJob", () => {
   it("maps a running item: steps, task, no result yet", () => {
     const [item] = mapJob(RUNNING, PLAN);
@@ -211,7 +229,7 @@ describe("mapJob", () => {
       steps: [{ id: "download", title: "Download", status: "running" }],
       transfer: { direction: "download", bytes: 5, total: 10, bytesPerSecond: 1 },
     });
-    expect(mapJob(downloading, PLAN)[0]).toMatchObject({
+    expect(mapJob(downloading, PLAN, "my-sqlserver-backups")[0]).toMatchObject({
       step: "download",
       transfer: { done: 5, total: 10 },
       s3Uri: `s3://my-sqlserver-backups/${KEY}`,
