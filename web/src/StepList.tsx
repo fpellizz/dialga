@@ -25,8 +25,17 @@ function StepIcon({ status }: { status: StepStatus }) {
   }
 }
 
-/** The steps of a check, in the order the engine reported them. */
-export function StepList({ steps }: { steps: StepEvent[] }) {
+/**
+ * The steps of a check, in the order the engine reported them. label names
+ * a step (default: the check step ids, then the engine label).
+ */
+export function StepList({
+  steps,
+  label,
+}: {
+  steps: StepEvent[];
+  label?: (step: StepEvent) => string;
+}) {
   const { t } = useI18n();
   return (
     <ul className="steps">
@@ -36,7 +45,7 @@ export function StepList({ steps }: { steps: StepEvent[] }) {
           <li key={s.step} className="step">
             <StepIcon status={s.status} />
             <div className="step-body">
-              <div className="step-label">{key ? t(key) : s.label}</div>
+              <div className="step-label">{label ? label(s) : key ? t(key) : s.label}</div>
               {s.detail && <div className="step-detail">{s.detail}</div>}
             </div>
             <span className={`badge badge-${s.status}`}>{t(STATUS_KEY[s.status])}</span>

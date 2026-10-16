@@ -1,25 +1,13 @@
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { errorText, isActive, type Lifecycle, listTasks, type Task } from "./api";
+import { errorText, isActive, listTasks, type Task } from "./api";
 import type { EngineInfo } from "./engine";
 import { useI18n } from "./i18n";
+import { PlanDialog } from "./PlanDialog";
+import { LIFECYCLE_BADGE, shortTime } from "./TaskProgress";
 
 /** While a task is running the list refreshes itself (RDS updates every ~2 min). */
 const POLL_MS = 30_000;
-
-const BADGE: Record<Lifecycle, string> = {
-  CREATED: "badge-running",
-  IN_PROGRESS: "badge-running",
-  SUCCESS: "badge-ok",
-  ERROR: "badge-failed",
-  CANCEL_REQUESTED: "badge-warning",
-  CANCELLED: "badge-failed",
-};
-
-/** Server time 2006-01-02T15:04:05 shown as 2006-01-02 15:04. */
-function shortTime(value?: string): string {
-  return value ? value.slice(0, 16).replace("T", " ") : "";
-}
 
 /** The recent native backup/restore tasks of a target. */
 export function TasksPanel({ engine, target }: { engine: EngineInfo; target: string }) {
@@ -28,6 +16,8 @@ export function TasksPanel({ engine, target }: { engine: EngineInfo; target: str
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const inFlight = useRef<AbortController | null>(null);
+  // The task whose cancel plan is open.
+  const [cancelling, setCancelling] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     if (inFlight.current) {
@@ -109,9 +99,19 @@ export function TasksPanel({ engine, target }: { engine: EngineInfo; target: str
                 <span className="mono muted">#{task.id}</span>
                 <span className="mono">{task.type}</span>
                 <span className="task-db">{task.database}</span>
-                <span className={`badge ${BADGE[task.lifecycle] ?? "badge-skipped"}`}>
+                <span className={`badge ${LIFECYCLE_BADGE[task.lifecycle] ?? "badge-skipped"}`}>
                   {t(`lifecycle.${task.lifecycle}`)}
                 </span>
+                {(task.lifecycle === "CREATED" || task.lifecycle === "IN_PROGRESS") && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm btn-danger-text task-cancel"
+                    aria-label={t("tasks.cancelOf", { id: task.id })}
+                    onClick={() => setCancelling(task.id)}
+                  >
+                    {t("tasks.cancel")}
+                  </button>
+                )}
               </div>
               {isActive(task) && (
                 <div
@@ -140,6 +140,20 @@ export function TasksPanel({ engine, target }: { engine: EngineInfo; target: str
         </ul>
       )}
       {polling && <p className="hint">{t("tasks.polling")}</p>}
+      {cancelling !== null && (
+        <PlanDialog
+          engine={engine}
+          target={target}
+          operation="cancel"
+          request={{ taskId: cancelling }}
+          onClose={(result) => {
+            setCancelling(null);
+            if (result.changed) {
+              load();
+            }
+          }}
+        />
+      )}
     </section>
   );
 }
