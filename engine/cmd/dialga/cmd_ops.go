@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"text/tabwriter"
 	"time"
 
@@ -19,8 +21,10 @@ import (
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/config"
 	"github.com/decisyon/dialga/engine/internal/core"
+	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/ops"
+	"github.com/decisyon/dialga/engine/internal/pipeline"
 	"github.com/decisyon/dialga/engine/internal/validate"
 )
 
@@ -196,10 +200,14 @@ type opResult struct {
 	Error        string        `json:"error,omitempty"`
 	// Result is what a replace kept: the old database or the safety backup.
 	Result string `json:"result,omitempty"`
+	// JobID is the job the operation ran as: dialga jobs show <id>, and the
+	// Activity page of the app.
+	JobID string `json:"jobId,omitempty"`
 }
 
 // runOp prepares op, prints the pre-flight checks and either the preview
-// (dry run) or, with --apply and the confirmation, runs it.
+// (dry run) or, with --apply and the confirmation, runs it as a job of the
+// journal (origin cli): the actions of the plan are its steps.
 func (a *app) runOp(cmd *cobra.Command, op string, p ops.Params, f opFlags) error {
 	ctx, out := cmd.Context(), cmd.OutOrStdout()
 	if f.interval <= 0 {
@@ -212,7 +220,18 @@ func (a *app) runOp(cmd *cobra.Command, op string, p ops.Params, f opFlags) erro
 	if err := ops.Validate(op, p, t); err != nil {
 		return err
 	}
-	s, closeOps, err := a.openTarget(ctx, name, t)
+	password, err := a.sqlPassword(name, t)
+	if err != nil {
+		return fmt.Errorf("SQL password: %w", err)
+	}
+	// One tunnel for the whole run in tunnel mode: the pre-flight and every
+	// step of the job go through it.
+	openOps, closeAll, err := a.jobOpenOps(ctx, name, t, password)
+	if err != nil {
+		return err
+	}
+	defer closeAll()
+	s, closeOps, err := openOps(ctx)
 	if err != nil {
 		return err
 	}
@@ -265,10 +284,22 @@ func (a *app) runOp(cmd *cobra.Command, op string, p ops.Params, f opFlags) erro
 		if text {
 			_, _ = fmt.Fprintln(out, "Some pre-flight checks failed: nothing was changed.")
 		}
+		var failed []string
+		for _, c := range prep.Checks {
+			if c.Status == check.Failed {
+				failed = append(failed, c.Label+": "+c.Detail)
+			}
+		}
+		a.recordRefusal(cmd.ErrOrStderr(), refusal{kind: jobs.Operation, operation: op, target: name, instance: t.Instance,
+			items: []string{pipeline.OperationItem(prep.Params)}, status: http412,
+			reason: "pre-flight failed, nothing was changed: " + strings.Join(failed, "; "), checks: nonOKChecks(prep.Checks)})
 		return finish(exitCheckFailed)
 	}
-	confirm, err := a.confirmation(prep.Plan, f.confirm)
-	if err != nil {
+	if _, err := a.confirmation(prep.Plan, f.confirm); err != nil {
+		if errors.Is(err, core.ErrNotConfirmed) {
+			a.recordRefusal(cmd.ErrOrStderr(), refusal{kind: jobs.Operation, operation: op, target: name, instance: t.Instance,
+				items: []string{pipeline.OperationItem(prep.Params)}, status: http422, reason: err.Error()})
+		}
 		return err
 	}
 
@@ -276,35 +307,83 @@ func (a *app) runOp(cmd *cobra.Command, op string, p ops.Params, f opFlags) erro
 		_, _ = fmt.Fprintf(out, "Running %s on %s (instance %s):\n", op, name, t.Instance)
 	}
 	res.Applied = true
-	task, err := prep.Execute(ctx, ops.ExecOptions{
-		Confirm: confirm, Wait: !f.noWait, Interval: f.interval,
-		OnStep: func(e core.Event) {
-			if e.Status != core.Running {
-				res.Steps = append(res.Steps, e)
-			}
-			if !text {
-				return
-			}
-			switch {
-			case strings.HasPrefix(e.Step, "wait") && e.Status == core.Running:
-				_, _ = fmt.Fprintf(out, "Following the task every %s (Ctrl-C stops the wait, not the task).\n", f.interval)
-			case e.Status != core.Running && e.Detail != "":
-				_, _ = fmt.Fprintf(out, "  %s  %s: %s\n", tag(check.Status(e.Status)), e.Label, e.Detail)
-			case e.Status != core.Running:
-				_, _ = fmt.Fprintf(out, "  %s  %s\n", tag(check.Status(e.Status)), e.Label)
-			}
-		},
-		OnTask: func(task mssql.Task) {
-			if text {
-				_, _ = fmt.Fprintf(out, "  [%s] task %d: %s %d%%\n", time.Now().Format("15:04:05"), task.ID, task.Lifecycle, task.Percent)
-			}
-		},
-		OnRetry: func(err error) {
-			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "dialga: reading the task failed, retrying: %v\n", err)
-		},
-	})
-	res.Task, res.Result = task, prep.Result()
+	var lastTask atomic.Pointer[mssql.Task]
+	env := pipeline.Env{Name: name, Target: t, TaskInterval: f.interval, OpenOps: openOps,
+		OnTask: func(task mssql.Task) { lastTask.Store(&task) }}
+	spec, err := pipeline.OperationSpec(env, prep, f.noWait)
 	if err != nil {
+		return err
+	}
+	m := openCLIJobs(cmd.ErrOrStderr())
+	defer closeJobs(m)
+	job, err := m.Start(spec)
+	if err != nil {
+		return err
+	}
+	res.JobID = job.ID
+	if text {
+		_, _ = fmt.Fprintf(out, "Job %s (dialga jobs show %s). Ctrl-C cancels it: a native task already running keeps running.\n", job.ID, job.ID)
+	}
+	titles := map[string]string{}
+	for _, st := range job.Items[0].Steps {
+		titles[st.ID] = st.Title
+	}
+	toStep := pipeline.OperationEvents(titles)
+	onStep := func(e core.Event) {
+		if e.Status != core.Running {
+			res.Steps = append(res.Steps, e)
+		}
+		if !text {
+			return
+		}
+		switch {
+		case strings.HasPrefix(e.Step, "wait") && e.Status == core.Running:
+			_, _ = fmt.Fprintf(out, "Following the task every %s (Ctrl-C stops the wait, not the task).\n", f.interval)
+		case e.Status != core.Running && e.Detail != "":
+			_, _ = fmt.Fprintf(out, "  %s  %s: %s\n", tag(check.Status(e.Status)), e.Label, e.Detail)
+		case e.Status != core.Running:
+			_, _ = fmt.Fprintf(out, "  %s  %s\n", tag(check.Status(e.Status)), e.Label)
+		}
+	}
+	final, err := followJob(ctx, m, job.ID, func(ev jobs.Event) {
+		switch e, ok := toStep(ev); {
+		case ok:
+			onStep(e)
+		case ev.Type == jobs.EventTaskStatus && ev.Task != nil && strings.HasPrefix(ev.Step, "wait") && text:
+			_, _ = fmt.Fprintf(out, "  [%s] task %d: %s %d%%\n", ev.Time.Local().Format("15:04:05"), ev.Task.ID, ev.Task.Lifecycle, ev.Task.Percent)
+		}
+	})
+	if err != nil {
+		res.Error = err.Error()
+		if !text {
+			_ = json.NewEncoder(out).Encode(res)
+		}
+		return err
+	}
+	item := final.Items[0]
+	task := lastTask.Load()
+	if task == nil {
+		task = pipeline.OperationTask(item)
+	}
+	if final.State == jobs.Succeeded {
+		res.Task, res.Result = task, prep.Result()
+	} else {
+		res.Task = task
+	}
+	switch {
+	case final.State == jobs.Succeeded:
+	case task != nil && !f.noWait && task.Lifecycle.Done() && task.Lifecycle != mssql.Success:
+		// The task ended in ERROR or CANCELLED: the job failed, the exit
+		// status is that of the task.
+		if text {
+			printOpEnd(out, name, op, p, task, f.noWait)
+		}
+		return finish(exitTaskFailed)
+	default:
+		err := errors.New(cmp.Or(item.Error, "job "+string(final.State)))
+		if final.State == jobs.Cancelled && task != nil {
+			err = fmt.Errorf("interrupted: job %s cancelled, task %d keeps running on the instance", final.ID, task.ID)
+		}
 		res.Error = err.Error()
 		if !text {
 			_ = json.NewEncoder(out).Encode(res)
@@ -316,9 +395,6 @@ func (a *app) runOp(cmd *cobra.Command, op string, p ops.Params, f opFlags) erro
 		if r := prep.Result(); r != "" {
 			_, _ = fmt.Fprintln(out, r+".")
 		}
-	}
-	if task != nil && !f.noWait && task.Lifecycle != mssql.Success {
-		return finish(exitTaskFailed)
 	}
 	return finish(0)
 }

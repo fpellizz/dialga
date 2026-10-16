@@ -713,7 +713,7 @@ dialga import <file.bak>... [-t target] [--db nome,...] [--key K | --prefix P] [
 - **Anteprima per default**: controlli preliminari di **tutti** i database e piano; senza `--skip-failing` basta un controllo fallito perché non parta niente. `--apply` avvia il job e lo segue nel terminale.
 - **Conferma una sola volta per job**: il nome del target se è `protected`, altrimenti il testo di ciò che viene sostituito (la chiave, oppure `replace N objects`). Su un terminale lo chiede; senza terminale serve `--confirm`.
 - **Ctrl-C annulla il job** (anche SIGTERM, SIGHUP, pipe chiusa): gli upload in corso vengono interrotti con abort (in S3 non resta nulla), i database in coda non partono, ma i **task nativi già avviati continuano sull'istanza**. Per fermarli: `dialga cancel <task-id>`.
-- Il job gira nel processo di `dialga import` e **non entra nel journal dell'app**: non compare in `dialga jobs` né in Activity, e non si riprende (§5.14). Un job tra più database è limitato a 50 database; i trasferimenti S3 contemporanei sono al massimo 3.
+- Il job gira nel processo di `dialga import` ed **entra nel journal** con origine `cli` (§5.14): compare in `dialga jobs` e nella pagina Activity dell'app, anche mentre l'app è aperta, e se viene interrotto (processo ucciso) si riprende con `dialga jobs resume`. Un `--apply` rifiutato (controlli falliti, conferma sbagliata) vi lascia un job `failed` con il motivo. Un job tra più database è limitato a 50 database; i trasferimenti S3 contemporanei sono al massimo 3.
 - Con `-o json`: un documento alla fine (`target`, `applied`, `ready`, `plan`, `job`); con `--apply` gli eventi del job vanno anche su stderr, una riga JSON ciascuno (`{"event": <tipo>, "data": …}`).
 
 | Exit code | Significato |
@@ -740,21 +740,23 @@ Schema del piano (`apiVersion: v1`, `kind: Import` o `Export`, `target`, `items`
 
 ### 5.14 `dialga jobs`
 
-I job dell'**app desktop** sono registrati in un **journal** su disco: `$XDG_STATE_HOME/dialga/jobs`, oppure `~/.local/state/dialga/jobs` (Linux). `dialga jobs` lo legge **in sola lettura**, anche con l'app aperta.
+Ogni operazione è un **job** e finisce in un **journal** su disco: `$XDG_STATE_HOME/dialga/jobs`, oppure `~/.local/state/dialga/jobs` (Linux). Ci scrivono sia l'**app desktop** (origine `app`) sia i comandi che cambiano qualcosa con `--apply` (origine `cli`): `import`, `run`, `restore`, `export`, `drop`, `finish`, `cancel`. Ogni processo scrive **solo i propri job**, un file per job, quindi app e CLI possono lavorare insieme. `dialga jobs` legge il journal **in sola lettura**, anche con l'app aperta.
 
 | Comando | Cosa fa |
 |---|---|
-| `dialga jobs` | Elenco dei job, i più recenti per primi: in corso e storico (gli ultimi 200, al massimo 30 giorni) |
+| `dialga jobs` | Elenco dei job, i più recenti per primi: in corso e storico (gli ultimi 200, al massimo 30 giorni, di tutte le origini). Colonne: tipo (`import`, `export` o l'operazione: `restore`, `drop`, `finish`, `cancel`, `post`), origine (`app`/`cli`), target, database |
 | `dialga jobs show <job-id> [--events N]` | Database del job con i loro passi, avanzamento, task nativi, ciò che serve a una ripresa, poi gli ultimi `N` eventi (default 20, `0` = tutti); `-o json` stampa il job intero |
 | `dialga jobs resume <job-id> [--confirm <target>]` | Riprende un job **interrotto** in questo terminale |
 
-Tutti accettano `--dir <cartella>` per un altro journal. Non esiste `dialga jobs cancel`: un job lanciato da CLI si annulla con Ctrl-C nel suo terminale; uno dell'app con *Cancel job* in Activity (§6.9).
+Tutti accettano `--dir <cartella>` per un altro journal. Non esiste `dialga jobs cancel`: un job lanciato da CLI si annulla con Ctrl-C nel suo terminale (resta `cancelled`); uno dell'app con *Cancel job* in Activity (§6.9). Un job che gira in un **altro processo** si vede e si segue, ma non lo si ferma da qui: Activity risponde 409 (`the job runs in another Dialga process: stop it there`).
+
+**Chi possiede un job**: finché un job gira, il processo che lo esegue tiene un lock (`.<id>.lock` nella cartella del journal; il sistema lo rilascia se il processo muore). Un job non finito il cui lock è libero è **orfano**: il primo processo che lo trova lo segna `interrupted`. Un job non finito con il lock preso gira altrove e **non si tocca**, quindi aprire l'app mentre un job CLI è in corso non lo rovina e nessun job va perso. I job rifiutati e le operazioni istantanee (il report `post`) sono già finiti quando vengono scritti.
 
 **`dialga jobs resume`**:
 
 - Solo un job `interrupted` (l'engine si è fermato mentre girava, per esempio l'app chiusa o uccisa). Gli altri stati: `job <id> is <stato>: only an interrupted job can be resumed`.
 - I database già finiti e i passi riusciti restano com'erano; gli altri ripartono da ciò che il journal ha tenuto: un upload **continua il suo multipart** (le parti già in S3 non si rimandano), un task nativo già in coda **viene seguito, non rimesso in coda**. Il job tiene lo stesso id e stampa i suoi eventi finché finisce.
-- **Rifiutato mentre l'app desktop è aperta**: il journal appartiene a un engine alla volta (`the job journal is in use by another Dialga engine: resume the job from the Activity page of the desktop app, or close it and run this again`). Riprendi dall'app (§6.9), oppure chiudi l'app e rilancia.
+- **Rifiutato se un altro processo lo esegue o lo sta riprendendo** (`the job is in use by another Dialga process: …`): ogni job ha un solo proprietario alla volta, quindi se l'app (o un altro `dialga jobs resume`) lo ha già ripreso, il job va avanti lì: seguilo da Activity. Se nessuno lo tiene, la ripresa dalla CLI funziona anche con l'app aperta.
 - Il target deve essere ancora nella configurazione e puntare alla **stessa istanza** del job.
 - Su un target `protected` chiede di riscrivere il nome del target (`--confirm <target>` senza terminale).
 - Ctrl-C **interrompe di nuovo** il job: si potrà riprendere ancora. Exit: `0` job riuscito, `3` finito `failed` o `cancelled`, `1` errore.
@@ -931,18 +933,20 @@ Voce **Export** (*Esporta*), oppure `#export/<target>?db=<nome>&db=<nome>`. Fa i
 
 ### 6.9 Activity
 
-Voce **Activity** (*Attività*), con il numero dei job in corso accanto al nome. Mostra gli **import ed export dell'app**: prima quelli in corso (*Running*), poi lo storico (*History*): gli ultimi 200 job, al massimo 30 giorni.
+Voce **Activity** (*Attività*), con il numero dei job in corso accanto al nome. Mostra **ogni operazione**: gli import e gli export, le singole operazioni dalla pagina Databases (*Restore from S3*, *Export*, *Drop*, *Finish*, *Cancel task*, *Report*, che sono job di tipo `operation`), i tentativi **rifiutati** al momento di avviarli e i job lanciati dalla **CLI**. Prima quelli in corso (*Running*), poi lo storico (*History*): gli ultimi 200 job, al massimo 30 giorni, di tutte le origini.
 
 - **Elenco**: per ogni job tipo e target (*Import on …*, *Export on …*), stato (*Queued*, *Running*, *Succeeded*, *Failed*, *Cancelled*, *Interrupted*), *N of M databases done*, quanti falliti e quando è stato creato o è finito. Senza job: *No jobs yet*.
 - **Dettaglio** (clic su un job; torna con *All jobs*): istanza, data di creazione e di fine, id del job; i **database** con i loro passi (*Pending*, *Waiting for a slot*, *Running*, *Done*, *Failed*, *Skipped*, *Cancelled*, *Interrupted*), il progresso dei trasferimenti (byte, velocità, tempo residuo) e i task nativi (*Native task #N*); l'**Event log**, in diretta (*Live*; se cade la connessione: *Connection lost, reconnecting…*), con *Copy the log*.
 - **Cancel job** (*Annulla il job*): chiede conferma (*Cancel this job?*): i database in coda o in attesa non partono e gli upload in corso si fermano; un task nativo RDS già in esecuzione **non viene fermato** (*Native task #N was still running on the instance when the job stopped: Dialga does not stop it*): si ferma con *Cancel* nel pannello dei task o `dialga cancel`. *Keep running* rinuncia.
 - **Job interrotto** (*Interrupted: the engine stopped while this job was running*): compare *Resume* (*Riprendi*), che elenca cosa ha tenuto il journal (database, ultimo passo, passi non fatti, upload multipart con parti già in S3, task nativi, *still running on the instance*) e chiede conferma (*Resume this job?*): i database finiti restano, gli upload **continuano dalle parti già in S3**, un task già in coda **viene seguito, non rimesso in coda**. Su un target protetto si riscrive il nome del target. *Not now* rinuncia.
 - Dai risultati dei wizard Import ed Export il link *Follow it in Activity* porta al dettaglio di quel job.
-- I job lanciati dalla **CLI** non compaiono qui (§5.12); `dialga jobs` e Activity leggono lo stesso journal (§5.14).
+- **Tentativi rifiutati**: se *Run* viene respinto (controlli preliminari falliti o piano cambiato dopo l'anteprima, 412; conferma o password sbagliate o mancanti, 422/428; AWS o SQL Server non raggiungibili, 502) resta un job `Failed` senza passi, con il motivo e i controlli falliti. Le anteprime e i *dry run* non creano job.
+- **Job della CLI** (`dialga import`, `run`, `restore`…): compaiono con origine `cli`, anche mentre l'app è aperta, e si seguono in diretta; per fermarli serve Ctrl-C nel loro terminale (*Cancel job* risponde che il job gira in un altro processo). `dialga jobs` e Activity leggono lo stesso journal (§5.14).
+- **Operazioni singole**: il job ha i passi del piano (`restore`/`export` + `wait`, oppure `drop`, `finish`, `cancel`) e, se l'app si chiude, si riprende come gli altri. Chiudere la pagina durante l'operazione non la ferma.
 
 ### 6.10 Funzioni in arrivo
 
-> In arrivo: i job lanciati dalla CLI (`dialga import`, `dialga run`) non entrano nel journal, quindi non compaiono in Activity e non si riprendono; una pausa su richiesta degli upload non ha ancora un comando o un pulsante (la ripresa riguarda i job interrotti). TODO: confermare con il team cos'altro è previsto per la prossima versione.
+> In arrivo: una pausa su richiesta degli upload non ha ancora un comando o un pulsante (la ripresa riguarda i job interrotti). TODO: confermare con il team cos'altro è previsto per la prossima versione.
 
 ## 7. Risoluzione dei problemi
 
@@ -1098,9 +1102,10 @@ Se capita spesso, valuta con l'amministratore un aggiornamento di major version 
 | **422**: *not confirmed* / `the text does not match` | Il testo riscritto non è quello chiesto (nome del target se protetto, o ciò che viene sostituito) | Riscrivi il testo esatto indicato dal wizard (*Type … to confirm*) o passa `--confirm` |
 | **422**: `SQL password: …` / `no SQL password in the engine environment` | L'engine dell'app non ha la password del target (`prompt` o `env:VAR`) | Avvia l'app da terminale con la variabile impostata (§4.3) |
 | `job <id> is <stato>: only an interrupted job can be resumed` | `jobs resume` o *Resume* su un job che non è `interrupted` | Solo i job interrotti si riprendono; `dialga jobs show <id>` dice lo stato |
-| `the job journal is in use by another Dialga engine: resume the job from the Activity page …` | L'app desktop è aperta e tiene il journal | Riprendi il job da Activity, oppure chiudi l'app e rilancia `dialga jobs resume` |
+| `the job is in use by another Dialga process: …` | L'app desktop (o un altro `dialga jobs resume`) esegue o sta riprendendo quel job | Seguilo da Activity; se serve fermarlo, dal processo che lo esegue |
+| `the job runs in another Dialga process: stop it there` (409 su *Cancel job*) | Il job è di una run CLI | Ctrl-C nel terminale che lo esegue |
 | `the target <t> of job <id> is not in the configuration any more` / `target <t> now points at instance <A>, the job ran on <B>: not resumed` | Il target è stato rimosso o ora punta a un'altra istanza | Riporta il target com'era (stessa istanza) e riprova |
-| `job <id> not found in <cartella> (removed after 30 days or 200 jobs)` / *No job with this id* | Il journal tiene gli ultimi 200 job, al massimo 30 giorni; oppure il job è della CLI, che non entra nel journal | `dialga jobs` elenca quelli disponibili |
+| `job <id> not found in <cartella> (removed after 30 days or 200 jobs)` / *No job with this id* | Il journal tiene gli ultimi 200 job, al massimo 30 giorni; | `dialga jobs` elenca quelli disponibili |
 | `the job cannot be resumed` | Un passo da rifare non si può ricostruire dal journal | Il job resta `interrupted` e non cambia nulla: rilancia l'operazione dal wizard o con `dialga import` / `dialga run` |
 | `invalid job id "<x>": dialga jobs lists them` | Id non valido | Copia l'id da `dialga jobs` |
 | *Interrupted: the engine stopped while this job was running* | L'app è stata chiusa o uccisa durante il job | *Resume* in Activity (§6.9). Un task nativo già avviato è andato avanti da solo su RDS: controlla *Show tasks* |

@@ -179,21 +179,6 @@ func TestJobsResumeRefusals(t *testing.T) {
 			}
 		})
 	}
-	// The desktop app holds the journal: resume from there.
-	holder, err := jobs.Open(dir, jobs.Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	a, _, _ := testApp(t, testConfig)
-	resumable(a, nil)
-	code, _, errOut := run(a, "jobs", "resume", id, "--dir", dir)
-	if code != exitFailure || !strings.Contains(errOut, "in use by another Dialga engine") || !strings.Contains(errOut, "Activity page") {
-		t.Fatalf("locked: %d %q", code, errOut)
-	}
-	if j, _ := holder.Get(id); j.State != jobs.Interrupted {
-		t.Fatalf("job %s after the refusals", j.State)
-	}
-	_ = holder.Close(context.Background())
 }
 
 func TestEventPrinterPrintsEveryTenPercent(t *testing.T) {

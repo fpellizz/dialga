@@ -113,7 +113,7 @@ func TestJobsListJSONAndUnfinished(t *testing.T) {
 	list[1].State, list[1].EndedAt, list[1].CancelRequested = jobs.Running, nil, true
 	dir := journalDir(t, list)
 	code, out, _ := run(a, "jobs", "--dir", dir)
-	if code != 0 || !strings.Contains(out, "running (cancelling)") || !strings.Contains(out, "were interrupted if no Dialga engine is running") {
+	if code != 0 || !strings.Contains(out, "running (cancelling)") || !strings.Contains(out, "were interrupted if their process") {
 		t.Fatalf("code %d:\n%s", code, out)
 	}
 	code, out, _ = run(a, "-o", "json", "jobs", "--dir", dir)
