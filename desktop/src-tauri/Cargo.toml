@@ -1,6 +1,6 @@
 [package]
 name = "dialga-desktop"
-version = "0.1.0"
+version = "0.2.0"
 description = "Dialga desktop shell: Tauri window around the Go engine sidecar"
 edition = "2021"
 publish = false
