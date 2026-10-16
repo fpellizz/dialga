@@ -18,6 +18,7 @@ import (
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/config"
 	"github.com/decisyon/dialga/engine/internal/mssql"
+	"github.com/decisyon/dialga/engine/internal/ops"
 	"github.com/decisyon/dialga/engine/internal/session"
 )
 
@@ -48,6 +49,10 @@ type app struct {
 	readPassword     func(prompt string) (string, error)
 	runCheck         func(context.Context, check.Request, string, check.Emitter) bool
 	openTasks        func(context.Context, config.Target, string) (mssql.TaskReader, func(), error)
+	// openOps opens a target for the native operations (cmd_ops.go);
+	// readConfirm asks to retype a confirmation on the terminal.
+	openOps     func(ctx context.Context, name string, t config.Target, password string) (*ops.Session, func(), error)
+	readConfirm func(prompt string) (string, error)
 }
 
 func main() {
@@ -58,6 +63,8 @@ func main() {
 		readPassword:     readPasswordFromTerminal,
 		runCheck:         check.Run,
 		openTasks:        session.OpenTasks,
+		openOps:          ops.Open,
+		readConfirm:      readLineFromTerminal,
 	}
 	os.Exit(a.execute(os.Args[1:], os.Stdout, os.Stderr))
 }
