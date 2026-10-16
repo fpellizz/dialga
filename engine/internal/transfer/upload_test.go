@@ -377,3 +377,70 @@ func TestRetryable(t *testing.T) {
 		}
 	}
 }
+
+func TestUploadAmbiguousComplete(t *testing.T) {
+	timeout := errors.New("read tcp: i/o timeout")
+	tests := []struct {
+		name       string
+		lost       bool
+		headFails  bool
+		wantErr    string
+		wantAborts int
+	}{
+		// S3 completed the object, the answer was lost: it is uploaded.
+		{"answer lost", true, false, "", 0},
+		// S3 did not complete it: aborted, nothing left.
+		{"not completed", false, false, "nothing is left in S3", 1},
+		// Nobody can tell: say so.
+		{"cannot tell", false, true, "may exist all the same", 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			path, data := randomFile(t, "sales.bak", 2*KiB)
+			fake := transfertest.New()
+			fake.OnCompleteMultipartUpload = func(context.Context, int) (bool, error) { return tc.lost, timeout }
+			if tc.headFails {
+				fake.OnHeadObject = func(context.Context, string) error { return errors.New("connection refused") }
+			}
+			res, err := Upload{Path: path, Bucket: testBucket, Key: "k"}.Run(context.Background(), fake, quick(nil))
+			if tc.wantErr == "" {
+				if err != nil || !res.Verified || !bytes.Equal(fake.Get(testBucket, "k").Data, data) {
+					t.Fatalf("result %+v, err %v", res, err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tc.wantErr) || !errors.Is(err, timeout) {
+				t.Fatalf("err = %v, want %q", err, tc.wantErr)
+			}
+			if n := fake.Calls("AbortMultipartUpload"); n != tc.wantAborts {
+				t.Fatalf("%d aborts, want %d", n, tc.wantAborts)
+			}
+		})
+	}
+}
+
+func TestUploadRetriesAConditionalConflict(t *testing.T) {
+	path, _ := randomFile(t, "sales.bak", 2*KiB)
+	fake := transfertest.New()
+	fake.OnCompleteMultipartUpload = func(_ context.Context, attempt int) (bool, error) {
+		if attempt == 1 {
+			return false, transfertest.Error("CompleteMultipartUpload", 409, "ConditionalRequestConflict")
+		}
+		return false, nil
+	}
+	res, err := Upload{Path: path, Bucket: testBucket, Key: "k"}.Run(context.Background(), fake, quick(nil))
+	if err != nil || !res.Verified || fake.Calls("CompleteMultipartUpload") != 2 {
+		t.Fatalf("result %+v, err %v, completes %d", res, err, fake.Calls("CompleteMultipartUpload"))
+	}
+}
+
+func TestUploadFileChangedDuringTheUpload(t *testing.T) {
+	path, _ := randomFile(t, "sales.bak", 2*KiB)
+	fake := transfertest.New()
+	fake.OnUploadPart = func(context.Context, int32, int) error {
+		later := time.Now().Add(time.Hour)
+		return os.Chtimes(path, later, later) // someone writes the file
+	}
+	_, err := Upload{Path: path, Bucket: testBucket, Key: "k"}.Run(context.Background(), fake, quick(nil))
+	if err == nil || !strings.Contains(err.Error(), "changed during the upload") || fake.Uploads() != 0 || fake.Get(testBucket, "k") != nil {
+		t.Fatalf("err = %v", err)
+	}
+}

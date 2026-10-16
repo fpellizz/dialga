@@ -168,6 +168,11 @@ var extraRoutes []func(*Server) []route
 // Handler returns the guarded handler.
 func (s *Server) Handler() http.Handler { return s.guard(s.mux) }
 
+// ShutdownTimeout is how long Serve waits, once ctx ends, for the requests
+// in flight: their contexts end with ctx, and they get time to clean up (a
+// transfer aborts its multipart upload, within 30 seconds).
+const ShutdownTimeout = 40 * time.Second
+
 // Serve listens on 127.0.0.1 (random port), writes one JSON ready line to
 // ready ({"event":"ready","port":N,"version":"…"}) and serves until ctx ends.
 func Serve(ctx context.Context, opts Options, ready io.Writer) error {
@@ -179,7 +184,11 @@ func Serve(ctx context.Context, opts Options, ready io.Writer) error {
 	if err != nil {
 		return err
 	}
-	srv := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{
+		Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second,
+		// Requests live within ctx: when it ends they all see it.
+		BaseContext: func(net.Listener) context.Context { return ctx },
+	}
 	port := ln.Addr().(*net.TCPAddr).Port
 	line, _ := json.Marshal(map[string]any{"event": "ready", "port": port, "version": opts.Version})
 	if _, err := fmt.Fprintf(ready, "%s\n", line); err != nil {
@@ -192,7 +201,7 @@ func Serve(ctx context.Context, opts Options, ready io.Writer) error {
 	go func() { errc <- srv.Serve(ln) }()
 	select {
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
 		return nil

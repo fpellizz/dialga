@@ -104,6 +104,7 @@ func (u Upload) run(ctx context.Context, c Client, uploadID string, o Options) (
 		done:  make([]bool, layout.Parts),
 	}
 	up.tr = newTracker(Progress{Path: u.Path, Key: u.Key, Total: layout.Size, PartsTotal: layout.Parts}, o)
+	defer up.tr.stop()
 	if uploadID == "" {
 		out, err := c.CreateMultipartUpload(ctx, &s3.CreateMultipartUploadInput{
 			Bucket: aws.String(u.Bucket), Key: aws.String(u.Key),
@@ -176,7 +177,7 @@ func (up *uploader) part(ctx context.Context, n int, buf []byte) error {
 			up.record(n, size, etag, sum, checksum)
 			return nil
 		}
-		up.tr.set(n, 0)
+		up.tr.drop(n)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -198,7 +199,8 @@ func (up *uploader) part(ctx context.Context, n int, buf []byte) error {
 func (up *uploader) send(ctx context.Context, n int, off, size int64, checksum string, timeout time.Duration) (string, error) {
 	actx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	body := &partReader{r: io.NewSectionReader(up.f, off, size), report: func(pos int64) { up.tr.set(n, pos) }}
+	token := up.tr.attempt(n)
+	body := &partReader{r: io.NewSectionReader(up.f, off, size), report: func(pos int64) { up.tr.set(n, token, pos) }}
 	out, err := up.c.UploadPart(actx, &s3.UploadPartInput{
 		Bucket: aws.String(up.u.Bucket), Key: aws.String(up.u.Key), UploadId: aws.String(up.id),
 		PartNumber: aws.Int32(int32(n)), Body: body, ContentLength: aws.Int64(size),
@@ -237,6 +239,11 @@ func (up *uploader) record(n int, size int64, etag string, sum uint64, checksum 
 // complete assembles the parts. S3 checks the CRC64NVME of the whole object,
 // combined here from the parts, against its own.
 func (up *uploader) complete(ctx context.Context) error {
+	if st, err := up.f.Stat(); err != nil {
+		return err
+	} else if st.Size() != up.layout.Size || !st.ModTime().Equal(up.mod) {
+		return fmt.Errorf("%s changed during the upload: the object was not completed", up.u.Path)
+	}
 	full := up.sums[0]
 	for i := 1; i < len(up.sums); i++ {
 		_, n := up.layout.Part(i + 1)
@@ -251,17 +258,68 @@ func (up *uploader) complete(ctx context.Context) error {
 	if !up.u.Overwrite {
 		in.IfNoneMatch = aws.String("*")
 	}
-	if _, err := up.c.CompleteMultipartUpload(ctx, in); err != nil {
-		if isPreconditionFailed(err) {
-			return fmt.Errorf("s3://%s/%s appeared during the upload and was not replaced", up.u.Bucket, up.u.Key)
+	var err error
+	for attempt := 1; ; attempt++ {
+		_, err = up.c.CompleteMultipartUpload(ctx, in)
+		// A conditional write racing with another one: S3 asks to retry.
+		if errorCode(err) != "ConditionalRequestConflict" || attempt >= up.o.MaxAttempts {
+			break
 		}
-		return fmt.Errorf("complete the multipart upload: %w", err)
+		if serr := up.o.sleep(ctx, backoff(attempt, up.o.rand)); serr != nil {
+			break
+		}
+	}
+	switch {
+	case err == nil:
+	case isPreconditionFailed(err):
+		return fmt.Errorf("s3://%s/%s appeared during the upload and was not replaced", up.u.Bucket, up.u.Key)
+	default:
+		// No answer (a timeout, a cancel) or NoSuchUpload on a retry of the
+		// SDK: S3 may have completed the object all the same. Look first.
+		err = fmt.Errorf("complete the multipart upload: %w", err)
+		landed, herr := up.landed(ctx, full)
+		if herr != nil {
+			return &uncertainError{err: err, head: herr}
+		}
+		if !landed {
+			return err
+		}
 	}
 	up.full = full
 	return nil
 }
 
-// verify reads the object back: size and checksum must be the file's.
+// landed says whether the object at the key is this file: its size and the
+// CRC64NVME of its parts. It asks with a context of its own, since ctx may
+// be over.
+func (up *uploader) landed(ctx context.Context, full uint64) (bool, error) {
+	hctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), abortTimeout)
+	defer cancel()
+	head, err := up.c.HeadObject(hctx, &s3.HeadObjectInput{
+		Bucket: aws.String(up.u.Bucket), Key: aws.String(up.u.Key), ChecksumMode: types.ChecksumModeEnabled,
+	})
+	switch {
+	case isNotFound(err):
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	return aws.ToInt64(head.ContentLength) == up.layout.Size &&
+		aws.ToString(head.ChecksumCRC64NVME) == crc64NVME.encode(full), nil
+}
+
+// uncertainError is a completion that failed without an answer, when S3
+// could not be asked whether the object exists after all.
+type uncertainError struct{ err, head error }
+
+func (e *uncertainError) Error() string {
+	return fmt.Sprintf("%v; reading the object back failed too (%v)", e.err, e.head)
+}
+
+func (e *uncertainError) Unwrap() error { return e.err }
+
+// verify reads the object back: size and checksum must be the file's. It
+// asks with a context of its own: the object is there even if ctx ended.
 func (up *uploader) verify(ctx context.Context, elapsed time.Duration, rate float64) (Result, error) {
 	want := crc64NVME.encode(up.full)
 	res := Result{
@@ -269,7 +327,9 @@ func (up *uploader) verify(ctx context.Context, elapsed time.Duration, rate floa
 		ChecksumAlgorithm: string(types.ChecksumAlgorithmCrc64nvme), Checksum: want,
 		Seconds: elapsed.Seconds(), BytesPerSecond: rate,
 	}
-	head, err := up.c.HeadObject(ctx, &s3.HeadObjectInput{
+	hctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), abortTimeout)
+	defer cancel()
+	head, err := up.c.HeadObject(hctx, &s3.HeadObjectInput{
 		Bucket: aws.String(up.u.Bucket), Key: aws.String(up.u.Key), ChecksumMode: types.ChecksumModeEnabled,
 	})
 	if err != nil {
@@ -311,10 +371,14 @@ func (up *uploader) fail(ctx context.Context, err error) error {
 		return fmt.Errorf("%w; aborting the multipart upload failed too (%v): remove it with "+
 			"aws s3api abort-multipart-upload --bucket %s --key %s --upload-id %s", err, aerr, up.u.Bucket, up.u.Key, up.id)
 	}
-	if ctx.Err() != nil {
-		return fmt.Errorf("upload cancelled (%w): the multipart upload was aborted, nothing is left in S3", context.Cause(ctx))
+	left := "nothing is left in S3"
+	if ue := (*uncertainError)(nil); errors.As(err, &ue) {
+		left = fmt.Sprintf("s3://%s/%s may exist all the same: check it before using it", up.u.Bucket, up.u.Key)
 	}
-	return fmt.Errorf("%w (the multipart upload was aborted, nothing is left in S3)", err)
+	if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+		return fmt.Errorf("upload cancelled (%w): the multipart upload was aborted, %s", context.Cause(ctx), left)
+	}
+	return fmt.Errorf("%w (the multipart upload was aborted, %s)", err, left)
 }
 
 func (up *uploader) doneParts() int {

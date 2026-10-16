@@ -375,8 +375,8 @@ components:
         subject: { type: string, description: What a destructive plan removes or replaces; retyped to confirm. }
         actions:
           type: array
-          items: { $ref: "#/components/schemas/Action" }
-    Action:
+          items: { $ref: "#/components/schemas/PlanAction" }
+    PlanAction:
       type: object
       required: [id, title, kind, risk, statement]
       properties:

@@ -225,3 +225,26 @@ func TestDownloadMissingObject(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestDownloadFileMode(t *testing.T) {
+	fake := transfertest.New()
+	randomObject(t, fake, "k", KiB, types.ChecksumAlgorithmCrc64nvme)
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "k")
+	if _, err := (Download{Bucket: testBucket, Key: "k", Path: dest}).Run(context.Background(), fake, quick(nil)); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := os.Stat(dest); st.Mode().Perm() != 0o644 {
+		t.Fatalf("new file mode %v, want 0644", st.Mode().Perm())
+	}
+	// A replaced file keeps its mode.
+	if err := os.Chmod(dest, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := (Download{Bucket: testBucket, Key: "k", Path: dest, Overwrite: true}).Run(context.Background(), fake, quick(nil)); err != nil {
+		t.Fatal(err)
+	}
+	if st, _ := os.Stat(dest); st.Mode().Perm() != 0o640 {
+		t.Fatalf("replaced file mode %v, want 0640", st.Mode().Perm())
+	}
+}

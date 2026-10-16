@@ -64,6 +64,12 @@ type S3 struct {
 	// OnGetObject runs before a GET is answered, likewise; rng is the
 	// Range header.
 	OnGetObject func(ctx context.Context, rng string, attempt int) error
+	// OnCompleteMultipartUpload runs before an upload is completed, for
+	// every attempt: an error fails the attempt. With lost the object is
+	// completed all the same and only the answer is lost.
+	OnCompleteMultipartUpload func(ctx context.Context, attempt int) (lost bool, err error)
+	// OnHeadObject runs before a HEAD is answered: an error fails it.
+	OnHeadObject func(ctx context.Context, key string) error
 	// Encryption is the default encryption of every bucket; "" answers
 	// that there is none.
 	Encryption types.ServerSideEncryption
@@ -179,8 +185,13 @@ func (s *S3) attempt(what string) int {
 
 // HeadObject answers the size, the ETag and, with ChecksumMode ENABLED, the
 // checksums.
-func (s *S3) HeadObject(_ context.Context, in *s3.HeadObjectInput, _ ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
+func (s *S3) HeadObject(ctx context.Context, in *s3.HeadObjectInput, _ ...func(*s3.Options)) (*s3.HeadObjectOutput, error) {
 	s.count("HeadObject")
+	if s.OnHeadObject != nil {
+		if err := s.OnHeadObject(ctx, aws.ToString(in.Key)); err != nil {
+			return nil, err
+		}
+	}
 	o := s.Get(aws.ToString(in.Bucket), aws.ToString(in.Key))
 	if o == nil {
 		return nil, Error("HeadObject", 404, "NotFound")
@@ -290,8 +301,22 @@ func (s *S3) UploadPart(ctx context.Context, in *s3.UploadPartInput, _ ...func(*
 }
 
 // CompleteMultipartUpload assembles the listed parts, as S3 does.
-func (s *S3) CompleteMultipartUpload(_ context.Context, in *s3.CompleteMultipartUploadInput, _ ...func(*s3.Options)) (*s3.CompleteMultipartUploadOutput, error) {
+func (s *S3) CompleteMultipartUpload(ctx context.Context, in *s3.CompleteMultipartUploadInput, _ ...func(*s3.Options)) (*s3.CompleteMultipartUploadOutput, error) {
 	s.count("CompleteMultipartUpload")
+	if s.OnCompleteMultipartUpload == nil {
+		return s.complete(in)
+	}
+	lost, err := s.OnCompleteMultipartUpload(ctx, s.attempt("complete "+aws.ToString(in.UploadId)))
+	switch {
+	case err == nil:
+		return s.complete(in)
+	case lost:
+		_, _ = s.complete(in)
+	}
+	return nil, err
+}
+
+func (s *S3) complete(in *s3.CompleteMultipartUploadInput) (*s3.CompleteMultipartUploadOutput, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	id := aws.ToString(in.UploadId)

@@ -92,7 +92,7 @@ func TestOpenAPISchemasMatchTheGoTypes(t *testing.T) {
 		"DownloadRequest":  {DownloadRequest{}},
 		"TransferPlan":     {transfer.Batch{}},
 		"Plan":             {core.Plan{}},
-		"Action":           {core.Action{}},
+		"PlanAction":       {core.Action{}},
 		"TransferItem":     {transfer.Item{}},
 		"Rejection":        {transfer.Rejection{}},
 		"TransferProgress": {transfer.Progress{}},

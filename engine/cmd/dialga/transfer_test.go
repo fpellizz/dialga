@@ -62,8 +62,8 @@ func TestUploadApply(t *testing.T) {
 	if obj := fake.Get(testBucket, "incoming/sales.bak"); obj == nil || string(obj.Data) != "backup" {
 		t.Fatal("the object is not in S3")
 	}
-	// Not a terminal: progress lines at 0% and 100%.
-	if !strings.Contains(errOut, "sales.bak    0%") || !strings.Contains(errOut, "sales.bak  100%  6 B of 6 B") {
+	// Not a terminal: plain progress lines, the last one always at 100%.
+	if !strings.HasSuffix(errOut, "sales.bak  100%  6 B of 6 B\n") && !strings.Contains(errOut, "sales.bak  100%  6 B of 6 B  ") {
 		t.Fatalf("stderr %q", errOut)
 	}
 }
@@ -115,7 +115,7 @@ func TestUploadJSON(t *testing.T) {
 		}
 		events[line.Event]++
 	}
-	if events["step"] != 2 || events["progress"] < 2 {
+	if events["step"] != 2 || events["progress"] < 1 {
 		t.Fatalf("events on stderr %v", events)
 	}
 

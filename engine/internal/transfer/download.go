@@ -65,7 +65,11 @@ func (d Download) Run(ctx context.Context, c Client, o Options) (Result, error) 
 	}
 	dl.sums = make([]uint64, dl.layout.Parts)
 	dl.tr = newTracker(Progress{Path: d.Path, Key: d.Key, Total: size, PartsTotal: dl.layout.Parts}, o)
+	defer dl.tr.stop()
 	res, err := dl.run(ctx)
+	if err == nil {
+		err = f.Chmod(fileMode(d.Path, d.Overwrite))
+	}
 	if cerr := f.Close(); err == nil && cerr != nil {
 		err = cerr
 	}
@@ -74,12 +78,23 @@ func (d Download) Run(ctx context.Context, c Client, o Options) (Result, error) 
 	}
 	if err != nil {
 		_ = os.Remove(f.Name())
-		if ctx.Err() != nil {
+		if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
 			return Result{}, fmt.Errorf("download cancelled (%w): nothing was written to %s", context.Cause(ctx), d.Path)
 		}
 		return Result{}, err
 	}
 	return res, nil
+}
+
+// fileMode is the mode of a downloaded file: the one of the file it
+// replaces, or 0644 like any new file (the temporary file is 0600).
+func fileMode(path string, overwrite bool) fs.FileMode {
+	if overwrite {
+		if st, err := os.Stat(path); err == nil {
+			return st.Mode().Perm()
+		}
+	}
+	return 0o644
 }
 
 // downloader is one run of a Download.
@@ -150,7 +165,7 @@ func (dl *downloader) fetch(ctx context.Context, n int, buf []byte) error {
 			dl.tr.partDone(n, size)
 			return nil
 		}
-		dl.tr.set(n, 0)
+		dl.tr.drop(n)
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
@@ -186,7 +201,8 @@ func (dl *downloader) get(ctx context.Context, n int, off, size int64, timeout t
 		return 0, attemptError(ctx, actx, timeout, err)
 	}
 	defer func() { _ = out.Body.Close() }()
-	w := &rangeWriter{w: io.NewOffsetWriter(dl.f, off), c: dl.sum.c, report: func(pos int64) { dl.tr.set(n, pos) }}
+	token := dl.tr.attempt(n)
+	w := &rangeWriter{w: io.NewOffsetWriter(dl.f, off), c: dl.sum.c, report: func(pos int64) { dl.tr.set(n, token, pos) }}
 	written, err := io.CopyBuffer(w, io.LimitReader(out.Body, size), buf)
 	if err != nil {
 		return 0, attemptError(ctx, actx, timeout, err)

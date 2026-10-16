@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
@@ -127,7 +131,7 @@ func TestUploadsApplyStreams(t *testing.T) {
 		names[e.name]++
 	}
 	if events[0].name != "plan" || !strings.Contains(events[0].data, `"reason":"already in`) ||
-		names["step"] != 2 || names["progress"] < 2 || events[len(events)-1].name != "done" {
+		names["step"] != 2 || names["progress"] < 1 || events[len(events)-1].name != "done" {
 		t.Fatalf("events %v\n%s", names, rec.Body)
 	}
 	var done TransferDone
@@ -238,4 +242,102 @@ func TestDownloads(t *testing.T) {
 			t.Errorf("%s: status %d, want %d", body, rec.Code, want)
 		}
 	}
+}
+
+// blockedUpload is a fake S3 whose parts hang until their context ends;
+// started is closed when the first part arrives.
+func blockedUpload() (*transfertest.S3, chan struct{}) {
+	fake := transfertest.New()
+	started := make(chan struct{})
+	var once sync.Once
+	fake.OnUploadPart = func(ctx context.Context, _ int32, _ int) error {
+		once.Do(func() { close(started) })
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return fake, started
+}
+
+func postUpload(ctx context.Context, url, file string) {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodPost, url+"/api/v1/targets/dev-sql/uploads",
+		strings.NewReader(`{"files":[`+jsonString(file)+`],"apply":true}`))
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err == nil {
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+	}
+}
+
+func waitFor(t *testing.T, what string, ok func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if ok() {
+			return
+		}
+	}
+	t.Fatalf("timed out waiting for %s", what)
+}
+
+// readyWriter hands over the ready line of Serve.
+type readyWriter chan []byte
+
+func (w readyWriter) Write(p []byte) (int, error) {
+	w <- append([]byte(nil), p...)
+	return len(p), nil
+}
+
+func TestServeShutdownAbortsTheUploads(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(testConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fake, started := blockedUpload()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ready, served := make(readyWriter, 1), make(chan error, 1)
+	go func() {
+		served <- Serve(ctx, Options{
+			Token: testToken, ConfigPath: path,
+			OpenS3: func(context.Context, config.Target) (transfer.Client, error) { return fake, nil },
+		}, ready)
+	}()
+	var line struct {
+		Port int `json:"port"`
+	}
+	if err := json.Unmarshal(<-ready, &line); err != nil {
+		t.Fatal(err)
+	}
+	go postUpload(context.Background(), fmt.Sprintf("http://127.0.0.1:%d", line.Port), backupFile(t, "backup"))
+	<-started
+	cancel() // the shell is gone: stdin closed, or SIGTERM
+	select {
+	case err := <-served:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Serve did not return")
+	}
+	// Serve returned only once the upload was aborted.
+	if fake.Calls("AbortMultipartUpload") != 1 || fake.Uploads() != 0 {
+		t.Fatalf("aborts %d, open uploads %d", fake.Calls("AbortMultipartUpload"), fake.Uploads())
+	}
+}
+
+func TestClientGoneAbortsTheUpload(t *testing.T) {
+	doc := testConfig
+	fake, started := blockedUpload()
+	srv := httptest.NewServer(newTransferServer(t, &doc, fake, nil))
+	defer srv.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		postUpload(ctx, strings.Replace(srv.URL, "127.0.0.1", "localhost", 1), backupFile(t, "backup"))
+	}()
+	<-started
+	cancel() // the GUI closes the stream
+	<-done
+	waitFor(t, "the abort", func() bool { return fake.Calls("AbortMultipartUpload") == 1 && fake.Uploads() == 0 })
 }

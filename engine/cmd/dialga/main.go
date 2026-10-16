@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -66,7 +67,7 @@ func main() {
 }
 
 func (a *app) execute(args []string, stdout, stderr io.Writer) int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 	root := a.rootCmd()
 	root.SetArgs(args)

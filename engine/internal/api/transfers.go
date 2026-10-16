@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"path/filepath"
 	"sync"
@@ -104,10 +105,18 @@ func (s *Server) createDownload(w http.ResponseWriter, r *http.Request) {
 		})
 }
 
+// decodeTransferBody reads the JSON body to its end: the server notices a
+// client that goes away (and cancels the transfer) only once the body is
+// consumed.
 func decodeTransferBody(w http.ResponseWriter, r *http.Request, v any) bool {
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxTransferBody))
+	body := http.MaxBytesReader(w, r.Body, maxTransferBody)
+	dec := json.NewDecoder(body)
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(v); err != nil {
+	err := dec.Decode(v)
+	if err == nil {
+		_, err = io.Copy(io.Discard, body)
+	}
+	if err != nil {
 		http.Error(w, "invalid body: "+err.Error(), http.StatusBadRequest)
 		return false
 	}
