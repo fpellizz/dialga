@@ -64,7 +64,7 @@ func (a *app) targetDatabases(ctx context.Context, target string) (string, confi
 	if err != nil {
 		return "", config.Target{}, nil, nil, err
 	}
-	password, err := a.sqlPassword(t)
+	password, err := a.sqlPassword(name, t)
 	if err != nil {
 		return "", config.Target{}, nil, nil, fmt.Errorf("SQL password: %w", err)
 	}

@@ -13,7 +13,6 @@ import (
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/config"
 	"github.com/decisyon/dialga/engine/internal/discover"
-	"github.com/decisyon/dialga/engine/internal/session"
 )
 
 func init() { commands = append(commands, (*app).doctorCmd) }
@@ -148,8 +147,8 @@ func (a *app) doctor(cmd *cobra.Command) []doctorItem {
 				Detail: fmt.Sprintf("profile %s, %s, instance %s, %s", t.AWSProfile, t.Region, t.Instance, t.Connect.Mode)}
 			if !hasProfile(profiles, t.AWSProfile) && t.AWSProfile != "default" {
 				it.Status, it.Detail = check.Failed, fmt.Sprintf("AWS profile %s is not on this computer", t.AWSProfile)
-			} else if _, err := session.PasswordFromEnv(t, a.getenv); err != nil && !errors.Is(err, session.ErrPromptNeeded) {
-				it.Status, it.Detail = check.Warning, it.Detail+"; SQL password: "+err.Error()
+			} else if src, _ := t.SQL.PasswordSource(); src.Kind == config.PasswordEnv && a.getenv(src.Ref) == "" {
+				it.Status, it.Detail = check.Warning, fmt.Sprintf("%s; SQL password: environment variable %s is empty", it.Detail, src.Ref)
 			}
 			items = append(items, it)
 		}

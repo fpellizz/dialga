@@ -124,7 +124,7 @@ func (a *app) resumeJob(cmd *cobra.Command, dir, id, confirm string) error {
 			return fmt.Errorf("%w (expected %q): nothing was resumed", core.ErrNotConfirmed, name)
 		}
 	}
-	password, err := a.sqlPassword(t)
+	password, err := a.sqlPassword(name, t)
 	if err != nil {
 		return fmt.Errorf("SQL password: %w", err)
 	}

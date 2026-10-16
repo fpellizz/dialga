@@ -10,6 +10,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.338.1
 	github.com/aws/aws-sdk-go-v2/service/rds v1.130.3
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.0
+	github.com/aws/aws-sdk-go-v2/service/secretsmanager v1.50.1
 	github.com/aws/aws-sdk-go-v2/service/ssm v1.79.0
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.4
 	github.com/aws/smithy-go v1.28.5
@@ -18,6 +19,7 @@ require (
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/minio v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/mssql v0.44.0
+	github.com/zalando/go-keyring v0.2.8
 	go.yaml.in/yaml/v3 v3.0.5
 	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.45.0
@@ -46,6 +48,7 @@ require (
 	github.com/containerd/log v0.1.0 // indirect
 	github.com/containerd/platforms v0.2.1 // indirect
 	github.com/cpuguy83/dockercfg v0.3.2 // indirect
+	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/go-connections v0.7.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
@@ -54,6 +57,7 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
+	github.com/godbus/dbus/v5 v5.2.2 // indirect
 	github.com/golang-sql/civil v0.0.0-20220223132316-b832511892a9 // indirect
 	github.com/golang-sql/sqlexp v0.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect

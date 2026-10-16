@@ -9,6 +9,34 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ## [Non rilasciato]
 
+### Aggiunto
+
+- **Password SQL: quattro fonti**. `keyring` (portachiavi di sistema, servizio
+  `dialga`, account = nome del target) e `secretsmanager:<ARN>` (JSON con
+  `password`, o testo semplice; profilo, regione e controllo dell'account del
+  target) ora funzionano; `prompt` legge anche la voce del portachiavi se la
+  password è stata ricordata. Un solo resolver (`session.Passwords`) per CLI,
+  API e job: la password non finisce mai in file, journal, parametri dei
+  passi, eventi, log o errori.
+- **`dialga password set|forget|status`**: memorizza (senza eco, o una riga da
+  stdin), rimuove, o mostra fonte e voce del portachiavi di un target.
+- **API**: `TargetSummary.password` (`source`, `available`, `canRemember`);
+  `PUT /api/v1/targets/{name}/password` (`password`, `remember`, `?verify=1`)
+  e `DELETE` dello stesso percorso; **428** con l'header
+  `Dialga-Password-Target` dove la password serve e non si risolve (la
+  panoramica resta 200 con SQL `skipped`).
+- Policy IAM: lo statement opzionale per `secretsmanager:GetSecretValue` non è
+  più "previsto"; nota su `kms:Decrypt` per le chiavi gestite dal cliente.
+- Dipendenze: `github.com/zalando/go-keyring` v0.2.8 e
+  `service/secretsmanager` v1.50.1.
+
+### Modificato
+
+- La password mancante di un target `prompt` o `keyring` risponde **428**
+  invece di 422 (le fonti `env:` e `secretsmanager:` che non danno nulla
+  restano 422).
+- CORS: `PUT` consentito, `Dialga-Password-Target` esposto.
+
 ## [0.3.0] - 2026-10-16
 
 ### Aggiunto

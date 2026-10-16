@@ -8,8 +8,10 @@
 //     browser Origin, when present, must be in the allowlist (CORS).
 //
 // The configuration file is read on every request, so edits show up without
-// restarting the app. Passwords never travel in requests or responses: the
-// engine takes them from its own environment.
+// restarting the app. SQL passwords travel in one request only, PUT
+// .../password, and never in a response: the engine keeps them in memory (and
+// in the system keyring when asked), or reads them from its environment or
+// Secrets Manager.
 //
 // Long operations stream their progress as Server-Sent Events over the
 // response of a POST, read with fetch() (EventSource cannot send headers).
@@ -55,8 +57,11 @@ type Options struct {
 	Version        string
 	// ConfigPath is the targets file, read on every request.
 	ConfigPath string
-	// Getenv resolves the SQL password references (default os.Getenv).
+	// Getenv resolves env:VAR and DIALGA_SQL_PASSWORD (default os.Getenv).
 	Getenv func(string) string
+	// Passwords resolves the SQL passwords and keeps the typed ones in
+	// memory (default: a resolver reading Getenv, with the system keyring).
+	Passwords *session.Passwords
 	// RunCheck runs a check (default check.Run; tests replace it).
 	RunCheck func(context.Context, check.Request, string, check.Emitter) bool
 	// OpenTasks opens a session to read the native tasks of a target
@@ -116,6 +121,9 @@ type TargetSummary struct {
 	// ImportPrefix and ExportPrefix are the S3 key prefixes of the target.
 	ImportPrefix string `json:"importPrefix"`
 	ExportPrefix string `json:"exportPrefix"`
+	// Password says where the SQL password comes from and whether the engine
+	// can use it now (never the password).
+	Password PasswordInfo `json:"password"`
 }
 
 // TargetList is the answer of GET /api/v1/targets. A missing file is not an
@@ -161,6 +169,9 @@ func New(opts Options) (*Server, error) {
 	}
 	if opts.Getenv == nil {
 		opts.Getenv = os.Getenv
+	}
+	if opts.Passwords == nil {
+		opts.Passwords = session.NewPasswords(opts.Getenv)
 	}
 	if opts.RunCheck == nil {
 		opts.RunCheck = check.Run
@@ -281,6 +292,8 @@ func Serve(ctx context.Context, opts Options, ready io.Writer) error {
 
 func (s *Server) guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// So the webview can read it on a 428.
+		w.Header().Set("Access-Control-Expose-Headers", "Dialga-Password-Target")
 		host, _, err := net.SplitHostPort(r.Host)
 		if err != nil || (host != "127.0.0.1" && host != "localhost") {
 			http.Error(w, "forbidden host", http.StatusForbidden)
@@ -295,7 +308,7 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			w.Header().Add("Vary", "Origin")
 		}
 		if r.Method == http.MethodOptions {
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE")
 			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 			w.Header().Set("Access-Control-Max-Age", "600")
 			w.WriteHeader(http.StatusNoContent)
@@ -332,8 +345,9 @@ func (s *Server) listTargets(w http.ResponseWriter, _ *http.Request) {
 	case err != nil:
 		resp.Error = err.Error()
 	default:
+		s.opts.Passwords.Prune(cfg.Names())
 		for _, name := range cfg.Names() {
-			resp.Targets = append(resp.Targets, summaryOf(name, cfg.Targets[name]))
+			resp.Targets = append(resp.Targets, s.summaryOf(name, cfg.Targets[name]))
 		}
 	}
 	writeJSON(w, resp)
@@ -371,8 +385,11 @@ func (s *Server) checkTarget(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 	// Without a password the SQL steps are skipped; say why up front.
-	password, perr := session.PasswordFromEnv(t, s.opts.Getenv)
-	if perr != nil {
+	password, perr := s.opts.Passwords.Resolve(r.Context(), name, t)
+	switch {
+	case errors.Is(perr, session.ErrNeeded):
+		send("notice", Notice{Message: "SQL login will be skipped: SQL password needed for target " + name})
+	case perr != nil:
 		send("notice", Notice{Message: "SQL login will be skipped: " + perr.Error()})
 	}
 	s.opts.Log.Info("check started", "target", name, "instance", t.Instance)
@@ -414,9 +431,8 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
-	password, err := session.PasswordFromEnv(t, s.opts.Getenv)
-	if err != nil {
-		http.Error(w, "SQL password: "+err.Error(), http.StatusUnprocessableEntity)
+	password, ok := s.sqlPassword(r.Context(), w, name, t)
+	if !ok {
 		return
 	}
 	tasks, closeTasks, err := s.opts.OpenTasks(r.Context(), t, password)

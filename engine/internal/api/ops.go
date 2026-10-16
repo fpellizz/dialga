@@ -14,7 +14,6 @@ import (
 	"github.com/decisyon/dialga/engine/internal/core"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/ops"
-	"github.com/decisyon/dialga/engine/internal/session"
 	"github.com/decisyon/dialga/engine/internal/validate"
 )
 
@@ -135,9 +134,8 @@ func (s *Server) opTarget(w http.ResponseWriter, r *http.Request, check func(con
 // openOps opens the session of a resolved target, answering 422 without a
 // password and 502 when AWS or SQL Server do not answer.
 func (s *Server) openOps(w http.ResponseWriter, r *http.Request, name string, t config.Target) (*ops.Session, func(), bool) {
-	password, err := session.PasswordFromEnv(t, s.opts.Getenv)
-	if err != nil {
-		http.Error(w, "SQL password: "+err.Error(), http.StatusUnprocessableEntity)
+	password, ok := s.sqlPassword(r.Context(), w, name, t)
+	if !ok {
 		return nil, nil, false
 	}
 	sess, closeOps, err := s.opts.OpenOps(r.Context(), name, t, password)

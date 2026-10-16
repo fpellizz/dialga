@@ -10,8 +10,12 @@ info:
     header must be a loopback name and a browser Origin, when present, must be
     in the allowlist. The configuration file is read on every request.
 
-    SQL passwords never travel in requests or responses: the engine takes them
-    from its own environment, as sql.password of each target says.
+    SQL passwords never travel in a response. The engine takes them where
+    sql.password of each target says (the environment, the system keyring,
+    AWS Secrets Manager) or, for prompt and keyring, from one request: PUT
+    /api/v1/targets/{name}/password, which keeps it in the engine's memory and
+    optionally in the system keyring. An endpoint that needs a password it
+    cannot resolve answers 428 with the target in Dialga-Password-Target.
 
     Long operations stream Server-Sent Events over the response, read with
     fetch() (EventSource cannot send the Authorization header).
@@ -55,7 +59,7 @@ paths:
         back in the error field, with no targets.
       responses:
         "200":
-          description: The targets, without password references.
+          description: The targets, with where each password comes from and whether it is available (never the password).
           content:
             application/json:
               schema: { $ref: "#/components/schemas/TargetList" }
@@ -117,10 +121,11 @@ paths:
         "404": { $ref: "#/components/responses/UnknownTarget" }
         "409": { $ref: "#/components/responses/NoConfiguration" }
         "422":
-          description: No SQL password in the engine environment.
+          description: The password source (environment variable, Secrets Manager) gave no password.
           content:
             text/plain:
               schema: { type: string }
+        "428": { $ref: "#/components/responses/PasswordNeeded" }
         "502":
           description: AWS or SQL Server did not answer (credentials, tunnel, login).
           content:
@@ -141,6 +146,92 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/DatabaseList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "422":
+          description: The password source (environment variable, Secrets Manager) gave no password.
+          content:
+            text/plain:
+              schema: { type: string }
+        "428": { $ref: "#/components/responses/PasswordNeeded" }
+        "502":
+          description: AWS or SQL Server did not answer (credentials, tunnel, login).
+          content:
+            text/plain:
+              schema: { type: string }
+  /api/v1/targets/{name}/password:
+    parameters:
+      - $ref: "#/components/parameters/TargetName"
+    put:
+      summary: Hand the SQL password of a target to the engine
+      description: |
+        For targets whose sql.password is prompt or keyring: the engine keeps
+        the password in memory for this engine session and, with remember, in
+        the system keyring (service dialga, account = target name). It is
+        dropped when the target is removed or its instance, account, region or
+        sql.user changes. With ?verify=1 a SQL session is opened first (tunnel
+        included) and nothing is stored when the login fails.
+      parameters:
+        - name: verify
+          in: query
+          description: "1: open a SQL session with it before storing it."
+          schema: { type: string, enum: ["1"] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PasswordRequest" }
+      responses:
+        "204":
+          description: Kept (and stored in the keyring with remember).
+        "400":
+          description: The body is not a PasswordRequest, or the password is empty or longer than 1024 bytes.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409":
+          description: |
+            The password of this target comes from an environment variable or
+            Secrets Manager (the text says which), or the configuration file
+            is missing or invalid.
+          content:
+            text/plain:
+              schema: { type: string }
+        "422":
+          description: With verify, SQL Server refused the login (its message); nothing was stored.
+          content:
+            text/plain:
+              schema: { type: string }
+        "501":
+          description: remember is set and no system keyring is usable. Nothing was stored, not even in memory.
+          content:
+            text/plain:
+              schema: { type: string }
+        "502":
+          description: With verify, AWS or SQL Server did not answer (credentials, tunnel); nothing was stored.
+          content:
+            text/plain:
+              schema: { type: string }
+    delete:
+      summary: Forget the SQL password of a target
+      description: Drops it from the engine's memory and removes the keyring entry. No error when there is none.
+      responses:
+        "204":
+          description: Forgotten.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "500":
+          description: The keyring failed to remove the entry.
+          content:
+            text/plain:
+              schema: { type: string }
   /api/v1/inspect:
     post:
       summary: Read .bak files locally and judge them against a target
@@ -195,7 +286,7 @@ paths:
         The instance as AWS describes it (status, engine, class, storage, free
         space from CloudWatch) and, when a SQL session opens, its user
         databases and unfinished native tasks. The AWS part needs no SQL
-        password: without one sql is "skipped",
+        password (the user did not give it yet: 428 on the other endpoints): without one sql is "skipped",
         and a SQL failure comes back as sql "failed", both with sqlDetail.
       parameters:
         - $ref: "#/components/parameters/TargetName"
@@ -253,10 +344,11 @@ paths:
               schema: { type: string }
         "409": { $ref: "#/components/responses/NoConfiguration" }
         "422":
-          description: No SQL password in the engine environment.
+          description: The password source (environment variable, Secrets Manager) gave no password.
           content:
             text/plain:
               schema: { type: string }
+        "428": { $ref: "#/components/responses/PasswordNeeded" }
         "502":
           description: AWS or SQL Server did not answer (credentials, tunnel, login).
           content:
@@ -310,10 +402,11 @@ paths:
             text/plain:
               schema: { type: string }
         "422":
-          description: Confirmation missing or different, or no SQL password in the engine environment.
+          description: Confirmation missing or different, or the password source (environment variable, Secrets Manager) gave no password.
           content:
             text/plain:
               schema: { type: string }
+        "428": { $ref: "#/components/responses/PasswordNeeded" }
         "502":
           description: AWS or SQL Server did not answer (credentials, tunnel, login).
           content:
@@ -349,10 +442,11 @@ paths:
               schema: { type: string }
         "409": { $ref: "#/components/responses/NoConfiguration" }
         "422":
-          description: No SQL password in the engine environment.
+          description: The password source (environment variable, Secrets Manager) gave no password.
           content:
             text/plain:
               schema: { type: string }
+        "428": { $ref: "#/components/responses/PasswordNeeded" }
         "502":
           description: AWS or SQL Server did not answer (credentials, tunnel, login).
           content:
@@ -558,10 +652,11 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/JobRefused" }
         "422":
-          description: confirm does not match the confirmation of the plan, or no SQL password in the engine environment.
+          description: confirm does not match the confirmation of the plan, or the password source (environment variable, Secrets Manager) gave no password.
           content:
             text/plain:
               schema: { type: string }
+        "428": { $ref: "#/components/responses/PasswordNeeded" }
         "502":
           description: AWS or SQL Server did not answer during the pre-flight.
           content:
@@ -686,11 +781,13 @@ paths:
           description: |
             Not resumable now: the target left the configuration or points at
             another instance, the confirmation is missing or wrong (protected
-            target), no SQL password in the engine environment, or a step
+            target), the password source (environment variable, Secrets Manager)
+            gave no password, or a step
             cannot be rebuilt.
           content:
             text/plain:
               schema: { type: string }
+        "428": { $ref: "#/components/responses/PasswordNeeded" }
         "501":
           description: This engine has no import/export pipeline to rebuild the steps with.
           content:
@@ -909,6 +1006,19 @@ components:
       description: Target name from the configuration.
       schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,62}$" }
   responses:
+    PasswordNeeded:
+      description: |
+        The SQL password of the target cannot be resolved without asking the
+        user (sql.password is prompt or keyring and nothing is remembered).
+        Ask for it and send it with PUT /api/v1/targets/{name}/password, then
+        retry.
+      headers:
+        Dialga-Password-Target:
+          description: The target that needs the password.
+          schema: { type: string }
+      content:
+        text/plain:
+          schema: { type: string }
     NotTunnelMode:
       description: The target is not in connect.mode tunnel.
       content:
@@ -948,8 +1058,8 @@ components:
         version: { type: string }
     TargetSummary:
       type: object
-      description: A configured target as the GUI sees it; no password reference.
-      required: [name, instance, region, profile, accountId, bucket, sqlUser, connectMode, protected, importPrefix, exportPrefix]
+      description: A configured target as the GUI sees it; where its password comes from, never the password.
+      required: [name, instance, region, profile, accountId, bucket, sqlUser, connectMode, protected, importPrefix, exportPrefix, password]
       properties:
         name: { type: string }
         instance: { type: string, description: RDS DB instance identifier. }
@@ -963,6 +1073,24 @@ components:
         protected: { type: boolean, description: Every change asks to retype the target name. }
         importPrefix: { type: string, description: S3 key prefix of the uploads to restore (default import). }
         exportPrefix: { type: string, description: S3 key prefix of the exports (default export). }
+        password: { $ref: "#/components/schemas/PasswordInfo" }
+    PasswordInfo:
+      type: object
+      description: Where the SQL password of a target comes from and whether the engine can use it now.
+      required: [source, available, canRemember]
+      properties:
+        source: { type: string, enum: [prompt, env, keyring, secretsmanager] }
+        available:
+          type: boolean
+          description: The engine can resolve it without asking (memory, environment variable set, keyring entry present; always true for secretsmanager, read when used).
+        canRemember: { type: boolean, description: A system keyring is usable on this machine. }
+        envVar: { type: string, description: "The variable the password is read from: VAR for env:VAR, DIALGA_SQL_PASSWORD for prompt. Only the name, never the value." }
+    PasswordRequest:
+      type: object
+      required: [password, remember]
+      properties:
+        password: { type: string, minLength: 1, maxLength: 1024, description: 1 to 1024 bytes. }
+        remember: { type: boolean, description: Also store it in the system keyring. }
     TargetList:
       type: object
       required: [configPath, targets]
@@ -1062,7 +1190,7 @@ components:
         sql:
           type: string
           enum: [ok, skipped, failed]
-          description: skipped without a SQL password in the engine environment.
+          description: skipped while the SQL password is not available (sqlDetail says it is needed).
         sqlDetail: { type: string, description: Why the SQL part is skipped or failed. }
         userDatabases: { type: integer, description: Present when sql is ok. }
         activeTasks: { type: integer, description: Native tasks queued, running or being cancelled; present when sql is ok. }
@@ -1383,8 +1511,10 @@ components:
         sqlUser: { type: string }
         passwordSource:
           type: string
-          description: prompt (DIALGA_SQL_PASSWORD in the engine environment, or asked on the terminal) or env:VAR.
-          examples: [prompt, "env:MSSQL_PASSWORD"]
+          description: |
+            Where the password comes from, never the password: prompt (asked,
+            or DIALGA_SQL_PASSWORD), env:VAR, keyring or secretsmanager:<secret ARN>.
+          examples: [prompt, "env:MSSQL_PASSWORD", keyring]
         connectMode: { type: string, enum: [external, direct, tunnel] }
         localPort: { type: integer, minimum: 1, maximum: 65535, description: Required with external. }
         protected: { type: boolean }

@@ -180,7 +180,7 @@ func (a *app) runJob(cmd *cobra.Command, f jobFlags, req pipeline.Request) error
 	if err := req.Validate(t); err != nil {
 		return err
 	}
-	password, err := a.sqlPassword(t)
+	password, err := a.sqlPassword(name, t)
 	if err != nil {
 		return fmt.Errorf("SQL password: %w", err)
 	}

@@ -127,7 +127,7 @@ func TestConfigInitNonInteractiveErrors(t *testing.T) {
 		t.Fatalf("unknown profile: code %d, stderr %q", code, errOut)
 	}
 	if code, _, errOut := run(a, "config", "init", "--instance", "legacy-sql", "--bucket", "dev-backups", "--password", "hunter2"); code != exitFailure ||
-		!strings.Contains(errOut, "prompt or env:VAR") || strings.Contains(errOut, "hunter2") {
+		!strings.Contains(errOut, "prompt, env:VAR, keyring or secretsmanager") || strings.Contains(errOut, "hunter2") {
 		t.Fatalf("plain password: code %d, stderr %q", code, errOut)
 	}
 	if _, err := os.Stat(a.configPath); !errors.Is(err, os.ErrNotExist) {

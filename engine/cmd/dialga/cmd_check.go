@@ -1,10 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -42,7 +44,7 @@ Exit status: 0 all checks passed, 2 some check failed, 1 error.`,
 				return err
 			}
 			// Without a password the SQL steps are skipped, the others still run.
-			password, err := a.sqlPassword(t)
+			password, err := a.sqlPassword(name, t)
 			if err != nil {
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "dialga: SQL login will be skipped: %v\n", err)
 			}
@@ -61,14 +63,28 @@ Exit status: 0 all checks passed, 2 some check failed, 1 error.`,
 	return cmd
 }
 
-// sqlPassword resolves sql.password; with "prompt" and no DIALGA_SQL_PASSWORD
-// it asks on the terminal.
-func (a *app) sqlPassword(t config.Target) (string, error) {
-	password, err := session.PasswordFromEnv(t, a.getenv)
-	if errors.Is(err, session.ErrPromptNeeded) {
-		return a.readPassword(fmt.Sprintf("SQL password for %s on %s: ", t.SQL.User, t.Instance))
+// sqlPassword resolves sql.password of target name: the environment, the
+// system keyring or Secrets Manager; with "prompt" and nothing found it asks
+// on the terminal.
+func (a *app) sqlPassword(name string, t config.Target) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	password, err := a.passwordStore().Resolve(ctx, name, t)
+	if !errors.Is(err, session.ErrNeeded) {
+		return password, err
 	}
-	return password, err
+	if src, _ := t.SQL.PasswordSource(); src.Kind == config.PasswordKeyring {
+		return "", fmt.Errorf("sql.password is keyring and no password is stored for %s: run dialga password set %s", name, name)
+	}
+	return a.readPassword(fmt.Sprintf("SQL password for %s on %s: ", t.SQL.User, t.Instance))
+}
+
+// passwordStore is the resolver of the SQL passwords.
+func (a *app) passwordStore() *session.Passwords {
+	if a.passwords == nil {
+		a.passwords = session.NewPasswords(a.getenv)
+	}
+	return a.passwords
 }
 
 // checkReport prints the steps as they end (text) or one document at the end (json).
