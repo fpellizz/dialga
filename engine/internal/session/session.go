@@ -2,7 +2,7 @@
 // credentials with the account guard, the RDS endpoint, then a TDS
 // connection with the certificate verified (through the tunnel or direct).
 // With connect.mode tunnel the session opens the SSM tunnel first and
-// closes it with the pool.
+// closes it with the pool, or borrows the engine's shared one (Sessions).
 package session
 
 import (
@@ -48,17 +48,43 @@ func PasswordFromEnv(t config.Target, getenv func(string) string) (string, error
 	}
 }
 
+// SharedTunnels lends the live tunnel of a tunnel-mode target (the engine's
+// tunnels.Manager), so a session does not open one of its own.
+type SharedTunnels interface {
+	Acquire(ctx context.Context, t config.Target) (tunnel.Lease, error)
+}
+
+// Sessions opens SQL sessions. With Tunnels set, a tunnel-mode target goes
+// through its shared tunnel, handed back when the pool closes; without, each
+// session opens its own tunnel and closes it with the pool (the CLI).
+type Sessions struct {
+	Tunnels SharedTunnels
+}
+
 // Open connects to the SQL Server of t and checks the login. The caller
 // closes the returned pool; with connect.mode tunnel that also closes the
 // tunnel, which otherwise ends with ctx.
 func Open(ctx context.Context, t config.Target, password string) (*sql.DB, error) {
+	return Sessions{}.Open(ctx, t, password)
+}
+
+// Open is the package Open, with the shared tunnel when there is one.
+func (s Sessions) Open(ctx context.Context, t config.Target, password string) (*sql.DB, error) {
 	cfg, inst, err := instance(ctx, t)
 	if err != nil {
 		return nil, err
 	}
 	addr := mssql.Addr(t.Connect.Mode == config.ModeDirect, t.Connect.LocalPort, inst.Endpoint, inst.Port)
 	var tun io.Closer
-	if t.Connect.Mode == config.ModeTunnel {
+	switch {
+	case t.Connect.Mode != config.ModeTunnel:
+	case s.Tunnels != nil:
+		lease, err := s.Tunnels.Acquire(ctx, t)
+		if err != nil {
+			return nil, fmt.Errorf("shared tunnel: %w", err)
+		}
+		addr, tun = lease.Addr, releaser(lease.Release)
+	default:
 		tn, err := tunnel.Open(ctx, cfg, TunnelTarget(t, inst, t.Connect.LocalPort), tunnel.Options{})
 		if err != nil {
 			return nil, fmt.Errorf("integrated tunnel: %w", err)
@@ -112,9 +138,22 @@ func instance(ctx context.Context, t config.Target) (aws.Config, awsx.Instance, 
 	return cfg, inst, nil
 }
 
+// releaser hands a lease back when the pool closes.
+type releaser func()
+
+func (r releaser) Close() error {
+	r()
+	return nil
+}
+
 // OpenTasks opens a session on t for reading its native tasks; close ends it.
 func OpenTasks(ctx context.Context, t config.Target, password string) (mssql.TaskReader, func(), error) {
-	db, err := Open(ctx, t, password)
+	return Sessions{}.OpenTasks(ctx, t, password)
+}
+
+// OpenTasks is the package OpenTasks, with the shared tunnel when there is one.
+func (s Sessions) OpenTasks(ctx context.Context, t config.Target, password string) (mssql.TaskReader, func(), error) {
+	db, err := s.Open(ctx, t, password)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -89,6 +89,8 @@ func TestOpenAPISchemasMatchTheGoTypes(t *testing.T) {
 		"Database":      {mssql.Database{}},
 		"DatabaseList":  {DatabaseList{}},
 		"Overview":      {Overview{}},
+		"TunnelState":   {TunnelState{}},
+		"TunnelList":    {TunnelList{}},
 	}
 	schemas := loadSpec(t).Components.Schemas
 	for name, schema := range schemas {
