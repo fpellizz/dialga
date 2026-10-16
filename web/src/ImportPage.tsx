@@ -853,7 +853,7 @@ function DestinationStep({
               )}
             </div>
             {differential && <p className="hint">{t("import.differential", { db: d.database })}</p>}
-            {databaseExists(existing, d.database) && (
+            {databaseExists(existing, d.database) && !differential && !d.noRecovery && (
               <ReplaceChoice
                 database={d.database}
                 mode={d.replace}

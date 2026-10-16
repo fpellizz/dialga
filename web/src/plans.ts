@@ -19,6 +19,27 @@ export type Operation = "restore" | "export" | "finish" | "cancel" | "drop";
  */
 export type ReplaceMode = "" | "auto" | "swap" | "drop";
 
+/** What a replace did or kept, filling in as its steps succeed (core.ReplaceOutcome). */
+export interface ReplaceOutcomeInfo {
+  strategy: string;
+  /** The old database a swap kept: present once its rename succeeded. */
+  oldDatabase?: string;
+  /** The S3 key of the safety backup: present once it finished. */
+  backupKey?: string;
+}
+
+/** How a restore over an existing database resolved, and the names it uses (ops.Replacement). */
+export interface ReplacePlan {
+  strategy: string;
+  reason?: string;
+  backupFirst?: boolean;
+  stamp?: string;
+  temp?: string;
+  old?: string;
+  backupKey?: string;
+  result?: string;
+}
+
 /** The parameters of an operation (POST .../plans/{operation}). */
 export interface PlanRequest {
   database?: string;
@@ -69,17 +90,8 @@ export interface PlanPreview {
   confirmation?: string;
   digest: string;
   preview: string;
-  /** How a restore over an existing database resolved, and the names it will use. */
-  replace?: {
-    strategy: string;
-    reason?: string;
-    backupFirst?: boolean;
-    stamp?: string;
-    temp?: string;
-    old?: string;
-    backupKey?: string;
-    result?: string;
-  };
+  /** How a restore over an existing database resolved. */
+  replace?: ReplacePlan;
   /** The request with the defaults resolved (the export key): what execute sends back. */
   request: PlanRequest;
 }
@@ -88,8 +100,10 @@ export interface PlanDone {
   ok: boolean;
   error?: string;
   task?: Task;
-  /** A replace: names the old database it kept, or the S3 key of the safety backup. */
+  /** A replace: the text naming the old database it kept, or the S3 key of the safety backup. */
   result?: string;
+  /** The structured outcome of a replace. */
+  replace?: ReplaceOutcomeInfo;
 }
 
 export interface DatabaseInfo {
@@ -263,7 +277,8 @@ export function cleanRequest(request: PlanRequest): PlanRequest {
   if (request.taskId) {
     out.taskId = request.taskId;
   }
-  if (request.replace) {
+  // The engine refuses a replace with a differential or a restore left restoring.
+  if (request.replace && !request.differential && !request.noRecovery) {
     out.replace = request.replace;
     if (request.replace === "drop") {
       out.backupFirst = request.backupFirst !== false;
@@ -361,22 +376,26 @@ function escapeRegExp(text: string): string {
 }
 
 /**
- * What a replace left behind, read from what the run reported (step labels
- * and details, the job result): the old database a swap kept
- * (<db>_old_<ts>) and the safety backup a drop took
- * (<prefix>/<db>_before_replace_<ts>.bak), as an S3 URI when the bucket is known.
+ * What a replace left behind: the old database a swap kept and the safety
+ * backup a drop took (an S3 URI when the bucket is known). The engine's
+ * structured outcome wins; the texts the run reported (step labels and
+ * details, the result line) are the fallback for an older engine, where the
+ * names are <db>_old_<ts> and <prefix>/<db>_before_replace_<ts>.bak.
  */
 export function replaceOutcome(
   database: string,
   texts: readonly (string | undefined)[],
   bucket?: string,
+  structured?: ReplaceOutcomeInfo,
 ): { kept?: string; backup?: string } {
   const db = escapeRegExp(database);
-  const kept = findIn(texts, new RegExp(`${db}_old_[A-Za-z0-9]+`));
-  const found = findIn(
-    texts,
-    new RegExp(`(?:s3://[^/\\s]+/)?[A-Za-z0-9._/+=@-]*${db}_before_replace_[A-Za-z0-9]+\\.bak`),
-  );
+  const kept = structured?.oldDatabase ?? findIn(texts, new RegExp(`${db}_old_[A-Za-z0-9]+`));
+  const found =
+    structured?.backupKey ??
+    findIn(
+      texts,
+      new RegExp(`(?:s3://[^/\\s]+/)?[A-Za-z0-9._/+=@-]*${db}_before_replace_[A-Za-z0-9]+\\.bak`),
+    );
   const key = found?.replace(/^\/+/, "");
   const backup = key && !key.startsWith("s3://") && bucket ? `s3://${bucket}/${key}` : key;
   return { kept, backup };

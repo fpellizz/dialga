@@ -11,6 +11,7 @@ import { ApiError, failure, type StepEvent, type StepStatus, type Task } from ".
 import type { EngineInfo } from "./engine";
 import type { ExportItemRun, ItemState } from "./exportRun";
 import type { JobChecksum } from "./jobs";
+import type { ReplaceOutcomeInfo, ReplacePlan } from "./plans";
 import { createSseParser } from "./sse";
 
 export interface JobItemRequest {
@@ -66,6 +67,7 @@ export interface JobItemPlan {
     risk?: "change" | "destructive";
   }[];
   /** Import: the files to upload, and the ones the plan refuses (with the reason). */
+  replace?: ReplacePlan;
   uploads?: JobUpload[];
   rejected?: { path?: string; key?: string; reason: string }[];
 }
@@ -110,6 +112,7 @@ interface JobItem {
   task?: { id: number; type?: string; lifecycle: Task["lifecycle"]; percent: number };
   taskLeftRunning?: boolean;
   checksum?: JobChecksum;
+  replace?: ReplaceOutcomeInfo;
   error?: string;
   result?: string;
 }
@@ -391,6 +394,9 @@ export function mapJob(job: Job, plan: JobPlan, bucket?: string): ExportItemRun[
           bytesPerSecond: item.transfer.bytesPerSecond,
         };
       }
+    }
+    if (item.replace) {
+      run.replace = item.replace;
     }
     if (item.result) {
       run.result = item.result;

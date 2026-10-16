@@ -18,16 +18,23 @@ const REPLACE_ACTION = {
 } as const;
 
 /** The label of a check, an action or the wait, in the user's language. */
-export function stepLabel(t: Translate, s: StepEvent, request: PlanRequest): string {
+export function stepLabel(
+  t: Translate,
+  s: StepEvent,
+  request: PlanRequest,
+  strategy?: string,
+): string {
   const vars = {
     database: request.database ?? "",
     key: request.key ?? "",
     id: request.taskId ?? "",
   };
-  switch (s.step) {
+  // The steps of a job are prefixed with the database: <db>/restore.
+  const id = s.step.slice(s.step.lastIndexOf("/") + 1);
+  switch (id) {
     case "restore":
-      // A swap restores beside the current database first (engine title).
-      return s.label.includes("(temporary name)")
+      // A swap restores beside the current database first, under a temporary name.
+      return strategy === "swap"
         ? t("planaction.restoreTemp", vars)
         : t("planaction.restore", vars);
     case "backup":
@@ -38,14 +45,14 @@ export function stepLabel(t: Translate, s: StepEvent, request: PlanRequest): str
     case "multi-user":
     case "multi-user-old":
     case "post":
-      return t(REPLACE_ACTION[s.step], vars);
+      return t(REPLACE_ACTION[id], vars);
     case "export":
     case "finish":
     case "cancel":
     case "drop":
-      return t(`planaction.${s.step}`, vars);
+      return t(`planaction.${id}`, vars);
   }
-  const key = planStepKey(s.step);
+  const key = planStepKey(id);
   return key ? t(key) : s.label;
 }
 
@@ -100,7 +107,7 @@ export function PlanPreviewView({
   });
   const asking = showConfirm && !!onConfirmChange && !!preview.confirmation;
   const Heading = title ? "h4" : "h3";
-  const label = (s: StepEvent) => stepLabel(t, s, preview.request);
+  const label = (s: StepEvent) => stepLabel(t, s, preview.request, preview.replace?.strategy);
   const [confirmBefore, confirmAfter] = messages[lang]["plan.confirm.label"].split("{text}");
 
   // The plan asks to retype something: that is what the user does next

@@ -9,7 +9,7 @@
 import { failure, type StepEvent, type Task } from "./api";
 import type { EngineInfo } from "./engine";
 import { localPath } from "./exportPlan";
-import { executePlan, type PlanPreview, s3URI, upsertStep } from "./plans";
+import { executePlan, type PlanPreview, type ReplaceOutcomeInfo, s3URI, upsertStep } from "./plans";
 import { createSseParser } from "./sse";
 
 export type ItemState = "queued" | "running" | "succeeded" | "failed" | "cancelled";
@@ -59,6 +59,8 @@ export interface ExportItemRun {
   note?: string;
   /** What the engine reported at the end of the item (a replace names what it kept there). */
   result?: string;
+  /** What a replace did or kept (the old database, the safety backup). */
+  replace?: ReplaceOutcomeInfo;
   /** The item stopped while its native task was still running. */
   taskLeftRunning?: boolean;
   error?: unknown;

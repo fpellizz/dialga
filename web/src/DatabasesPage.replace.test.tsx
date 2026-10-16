@@ -71,6 +71,7 @@ const SWAP_PREVIEW: PlanPreview = {
     },
   ],
   confirmation: "sales",
+  replace: { strategy: "swap", stamp: "20261016100000", old: OLD },
   request: { database: "sales", key: "import/sales.bak", replace: "swap", stamp: "20261016100000" },
 };
 
@@ -173,7 +174,7 @@ describe("Restore from S3 over an existing database", () => {
       label: "Swap the databases",
       status: "ok",
     });
-    stream.send("done", { ok: true, result: `kept the old database as ${OLD}` });
+    stream.send("done", { ok: true, replace: { strategy: "swap", oldDatabase: OLD } });
     stream.close();
     const outcome = within(await screen.findByRole("region", { name: "Result of the replace" }));
     expect(outcome.getByText(`The previous database was kept as ${OLD}.`)).toBeInTheDocument();
@@ -184,11 +185,23 @@ describe("Restore from S3 over an existing database", () => {
     expect(body(requestsTo(fetch, DROP)[0])).toEqual({ database: OLD });
   });
 
+  it("hides the choice for a differential restore", async () => {
+    serve({});
+    await fillRestore("sales");
+    await screen.findByRole("radiogroup");
+    await userEvent.click(screen.getByRole("checkbox", { name: /^Differential backup/ }));
+    expect(screen.queryByRole("radiogroup")).toBeNull();
+  });
+
   it("names the safety backup a drop took", async () => {
     const stream = sseStream();
     serve({
       [RESTORE]: () =>
-        json({ ...SWAP_PREVIEW, request: { ...SWAP_PREVIEW.request, replace: "drop" } }),
+        json({
+          ...SWAP_PREVIEW,
+          replace: { strategy: "drop" },
+          request: { ...SWAP_PREVIEW.request, replace: "drop" },
+        }),
       [`${RESTORE}/execute`]: () => stream.response,
     });
     await fillRestore("sales");

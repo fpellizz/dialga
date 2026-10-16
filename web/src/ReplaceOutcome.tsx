@@ -1,6 +1,6 @@
 import { Trash2 } from "lucide-react";
 import { useI18n } from "./i18n";
-import { type ReplaceMode, replaceOutcome } from "./plans";
+import { type ReplaceMode, type ReplaceOutcomeInfo, replaceOutcome } from "./plans";
 
 /**
  * What a replace left behind: the old database a swap kept, with the action
@@ -12,18 +12,22 @@ export function ReplaceOutcome({
   mode,
   texts,
   bucket,
+  structured,
   onDropOld,
 }: {
   database: string;
   mode: ReplaceMode;
   texts: readonly (string | undefined)[];
   bucket?: string;
+  /** The engine's outcome; the texts are the fallback of an older engine. */
+  structured?: ReplaceOutcomeInfo;
   /** Drop the kept database: opens its drop plan. */
   onDropOld?: (database: string) => void;
 }) {
   const { t } = useI18n();
-  const { kept, backup } = replaceOutcome(database, texts, bucket);
-  if (!kept && !backup && mode !== "swap") {
+  const { kept, backup } = replaceOutcome(database, texts, bucket, structured);
+  const swap = (structured?.strategy ?? mode) === "swap";
+  if (!kept && !backup && !swap) {
     return null;
   }
   return (
@@ -39,7 +43,7 @@ export function ReplaceOutcome({
           )}
         </div>
       ) : (
-        mode === "swap" && (
+        swap && (
           <div className="banner banner-ok">
             <span className="banner-text">{t("replace.keptUnknown")}</span>
           </div>

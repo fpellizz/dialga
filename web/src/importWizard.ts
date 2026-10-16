@@ -204,7 +204,8 @@ export function importItems(
     if (overwrite) {
       item.overwrite = true;
     }
-    if (destinations[i].replace) {
+    // The engine refuses a replace with a differential or a restore left restoring.
+    if (destinations[i].replace && !isDifferential(b) && !destinations[i].noRecovery) {
       item.replace = destinations[i].replace as "auto" | "swap" | "drop";
       if (item.replace === "drop") {
         item.backupFirst = destinations[i].backupFirst;

@@ -201,6 +201,9 @@ export function PlanDialog({
   // The list of the page, or the pre-flight that refused an existing database.
   const exists =
     fields === "restore" &&
+    // The engine refuses a replace with a differential or a restore left restoring.
+    !params.differential &&
+    !params.noRecovery &&
     (!!params.replace ||
       databaseExists(existing, params.database ?? "") ||
       (!!preview &&
@@ -436,12 +439,14 @@ export function PlanDialog({
           target={target}
           operation={operation}
           request={preview?.request ?? params}
+          strategy={preview?.replace?.strategy}
         />
       )}
       {run?.status === "done" && operation === "restore" && preview?.request.replace && (
         <ReplaceOutcome
           database={database}
           mode={preview.request.replace}
+          structured={run.done?.replace}
           texts={[
             run.done?.result,
             preview.replace?.old,

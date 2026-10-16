@@ -706,7 +706,7 @@ describe("ImportPage", () => {
       const base = snapshot("succeeded", "restore");
       const started = {
         ...base,
-        items: [{ ...base.items[0], result: `kept the old database as ${OLD}` }],
+        items: [{ ...base.items[0], replace: { strategy: "swap", oldDatabase: OLD } }],
       };
       const fetch = mockWithDatabases(
         {

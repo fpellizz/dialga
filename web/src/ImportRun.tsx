@@ -78,6 +78,7 @@ function itemPreview(plan: JobPlan, item: JobItemPlan): Preview {
     ready: item.ready,
     digest: plan.digest,
     preview: "",
+    replace: item.replace,
     request: { database: item.database, key: item.key },
   };
 }
@@ -458,6 +459,7 @@ function DatabaseResult({
           mode={destination.replace}
           texts={[item?.result, ...(item?.steps ?? []).flatMap((s) => [s.label, s.detail])]}
           bucket={bucket}
+          structured={item?.replace}
           onDropOld={onDropOld}
         />
       )}
