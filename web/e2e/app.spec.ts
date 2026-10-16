@@ -16,8 +16,8 @@ test("navigates with the sidebar, the hash and history", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1, name: "Instances" })).toBeVisible();
   await expect(instances).toHaveAttribute("aria-current", "page");
   await expect(page.getByText("engine dev")).toBeVisible();
-  // The coming pages are not links yet.
-  await expect(nav.getByRole("link")).toHaveText(["Instances", "Databases", "Settings"]);
+  // Instances, Databases and Import are pages; the coming ones are not links yet.
+  await expect(nav.getByRole("link")).toHaveText(["Instances", "Databases", "Import", "Settings"]);
 
   await databases.click();
   await expect(page).toHaveURL(/#databases$/);

@@ -45,6 +45,7 @@ const RULES: { test: RegExp; hint: (m: RegExpMatchArray) => Hint }[] = [
     hint: () => ({ key: "hint.tunnel" }),
   },
   { test: /DBInstanceNotFound|instance not found/i, hint: () => ({ key: "hint.instance" }) },
+  { test: /database not found on the instance/, hint: () => ({ key: "hint.database" }) },
   { test: /bucket is in another region/, hint: () => ({ key: "hint.bucketRegion" }) },
   { test: /bucket not found|NoSuchBucket/, hint: () => ({ key: "hint.bucket" }) },
   {

@@ -111,4 +111,27 @@ describe("PrerequisitesCard", () => {
     expect(screen.getByRole("button", { name: "Check again" })).toBeDisabled();
     expect(fetch).not.toHaveBeenCalled();
   });
+
+  it("says why a program on the PATH cannot be used", async () => {
+    mockFetch({
+      [PREREQS]: () =>
+        json({
+          prerequisites: [
+            {
+              ...RUNTIME_MISSING,
+              program: "docker",
+              path: "/usr/bin/docker",
+              error: "docker info: cannot connect to the Docker daemon",
+            },
+          ],
+        }),
+    });
+    renderI18n(<PrerequisitesCard engine={ENGINE} />);
+    await screen.findByText("Container runtime");
+    expect(
+      within(item("Container runtime")).getByText(
+        "docker info: cannot connect to the Docker daemon",
+      ),
+    ).toBeInTheDocument();
+  });
 });

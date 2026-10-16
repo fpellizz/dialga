@@ -10,9 +10,10 @@ import {
 } from "react";
 import { isActive, type Task } from "./api";
 import type { EngineInfo } from "./engine";
+import { ErrorBanner } from "./Feedback";
 import { useI18n } from "./i18n";
 import { Modal } from "./Modal";
-import { ErrorBanner, PlanPreviewView } from "./PlanPreview";
+import { PlanPreviewView } from "./PlanPreview";
 import { PlanAnnouncer, PlanRunView, usePlanRun } from "./PlanRun";
 import {
   canExecute,
@@ -21,6 +22,7 @@ import {
   type Operation,
   type PlanPreview,
   type PlanRequest,
+  planHint,
   previewPlan,
   sameRequest,
 } from "./plans";
@@ -359,7 +361,9 @@ export function PlanDialog({
           <span>{t("plan.previewing")}</span>
         </div>
       )}
-      {previewError !== null && !loading && <ErrorBanner error={previewError} />}
+      {previewError !== null && !loading && (
+        <ErrorBanner error={previewError} fallback={planHint(previewError)} />
+      )}
 
       {preview && !run && !loading && (
         <>
@@ -374,7 +378,9 @@ export function PlanDialog({
             onConfirmChange={setTyped}
             onSubmit={() => void execute()}
           />
-          {executeError !== null && <ErrorBanner error={executeError} />}
+          {executeError !== null && (
+            <ErrorBanner error={executeError} fallback={planHint(executeError)} />
+          )}
         </>
       )}
 

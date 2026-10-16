@@ -3,6 +3,7 @@ package discover
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -12,6 +13,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
+
+	"github.com/decisyon/dialga/engine/internal/inspect"
+	"github.com/decisyon/dialga/engine/internal/tunnel"
 )
 
 const sharedConfig = `# comment
@@ -180,144 +184,80 @@ func TestSQLServerInstancesOptionError(t *testing.T) {
 	}
 }
 
-func TestPrerequisites(t *testing.T) {
-	programs := Programs{
-		LookPath: func(file string) (string, error) {
-			if file == "docker" || file == "session-manager-plugin" {
-				return "/usr/bin/" + file, nil
-			}
-			return "", errors.New("not found")
-		},
-		Output: func(_ context.Context, path string, _ ...string) ([]byte, error) {
-			if strings.HasSuffix(path, "docker") {
-				return []byte("Docker version 28.3.1, build 38b7060\n"), nil
-			}
-			return nil, errors.New("exit status 1")
-		},
+// lookups fakes tunnel.PluginInfo and inspect.DetectRuntime.
+func lookups(pluginPath, pluginVersion string, pluginErr error, rt inspect.Runtime, rtErr error, env map[string]string) Programs {
+	return Programs{
+		Plugin:  func(context.Context) (string, string, error) { return pluginPath, pluginVersion, pluginErr },
+		Runtime: func(context.Context) (inspect.Runtime, error) { return rt, rtErr },
+		Getenv:  func(k string) string { return env[k] },
 	}
-	got := programs.Prerequisites(context.Background())
-	if len(got) != 2 {
-		t.Fatalf("got %+v", got)
-	}
-	plugin, runtime := got[0], got[1]
-	if plugin.ID != PrereqSSMPlugin || !plugin.Found || plugin.Version != "" || plugin.Path != "/usr/bin/session-manager-plugin" {
+}
+
+func TestPrerequisitesFound(t *testing.T) {
+	got := lookups("/usr/local/sessionmanagerplugin/bin/session-manager-plugin", "1.2.707.0", nil,
+		inspect.Runtime{Name: "docker", Path: "/usr/bin/docker", Version: "28.3.1"}, nil, nil).Prerequisites(context.Background())
+	plugin, containers := got[0], got[1]
+	if plugin.ID != PrereqSSMPlugin || !plugin.Found || plugin.Outdated || plugin.Version != "1.2.707.0" ||
+		plugin.Path != "/usr/local/sessionmanagerplugin/bin/session-manager-plugin" || plugin.Error != "" {
 		t.Fatalf("plugin %+v", plugin)
 	}
-	if runtime.ID != PrereqContainerRuntime || runtime.Program != "docker" || runtime.Version != "28.3.1" {
-		t.Fatalf("runtime %+v", runtime)
+	if containers.ID != PrereqContainerRuntime || !containers.Found || containers.Program != "docker" || containers.Version != "28.3.1" {
+		t.Fatalf("runtime %+v", containers)
 	}
 	if len(plugin.Install) != 2 || plugin.Install[0].Distro != "fedora" || !strings.Contains(plugin.Install[0].Command, "dnf") {
 		t.Fatalf("install hints %+v", plugin.Install)
 	}
-
-	none := Programs{
-		LookPath: func(string) (string, error) { return "", errors.New("not found") },
-		Output: func(context.Context, string, ...string) ([]byte, error) {
-			t.Fatal("ran a missing program")
-			return nil, nil
-		},
-	}
-	for _, pr := range none.Prerequisites(context.Background()) {
-		if pr.Found || pr.Path != "" || len(pr.Install) != 2 {
-			t.Fatalf("missing: %+v", pr)
-		}
-	}
-	if missing := none.Prerequisites(context.Background())[1]; missing.Program != "podman" {
-		t.Fatalf("a missing runtime suggests podman: %+v", missing)
-	}
 }
 
-func TestParseVersion(t *testing.T) {
-	for in, want := range map[string]string{
-		"1.2.707.0\n":                          "1.2.707.0",
-		"podman version 5.6.2":                 "5.6.2",
-		"Docker version 28.3.1, build 38b7060": "28.3.1",
-		"no version here":                      "",
-		"":                                     "",
-	} {
-		if got := parseVersion(in); got != want {
-			t.Errorf("parseVersion(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-// programsAt finds the given files (names or absolute paths), each telling
-// the given version.
-func programsAt(files map[string]string, env map[string]string) Programs {
-	return Programs{
-		LookPath: func(file string) (string, error) {
-			if _, ok := files[file]; ok {
-				if strings.HasPrefix(file, "/") {
-					return file, nil
-				}
-				return "/usr/bin/" + file, nil
-			}
-			return "", errors.New("not found")
-		},
-		Output: func(_ context.Context, path string, _ ...string) ([]byte, error) {
-			for file, version := range files {
-				if path == file || path == "/usr/bin/"+file {
-					return []byte(version + "\n"), nil
-				}
-			}
-			return nil, errors.New("exit status 1")
-		},
-		Getenv: func(k string) string { return env[k] },
-		GOOS:   "linux",
-	}
-}
-
-func TestPluginFallbackPathsAndAge(t *testing.T) {
+func TestPrerequisitesPluginStates(t *testing.T) {
+	missing := fmt.Errorf("%w on PATH: install it", tunnel.ErrPluginMissing)
 	tests := []struct {
-		name         string
-		files        map[string]string
-		wantPath     string
-		wantOutdated bool
+		name                      string
+		path, version             string
+		err                       error
+		found, outdated, hasError bool
 	}{
-		{"in PATH, recent", map[string]string{"session-manager-plugin": "1.2.707.0"}, "/usr/bin/session-manager-plugin", false},
-		{"installer path only", map[string]string{"/usr/local/sessionmanagerplugin/bin/session-manager-plugin": "1.2.498.0"},
-			"/usr/local/sessionmanagerplugin/bin/session-manager-plugin", false},
-		{"too old for the integrated tunnel", map[string]string{"session-manager-plugin": "1.2.497.0"}, "/usr/bin/session-manager-plugin", true},
-		{"no version: not judged", map[string]string{"session-manager-plugin": ""}, "/usr/bin/session-manager-plugin", false},
+		{"too old for the integrated tunnel", "/usr/bin/session-manager-plugin", "1.2.497.0", nil, true, true, false},
+		{"no version: found, not judged", "/usr/bin/session-manager-plugin", "", errors.New("exit status 1"), true, false, false},
+		{"missing", "", "", missing, false, false, false},
+		{"lookup failed otherwise", "", "", errors.New("permission denied"), false, false, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			plugin := programsAt(tc.files, nil).Prerequisites(context.Background())[0]
-			if !plugin.Found || plugin.Path != tc.wantPath || plugin.Outdated != tc.wantOutdated || plugin.Program != "session-manager-plugin" {
+			plugin := lookups(tc.path, tc.version, tc.err, inspect.Runtime{}, errors.New("none"), nil).
+				Prerequisites(context.Background())[0]
+			if plugin.Found != tc.found || plugin.Outdated != tc.outdated || (plugin.Error != "") != tc.hasError {
 				t.Fatalf("plugin %+v", plugin)
 			}
 		})
 	}
 }
 
-func TestContainerRuntimeOverride(t *testing.T) {
-	both := map[string]string{"podman": "podman version 5.8.4", "docker": "Docker version 28.3.1, build x"}
-	if got := programsAt(both, nil).Prerequisites(context.Background())[1]; got.Program != "podman" {
-		t.Fatalf("default: %+v", got)
-	}
-	forced := map[string]string{EnvContainerRuntime: "docker"}
-	if got := programsAt(both, forced).Prerequisites(context.Background())[1]; got.Program != "docker" || got.Version != "28.3.1" {
-		t.Fatalf("forced docker: %+v", got)
-	}
-	onlyPodman := map[string]string{"podman": "podman version 5.8.4"}
-	if got := programsAt(onlyPodman, forced).Prerequisites(context.Background())[1]; got.Found || got.Program != "docker" {
-		t.Fatalf("forced docker, missing: %+v", got)
-	}
-}
-
-func TestCompareVersions(t *testing.T) {
-	for _, tc := range []struct {
-		a, b string
-		want int
+func TestPrerequisitesRuntimeStates(t *testing.T) {
+	plugin := "/usr/bin/session-manager-plugin"
+	tests := []struct {
+		name    string
+		rt      inspect.Runtime
+		err     error
+		env     map[string]string
+		want    Prerequisite
+		wantErr string
 	}{
-		{"1.2.497.0", "1.2.497.0", 0},
-		{"1.2.498.0", "1.2.497.0", 1},
-		{"1.2.50.0", "1.2.497.0", -1},
-		{"1.3", "1.2.497.0", 1},
-		{"1.2.497", "1.2.497.0", 0},
-	} {
-		if got := compareVersions(tc.a, tc.b); got != tc.want {
-			t.Errorf("compareVersions(%s, %s) = %d, want %d", tc.a, tc.b, got, tc.want)
-		}
+		{"none installed: podman suggested", inspect.Runtime{}, errors.New("no container runtime"), nil,
+			Prerequisite{Program: "podman"}, ""},
+		{"docker daemon down", inspect.Runtime{Name: "docker", Path: "/usr/bin/docker"}, errors.New("docker info: cannot connect"), nil,
+			Prerequisite{Program: "docker", Path: "/usr/bin/docker"}, "docker info: cannot connect"},
+		{"forced and missing", inspect.Runtime{}, errors.New("not installed"), map[string]string{inspect.EnvRuntime: "docker"},
+			Prerequisite{Program: "docker"}, ""},
+		{"forced to something else", inspect.Runtime{}, errors.New("must be podman or docker"), map[string]string{inspect.EnvRuntime: "lxc"},
+			Prerequisite{Program: "podman"}, "must be podman or docker"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := lookups(plugin, "1.2.707.0", nil, tc.rt, tc.err, tc.env).Prerequisites(context.Background())[1]
+			if got.Found || got.Program != tc.want.Program || got.Path != tc.want.Path || got.Error != tc.wantErr || len(got.Install) != 2 {
+				t.Fatalf("runtime %+v", got)
+			}
+		})
 	}
 }

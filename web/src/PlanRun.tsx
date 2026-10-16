@@ -1,17 +1,18 @@
 import { TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { errorText, isActive, type StepEvent, type Task } from "./api";
+import { ApiError, isActive, type StepEvent, type Task } from "./api";
 import type { EngineInfo } from "./engine";
+import { ErrorBanner } from "./Feedback";
 import { type Translate, useI18n } from "./i18n";
 import { stepLabel } from "./PlanPreview";
 import {
   type ExecuteRequest,
   executePlan,
-  HttpError,
   type Operation,
   type PlanDone,
   type PlanPreview,
   type PlanRequest,
+  planHint,
   s3URI,
   upsertStep,
 } from "./plans";
@@ -70,7 +71,7 @@ export function usePlanRun(engine: EngineInfo, target: string, operation: Operat
   useEffect(() => () => inFlight.current?.abort(), []);
 
   const execute = useCallback(
-    async (preview: PlanPreview, confirm: string): Promise<{ refused?: HttpError }> => {
+    async (preview: PlanPreview, confirm: string): Promise<{ refused?: ApiError }> => {
       inFlight.current?.abort();
       const controller = new AbortController();
       inFlight.current = controller;
@@ -119,7 +120,7 @@ export function usePlanRun(engine: EngineInfo, target: string, operation: Operat
         if (controller.signal.aborted) {
           return {};
         }
-        if (e instanceof HttpError) {
+        if (e instanceof ApiError) {
           setRun(null);
           return { refused: e };
         }
@@ -185,18 +186,18 @@ export function PlanRunView({
 
 function RunFailure({ run }: { run: PlanRunState }) {
   const { t } = useI18n();
-  let text: string;
+  // The call failed (refused, or the stream broke): the engine's message, then what to do.
   if (run.error !== undefined) {
-    text = errorText(run.error);
-  } else if (run.done?.task && run.done.task.lifecycle !== "SUCCESS" && !run.done.error) {
-    text = t("plan.failed.task", { lifecycle: t(`lifecycle.${run.done.task.lifecycle}`) });
-  } else {
-    text = t("plan.failed.step", { error: run.done?.error ?? "" });
+    return <ErrorBanner error={run.error} fallback={planHint(run.error)} />;
   }
+  const task = run.done?.task;
+  const text =
+    task && task.lifecycle !== "SUCCESS" && !run.done?.error
+      ? t("plan.failed.task", { lifecycle: t(`lifecycle.${task.lifecycle}`) })
+      : t("plan.failed.step", { error: run.done?.error ?? "" });
   return (
     <div className="banner banner-fail" role="alert">
       <span className="banner-text">{text}</span>
-      {run.error !== undefined && <span className="banner-hint">{t("plan.hint.network")}</span>}
     </div>
   );
 }

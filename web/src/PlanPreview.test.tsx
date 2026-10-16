@@ -28,14 +28,14 @@ describe("PlanPreviewView", () => {
         preview={BEFORE_UPLOAD}
         confirm=""
         onConfirmChange={() => {}}
-        pending={{ source: "plan.pending.upload" }}
+        pending={{ source: "Uploaded by the next step" }}
       />,
     );
     const source = screen.getByText("Backup in S3").closest("li") as HTMLElement;
     expect(within(source).getByText("Uploaded by the next step")).toBeInTheDocument();
     expect(within(source).getByText("Skipped")).toHaveClass("badge-skipped");
     expect(screen.queryByText(/the plan cannot run/)).toBeNull();
-    expect(readyWith(BEFORE_UPLOAD, { source: "plan.pending.upload" })).toBe(true);
+    expect(readyWith(BEFORE_UPLOAD, { source: "Uploaded by the next step" })).toBe(true);
     expect(readyWith(BEFORE_UPLOAD)).toBe(false);
     expect(readyWith(RESTORE_PREVIEW)).toBe(true);
   });

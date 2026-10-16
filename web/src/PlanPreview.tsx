@@ -1,12 +1,12 @@
 import { ShieldAlert } from "lucide-react";
 import { useId, useLayoutEffect, useRef } from "react";
-import { errorText, type StepEvent } from "./api";
-import { type MessageKey, messages, type Translate, useI18n } from "./i18n";
-import { errorHint, isDestructive, type PlanPreview, type PlanRequest, planStepKey } from "./plans";
+import type { StepEvent } from "./api";
+import { messages, type Translate, useI18n } from "./i18n";
+import { isDestructive, type PlanPreview, type PlanRequest, planStepKey } from "./plans";
 import { StepList } from "./StepList";
 
-/** Failed checks the caller expects (the backup is uploaded later): step id → message. */
-export type PendingChecks = Partial<Record<string, MessageKey>>;
+/** Failed checks the caller expects (the backup is uploaded later): step id → why, translated. */
+export type PendingChecks = Partial<Record<string, string>>;
 
 /** The label of a check, an action or the wait, in the user's language. */
 export function stepLabel(t: Translate, s: StepEvent, request: PlanRequest): string {
@@ -41,19 +41,25 @@ export function readyWith(preview: PlanPreview, pending: PendingChecks = {}): bo
  */
 export function PlanPreviewView({
   preview,
-  confirm,
+  title,
+  confirm = "",
   onConfirmChange,
   onSubmit,
+  showConfirm = true,
   pending = {},
   autoFocus = true,
 }: {
   preview: PlanPreview;
+  /** A heading above the plan (the wizard shows several); the sections go one level down. */
+  title?: string;
   /** The text typed in the confirmation field. */
-  confirm: string;
-  onConfirmChange: (text: string) => void;
+  confirm?: string;
+  onConfirmChange?: (text: string) => void;
   /** Enter in the confirmation field. */
   onSubmit?: () => void;
-  /** Failed checks shown as expected (skipped, with this message) instead of failed. */
+  /** false: the caller asks for the confirmation itself (once for several plans). */
+  showConfirm?: boolean;
+  /** Failed checks shown as expected (skipped, with this text) instead of failed. */
   pending?: PendingChecks;
   /** Focus the confirmation field when the preview arrives (default true). */
   autoFocus?: boolean;
@@ -65,22 +71,28 @@ export function PlanPreviewView({
   const destructive = isDestructive(preview.plan);
   const database = preview.request.database ?? "";
   const checks = preview.checks.map((c) => {
-    const key = pending[c.step];
-    return c.status === "failed" && key ? { ...c, status: "skipped" as const, detail: t(key) } : c;
+    const why = pending[c.step];
+    return c.status === "failed" && why !== undefined
+      ? { ...c, status: "skipped" as const, detail: why }
+      : c;
   });
+  const asking = showConfirm && !!onConfirmChange && !!preview.confirmation;
+  const Heading = title ? "h4" : "h3";
   const label = (s: StepEvent) => stepLabel(t, s, preview.request);
   const [confirmBefore, confirmAfter] = messages[lang]["plan.confirm.label"].split("{text}");
 
   // The plan asks to retype something: that is what the user does next
   // (in the commit itself, so the focus never lands elsewhere first).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new preview (after a 412) asks again.
   useLayoutEffect(() => {
-    if (autoFocus && preview.confirmation) {
+    if (autoFocus && asking) {
       input.current?.focus();
     }
-  }, [preview, autoFocus]);
+  }, [preview, autoFocus, asking]);
 
   return (
     <>
+      {title && <h3 className="plan-title">{title}</h3>}
       {preview.plan.protected && (
         <div className="banner banner-warn">
           <ShieldAlert size={16} aria-hidden="true" />
@@ -91,9 +103,9 @@ export function PlanPreviewView({
         </div>
       )}
       <section aria-labelledby={`${ids}-checks`}>
-        <h3 id={`${ids}-checks`} className="plan-heading">
+        <Heading id={`${ids}-checks`} className="plan-heading">
           {t("plan.checks")}
-        </h3>
+        </Heading>
         <StepList steps={checks} label={label} />
       </section>
       {!ready && (
@@ -102,9 +114,9 @@ export function PlanPreviewView({
         </div>
       )}
       <section aria-labelledby={`${ids}-actions`}>
-        <h3 id={`${ids}-actions`} className="plan-heading">
+        <Heading id={`${ids}-actions`} className="plan-heading">
           {t("plan.actions")}
-        </h3>
+        </Heading>
         <ol className="plan-actions">
           {preview.plan.actions.map((a) => (
             <li key={a.id} className="plan-action">
@@ -124,7 +136,7 @@ export function PlanPreviewView({
           ))}
         </ol>
       </section>
-      {preview.confirmation && ready && (
+      {asking && ready && (
         <div className="plan-confirm">
           {destructive && !preview.plan.protected && (
             <p id={`${ids}-warning`} className="plan-warning">
@@ -147,7 +159,7 @@ export function PlanPreviewView({
               value={confirm}
               autoComplete="off"
               spellCheck={false}
-              onChange={(e) => onConfirmChange(e.currentTarget.value)}
+              onChange={(e) => onConfirmChange?.(e.currentTarget.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && onSubmit) {
                   e.preventDefault();
@@ -159,17 +171,5 @@ export function PlanPreviewView({
         </div>
       )}
     </>
-  );
-}
-
-/** An engine error with what to do about it, by HTTP status. */
-export function ErrorBanner({ error }: { error: unknown }) {
-  const { t } = useI18n();
-  const hint = errorHint(error);
-  return (
-    <div className="banner banner-fail" role="alert">
-      <span className="banner-text">{errorText(error)}</span>
-      {hint && <span className="banner-hint">{t(hint)}</span>}
-    </div>
   );
 }

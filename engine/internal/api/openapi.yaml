@@ -832,7 +832,7 @@ components:
     TargetSummary:
       type: object
       description: A configured target as the GUI sees it; no password reference.
-      required: [name, instance, region, profile, accountId, bucket, sqlUser, connectMode, protected]
+      required: [name, instance, region, profile, accountId, bucket, sqlUser, connectMode, protected, importPrefix, exportPrefix]
       properties:
         name: { type: string }
         instance: { type: string, description: RDS DB instance identifier. }
@@ -844,6 +844,8 @@ components:
         connectMode: { type: string, enum: [external, direct, tunnel] }
         localPort: { type: integer, description: "Port of the open tunnel (external mode), or of the integrated one (tunnel mode; absent: a free port)." }
         protected: { type: boolean, description: Every change asks to retype the target name. }
+        importPrefix: { type: string, description: S3 key prefix of the uploads to restore (default import). }
+        exportPrefix: { type: string, description: S3 key prefix of the exports (default export). }
     TargetList:
       type: object
       required: [configPath, targets]
@@ -1196,6 +1198,9 @@ components:
         outdated:
           type: boolean
           description: Found but too old (a Session Manager plugin not newer than 1.2.497.0 cannot run the integrated tunnel).
+        error:
+          type: string
+          description: Why the program cannot be used although it may be there (for example a docker daemon that does not answer).
         purpose: { type: string, description: What needs it (English; the GUI translates known ids). }
         install:
           type: array

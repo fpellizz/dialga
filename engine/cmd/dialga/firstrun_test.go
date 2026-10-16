@@ -366,3 +366,13 @@ func TestDoctorOutdatedPlugin(t *testing.T) {
 		t.Fatalf("tunnel target: code %d, out:\n%s", code, out)
 	}
 }
+
+func TestDoctorUnusableRuntime(t *testing.T) {
+	a, fake := firstRunApp(t, testConfig)
+	fake.prereqs[1] = discover.Prerequisite{ID: discover.PrereqContainerRuntime, Program: "docker", Path: "/usr/bin/docker",
+		Error: "docker info: cannot connect to the daemon", Purpose: "inspecting .bak files"}
+	code, out, _ := run(a, "doctor")
+	if code != 0 || !strings.Contains(out, "WARN  Container runtime          not usable: docker info: cannot connect to the daemon") {
+		t.Fatalf("code %d, out:\n%s", code, out)
+	}
+}

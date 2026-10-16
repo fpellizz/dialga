@@ -5,17 +5,17 @@ import type { EngineInfo } from "./engine";
 import { type MessageKey, useI18n } from "./i18n";
 import { TunnelSummary } from "./TunnelIndicator";
 
-export type Page = "instances" | "databases" | "settings";
+export type Page = "instances" | "databases" | "import" | "settings";
 
 /** The window title of each page: "Databases · Dialga". */
 const PAGE_TITLE: Record<Page, MessageKey> = {
   instances: "nav.instances",
   databases: "nav.databases",
+  import: "nav.import",
   settings: "nav.settings",
 };
 
 const SOON: { icon: typeof Upload; key: MessageKey }[] = [
-  { icon: Upload, key: "nav.import" },
   { icon: Download, key: "nav.export" },
   { icon: Activity, key: "nav.activity" },
 ];
@@ -72,6 +72,10 @@ export function Sidebar({
         <a href="#databases" className="nav-link" aria-current={current("databases")}>
           <Database size={16} className="nav-icon" aria-hidden="true" />
           {t("nav.databases")}
+        </a>
+        <a href="#import" className="nav-link" aria-current={current("import")}>
+          <Upload size={16} className="nav-icon" aria-hidden="true" />
+          {t("nav.import")}
         </a>
         {SOON.map(({ icon: Icon, key }) => (
           <span key={key} className="nav-link nav-disabled" aria-disabled="true">

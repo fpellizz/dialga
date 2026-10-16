@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { errorText } from "./api";
 import { DatabasesPage } from "./DatabasesPage";
 import { type EngineInfo, getEngineInfo } from "./engine";
+import { ImportPage } from "./ImportPage";
 import { InstancesPage } from "./InstancesPage";
 import { I18nProvider } from "./i18n";
 import { SettingsPage } from "./SettingsPage";
@@ -17,6 +18,10 @@ function pageFromHash(): Page {
   // #databases/<target> opens the screen on that target.
   if (hash === "#databases" || hash.startsWith("#databases/")) {
     return "databases";
+  }
+  // #import/<target> opens the wizard on that target.
+  if (hash === "#import" || hash.startsWith("#import/")) {
+    return "import";
   }
   return "instances";
 }
@@ -70,6 +75,7 @@ export function App() {
             )}
             {page === "databases" && <DatabasesPage engine={engine} engineError={engineError} />}
             {page === "instances" && <InstancesPage engine={engine} engineError={engineError} />}
+            {page === "import" && <ImportPage engine={engine} engineError={engineError} />}
           </main>
         </div>
       </TunnelsProvider>

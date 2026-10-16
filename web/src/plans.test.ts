@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "./api";
 import {
   canExecute,
   cleanRequest,
-  errorHint,
   executePlan,
   getDatabaseReport,
-  HttpError,
+  planHint,
   planStepKey,
   previewPlan,
   s3URI,
@@ -38,7 +38,7 @@ describe("plans API", () => {
   it("keeps the HTTP status of an engine error", async () => {
     mockFetch({ [PREVIEW]: () => text("SQL password: not set\n", 422) });
     const error = await previewPlan(ENGINE, "dev-sql", "drop", {}).catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(HttpError);
+    expect(error).toBeInstanceOf(ApiError);
     expect(error).toMatchObject({ status: 422, message: "SQL password: not set" });
   });
 
@@ -113,14 +113,16 @@ describe("plan helpers", () => {
     expect(sameRequest({ database: "sales" }, { database: "sales", noRecovery: true })).toBe(false);
   });
 
-  it("gives a hint for every engine refusal", () => {
-    expect(errorHint(new HttpError(400, ""))).toBe("plan.hint.400");
-    expect(errorHint(new HttpError(409, ""))).toBe("plan.hint.config");
-    expect(errorHint(new HttpError(412, ""))).toBe("plan.hint.412");
-    expect(errorHint(new HttpError(422, ""))).toBe("plan.hint.422");
-    expect(errorHint(new HttpError(502, ""))).toBe("plan.hint.502");
-    expect(errorHint(new HttpError(500, ""))).toBeUndefined();
-    expect(errorHint(new TypeError("Failed to fetch"))).toBe("plan.hint.network");
+  it("gives a hint for the refusals of a plan, after those of the message", () => {
+    expect(planHint(new ApiError(400, ""))).toEqual({ key: "plan.hint.400" });
+    expect(planHint(new ApiError(412, ""))).toEqual({ key: "plan.hint.412" });
+    expect(planHint(new ApiError(422, ""))).toEqual({ key: "plan.hint.422" });
+    expect(planHint(new ApiError(502, ""))).toEqual({ key: "plan.hint.502" });
+    // 404 and 409 are hints.ts's (unknown target, configuration).
+    expect(planHint(new ApiError(409, ""))).toBeUndefined();
+    expect(planHint(new ApiError(500, ""))).toBeUndefined();
+    expect(planHint(new TypeError("Failed to fetch"))).toEqual({ key: "plan.hint.network" });
+    expect(planHint("not an error")).toBeUndefined();
   });
 
   it("maps step ids, ARNs and step updates", () => {
