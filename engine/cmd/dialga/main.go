@@ -48,6 +48,7 @@ type app struct {
 	readPassword     func(prompt string) (string, error)
 	runCheck         func(context.Context, check.Request, string, check.Emitter) bool
 	openTasks        func(context.Context, config.Target, string) (mssql.TaskReader, func(), error)
+	openDatabases    func(context.Context, config.Target, string) (mssql.DatabaseReader, func(), error)
 }
 
 func main() {
@@ -58,6 +59,7 @@ func main() {
 		readPassword:     readPasswordFromTerminal,
 		runCheck:         check.Run,
 		openTasks:        session.OpenTasks,
+		openDatabases:    session.OpenDatabases,
 	}
 	os.Exit(a.execute(os.Args[1:], os.Stdout, os.Stderr))
 }

@@ -124,6 +124,61 @@ paths:
           content:
             text/plain:
               schema: { type: string }
+  /api/v1/targets/{name}/databases:
+    get:
+      summary: The user databases of a target, by name
+      description: |
+        sys.databases without the system databases and rdsadmin, with the size
+        of the data and log files from sys.master_files. Each call opens its
+        own SQL session.
+      parameters:
+        - $ref: "#/components/parameters/TargetName"
+      responses:
+        "200":
+          description: The databases.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DatabaseList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "422":
+          description: No SQL password in the engine environment, or connect.mode tunnel.
+          content:
+            text/plain:
+              schema: { type: string }
+        "502":
+          description: AWS or SQL Server did not answer (credentials, tunnel, login).
+          content:
+            text/plain:
+              schema: { type: string }
+  /api/v1/targets/{name}/overview:
+    get:
+      summary: The state of a target's RDS instance
+      description: |
+        The instance as AWS describes it (status, engine, class, storage, free
+        space from CloudWatch) and, when a SQL session opens, its user
+        databases and unfinished native tasks. The AWS part needs no SQL
+        password: without one (or with connect.mode tunnel) sql is "skipped",
+        and a SQL failure comes back as sql "failed", both with sqlDetail.
+      parameters:
+        - $ref: "#/components/parameters/TargetName"
+      responses:
+        "200":
+          description: The overview, possibly without the SQL part.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Overview" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "502":
+          description: AWS did not answer (credentials, account, instance).
+          content:
+            text/plain:
+              schema: { type: string }
 components:
   securitySchemes:
     bearer:
@@ -234,3 +289,52 @@ components:
         tasks:
           type: array
           items: { $ref: "#/components/schemas/Task" }
+    Database:
+      type: object
+      description: |
+        A user database (sys.databases). Sizes are in MiB, from
+        sys.master_files: 0 when the login cannot read it.
+      required: [name, state, recovery, compatibility, userAccess, readOnly, createdAt, dataMB, logMB]
+      properties:
+        name: { type: string }
+        state:
+          type: string
+          examples: [ONLINE, RESTORING, RECOVERING, RECOVERY_PENDING, SUSPECT, EMERGENCY, OFFLINE]
+        recovery: { type: string, examples: [FULL, SIMPLE, BULK_LOGGED] }
+        compatibility: { type: integer, examples: [140] }
+        collation: { type: string, description: Absent while the database is offline. }
+        owner: { type: string, description: Login of the owner SID; absent when no login has it. }
+        userAccess: { type: string, examples: [MULTI_USER, SINGLE_USER, RESTRICTED_USER] }
+        readOnly: { type: boolean }
+        createdAt: { type: string, description: "Server wall clock without a zone: 2006-01-02T15:04:05." }
+        dataMB: { type: number, description: Data files (rows, filestream, full-text). }
+        logMB: { type: number, description: Log files. }
+    DatabaseList:
+      type: object
+      required: [databases]
+      properties:
+        databases:
+          type: array
+          items: { $ref: "#/components/schemas/Database" }
+    Overview:
+      type: object
+      description: The RDS instance of a target and, when a SQL session opens, its usage.
+      required: [target, instance, status, engine, engineVersion, class, allocatedGiB, sql]
+      properties:
+        target: { type: string }
+        instance: { type: string, description: RDS DB instance identifier. }
+        status: { type: string, examples: [available, modifying, stopped] }
+        engine: { type: string, examples: [sqlserver-se] }
+        engineVersion: { type: string, examples: [14.00.3465.1.v1] }
+        class: { type: string, examples: [db.m6i.large] }
+        allocatedGiB: { type: integer }
+        maxAllocatedGiB: { type: integer, description: Storage autoscaling limit; absent without autoscaling. }
+        freeBytes: { type: integer, description: Free storage from CloudWatch (lowest of the last 20 minutes). }
+        freeError: { type: string, description: Why freeBytes is missing. }
+        sql:
+          type: string
+          enum: [ok, skipped, failed]
+          description: skipped without a SQL password or with connect.mode tunnel.
+        sqlDetail: { type: string, description: Why the SQL part is skipped or failed. }
+        userDatabases: { type: integer, description: Present when sql is ok. }
+        activeTasks: { type: integer, description: Native tasks queued, running or being cancelled; present when sql is ok. }
