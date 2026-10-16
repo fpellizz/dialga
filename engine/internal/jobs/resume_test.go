@@ -38,7 +38,7 @@ type uploadParams struct {
 }
 
 // interruptedJournal runs a job until it is mid-way and closes the engine:
-//   - done: upload and restore succeeded;
+//   - done: upload and post succeeded;
 //   - bad: its upload failed;
 //   - sales: interrupted mid-upload, with the multipart upload recorded;
 //   - hr: upload and restore done (task 42 queued), interrupted mid-wait;
@@ -63,7 +63,9 @@ func interruptedJournal(t *testing.T) (string, string) {
 		}
 	}
 	job := start(t, m, Spec{Kind: Import, Target: "dev", Instance: "db1", MaxTasks: 2, Items: []ItemSpec{
-		{Name: "done", Steps: []Step{up("done", quick("uploaded")), restore(quick("task 1 created"))}},
+		// No RDS step: hr and crm take both task slots and keep them.
+		{Name: "done", Steps: []Step{up("done", quick("uploaded")),
+			WithKind(NewStep("post", "Post", NoResource, quick("checked")), "post", nil)}},
 		{Name: "bad", Steps: []Step{up("bad", func(context.Context, Reporter) (string, error) { return "", errors.New("Access Denied") }), restore(quick(""))}},
 		{Name: "sales", Steps: []Step{
 			up("sales", blocking("upload", ResourceTransfer, func(r Reporter) {
