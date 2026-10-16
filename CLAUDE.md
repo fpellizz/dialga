@@ -257,6 +257,15 @@ Su richiesta dell'utente ("che sto attrezzo veda la luce il prima possibile", me
 - Web: `BucketField.tsx` (combobox ARIA 1.2 editabile, nome sempre digitabile), usato da Add instance, l'unico punto dove il bucket si modifica; il ruolo del campo è `combobox`, non più `textbox`.
 - IAM: statement facoltativo `OptionalListBuckets` (`s3:ListAllMyBuckets` su `*`, approvato da Fabio il 2026-10-16) in `docs/iam-policy.{json,md}`: elenca solo i nomi e non si può restringere a singoli bucket.
 
+### Attività mostra tutto: GUI (branch `feature/activity-all-gui`, 2026-10-16)
+
+- Il lato engine (journal condiviso, lock per job, operazioni come job, rifiuti registrati, job CLI) è descritto nella sezione dei job sopra.
+- `jobs.ts`: `kind` import|export|operation, `operation`, `origin` app|cli, `refusal {status, reason, checks}` su `Job` e `JobSummary` (nell'elenco senza `checks`); helper `shownState` (refused), `matchesFilter`, `filterCounts`, `recordedRefusal`.
+- Activity: titoli per operazione, badge `CLI`, stato "Rifiutato" distinto da "Fallito", `RefusalPanel` nel dettaglio (solo i check `failed`), chip All/Running/Failed/Refused come radio nativi (`.segmented`) con la scelta in `sessionStorage` (`dialga.activity.filter`), nota "anteprime non registrate". `CancelConfirm` avvisa che con scambio o drop il database può restare a metà.
+- `PlanDialog`/`usePlanRun`: evento SSE `job` e `done.jobId` → "Open in Activity"; mentre gira "It keeps running: follow it in Activity"; "Cancel operation" con conferma in linea (focus su "Keep running", Escape non annulla) e poi `cancelJob`.
+- `ErrorBanner recorded`: "See it in Activity" (`#activity`) per i *Run* rifiutati 412/422/502; per il 428 resta il banner della password.
+- Il report di un database (`GET …/report`) è in sola lettura e non crea job.
+
 ## Contratto di layout atteso dalle pipeline
 
 Ogni job **si salta da solo** finché la sua parte non esiste: `exit 0` in Bitbucket, job `layout`/`meta` su GitHub.
