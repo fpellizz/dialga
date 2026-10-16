@@ -11,6 +11,7 @@ import (
 
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/core"
+	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 )
 
@@ -86,6 +87,16 @@ func TestOpenAPISchemasMatchTheGoTypes(t *testing.T) {
 		"Done":          {Done{}},
 		"Task":          {mssql.Task{}},
 		"TaskList":      {TaskList{}},
+		// Jobs (jobs.go)
+		"JobList":          {JobList{}},
+		"JobSummary":       {jobs.Summary{}},
+		"Job":              {jobs.Job{}},
+		"JobItem":          {jobs.Item{}},
+		"JobStep":          {jobs.StepInfo{}},
+		"JobEvent":         {jobs.Event{}},
+		"TransferProgress": {jobs.TransferProgress{}},
+		"TaskProgress":     {jobs.TaskStatus{}},
+		"MultipartUpload":  {jobs.UploadState{}},
 	}
 	schemas := loadSpec(t).Components.Schemas
 	for name, schema := range schemas {

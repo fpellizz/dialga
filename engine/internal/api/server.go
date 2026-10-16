@@ -34,6 +34,7 @@ import (
 
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/config"
+	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/session"
 	"github.com/decisyon/dialga/engine/internal/validate"
@@ -57,7 +58,10 @@ type Options struct {
 	// OpenTasks opens a session to read the native tasks of a target
 	// (default session.OpenTasks; tests replace it).
 	OpenTasks func(context.Context, config.Target, string) (mssql.TaskReader, func(), error)
-	Log       *slog.Logger
+	// Jobs runs the import/export jobs (default: a manager in memory only;
+	// "dialga serve" passes the one with the journal).
+	Jobs *jobs.Manager
+	Log  *slog.Logger
 }
 
 // Server is the HTTP API of the engine.
@@ -125,6 +129,9 @@ func New(opts Options) (*Server, error) {
 	}
 	if opts.OpenTasks == nil {
 		opts.OpenTasks = session.OpenTasks
+	}
+	if opts.Jobs == nil {
+		opts.Jobs = jobs.New(jobs.Options{Log: opts.Log})
 	}
 	s := &Server{opts: opts, mux: http.NewServeMux()}
 	for _, rt := range s.routes() {
