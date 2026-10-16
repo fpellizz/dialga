@@ -330,6 +330,10 @@ func TestIntegrationGoldenLifecycle(t *testing.T) {
 	// Drop: the wrong text changes nothing, the database name drops it.
 	p, err = s.Drop(ctx, "golden_db")
 	p = mustPlan(t, p, err, "drop.sql")
+	// The NoRecovery and differential tasks of golden_db are still CREATED.
+	if c := p.Checks[1]; c.Step != "tasks" || c.Status != check.Warning || !strings.Contains(c.Detail, "2 native task(s) of golden_db") {
+		t.Fatalf("drop tasks check %+v", c)
+	}
 	if _, err := p.Execute(ctx, ExecOptions{Confirm: "GOLDEN_DB"}); !errors.Is(err, core.ErrNotConfirmed) || dbState(t, "golden_db") == "" {
 		t.Fatalf("wrong confirmation: err %v", err)
 	}

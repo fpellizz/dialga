@@ -137,6 +137,17 @@ func TestRestoreApplyWaits(t *testing.T) {
 	}
 }
 
+func TestRestoreNoRecoveryHint(t *testing.T) {
+	a, _, _ := testApp(t, testConfig)
+	f := &fakeInstance{progress: []mssql.Lifecycle{mssql.Success}}
+	withOps(a, f, fakeObjects{"import/full.bak": 1})
+	code, out, _ := run(a, "restore", "sales", "full.bak", "--norecovery", "--apply", "--interval", "1ms")
+	if code != 0 || !strings.Contains(f.ran[0], "@with_norecovery = 1") || strings.Contains(out, "dialga post") ||
+		!strings.Contains(out, "sales stays RESTORING") || !strings.Contains(out, "dialga finish sales -t dev-sql") {
+		t.Fatalf("code %d, ran %v:\n%s", code, f.ran, out)
+	}
+}
+
 func TestRestoreTaskErrorExits3(t *testing.T) {
 	a, _, _ := testApp(t, testConfig)
 	withOps(a, &fakeInstance{progress: []mssql.Lifecycle{mssql.Error}}, fakeObjects{"import/sales.bak": 1})

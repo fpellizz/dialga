@@ -290,7 +290,7 @@ func (a *app) runOp(cmd *cobra.Command, op string, p ops.Params, f opFlags) erro
 		return err
 	}
 	if text {
-		a.printOpEnd(out, name, op, p, task, f.noWait)
+		printOpEnd(out, name, op, p, task, f.noWait)
 	}
 	if task != nil && !f.noWait && task.Lifecycle != mssql.Success {
 		return finish(exitTaskFailed)
@@ -298,7 +298,7 @@ func (a *app) runOp(cmd *cobra.Command, op string, p ops.Params, f opFlags) erro
 	return finish(0)
 }
 
-func (a *app) printOpEnd(w io.Writer, target, op string, p ops.Params, task *mssql.Task, noWait bool) {
+func printOpEnd(w io.Writer, target, op string, p ops.Params, task *mssql.Task, noWait bool) {
 	switch {
 	case task == nil:
 		_, _ = fmt.Fprintln(w, "Done.")
@@ -306,7 +306,12 @@ func (a *app) printOpEnd(w io.Writer, target, op string, p ops.Params, task *mss
 		_, _ = fmt.Fprintf(w, "Follow it with: dialga wait %d -t %s\n", task.ID, target)
 	default:
 		printTaskEnd(w, *task)
-		if task.Lifecycle == mssql.Success && op == ops.OpRestore && !p.Restore.NoRecovery {
+		switch {
+		case task.Lifecycle != mssql.Success || op != ops.OpRestore:
+		case p.Restore.NoRecovery:
+			_, _ = fmt.Fprintf(w, "%s stays RESTORING: restore a differential backup with --differential, or bring it online with: dialga finish %s -t %s\n",
+				p.Database, p.Database, target)
+		default:
 			_, _ = fmt.Fprintf(w, "Next: dialga post %s -t %s\n", p.Database, target)
 		}
 	}
