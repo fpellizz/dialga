@@ -24,6 +24,10 @@ export interface JobItemRequest {
   files?: string[];
   differential?: boolean;
   noRecovery?: boolean;
+  /** Import: what to do when the database exists (see ReplaceMode). */
+  replace?: "auto" | "swap" | "drop";
+  /** Import with replace "drop": back the current database up first. */
+  backupFirst?: boolean;
 }
 
 /** What the request adds to the items: the kind of job (export by default) and the import prefix. */
@@ -380,6 +384,9 @@ export function mapJob(job: Job, plan: JobPlan, bucket?: string): ExportItemRun[
           bytesPerSecond: item.transfer.bytesPerSecond,
         };
       }
+    }
+    if (item.result) {
+      run.result = item.result;
     }
     if (item.error) {
       run.error = new Error(item.error);

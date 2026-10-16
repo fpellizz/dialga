@@ -396,6 +396,8 @@ export function DatabasesPage({
 
       {engine && target && dialog?.kind === "plan" && (
         <PlanDialog
+          // Another operation (the drop of the old database a swap kept) starts from scratch.
+          key={`${dialog.operation}:${dialog.database ?? ""}`}
           engine={engine}
           target={target}
           operation={dialog.operation}
@@ -407,7 +409,13 @@ export function DatabasesPage({
                 ? "export"
                 : undefined
           }
+          existing={list?.map((d) => d.name)}
+          bucket={targets?.targets.find((x) => x.name === target)?.bucket}
           onClose={closePlan}
+          onDropOld={(database) => {
+            setReload((n) => n + 1);
+            setDialog({ kind: "plan", operation: "drop", database });
+          }}
           onShowReport={(database) => {
             setReload((n) => n + 1);
             setDialog({ kind: "report", database });

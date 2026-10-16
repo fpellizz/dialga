@@ -57,6 +57,8 @@ export interface ExportItemRun {
   /** The local file and what the engine said about it (job). */
   localFile?: string;
   note?: string;
+  /** What the engine reported at the end of the item (a replace names what it kept there). */
+  result?: string;
   /** The item stopped while its native task was still running. */
   taskLeftRunning?: boolean;
   error?: unknown;

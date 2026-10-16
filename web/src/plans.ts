@@ -12,6 +12,13 @@ import { readEventStream } from "./sse";
 
 export type Operation = "restore" | "export" | "finish" | "cancel" | "drop";
 
+/**
+ * What a restore does when the database already exists: "" refuses (the
+ * default), "auto" lets the engine choose, "swap" restores beside it and
+ * keeps the old one, "drop" drops it first.
+ */
+export type ReplaceMode = "" | "auto" | "swap" | "drop";
+
 /** The parameters of an operation (POST .../plans/{operation}). */
 export interface PlanRequest {
   database?: string;
@@ -20,6 +27,10 @@ export interface PlanRequest {
   differential?: boolean;
   noRecovery?: boolean;
   taskId?: number;
+  /** Restore over an existing database. */
+  replace?: ReplaceMode;
+  /** Drop only: back the current database up to S3 first (the engine default is true). */
+  backupFirst?: boolean;
 }
 
 /** The body of .../execute: the previewed request, the confirmation and the digest. */
@@ -237,6 +248,12 @@ export function cleanRequest(request: PlanRequest): PlanRequest {
   if (request.taskId) {
     out.taskId = request.taskId;
   }
+  if (request.replace) {
+    out.replace = request.replace;
+    if (request.replace === "drop") {
+      out.backupFirst = request.backupFirst !== false;
+    }
+  }
   return out;
 }
 
@@ -249,7 +266,9 @@ export function sameRequest(a: PlanRequest, b: PlanRequest): boolean {
     x.key === y.key &&
     !!x.differential === !!y.differential &&
     !!x.noRecovery === !!y.noRecovery &&
-    x.taskId === y.taskId
+    x.taskId === y.taskId &&
+    (x.replace ?? "") === (y.replace ?? "") &&
+    x.backupFirst === y.backupFirst
   );
 }
 
@@ -279,6 +298,7 @@ export function planStepKey(step: string): MessageKey | undefined {
       source: "plancheck.source",
       database: "plancheck.database",
       destination: "plancheck.destination",
+      replace: "plancheck.replace",
       tasks: "plancheck.tasks",
       task: "plancheck.task",
       wait: "planaction.wait",
@@ -299,4 +319,47 @@ export function s3URI(arn?: string): string {
 /** The task reached SUCCESS, ERROR or CANCELLED. */
 export function isFinal(lifecycle: Lifecycle): boolean {
   return lifecycle === "SUCCESS" || lifecycle === "ERROR" || lifecycle === "CANCELLED";
+}
+
+/** The name is one of the existing databases (SQL Server names are case-insensitive by default). */
+export function databaseExists(existing: readonly string[] | undefined, name: string): boolean {
+  const wanted = name.trim().toLowerCase();
+  return wanted !== "" && !!existing?.some((n) => n.toLowerCase() === wanted);
+}
+
+/** The first match of a pattern in the texts, or undefined. */
+function findIn(texts: readonly (string | undefined)[], pattern: RegExp): string | undefined {
+  for (const text of texts) {
+    const found = text?.match(pattern)?.[0];
+    if (found) {
+      return found;
+    }
+  }
+  return undefined;
+}
+
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * What a replace left behind, read from what the run reported (step labels
+ * and details, the job result): the old database a swap kept
+ * (<db>_old_<ts>) and the safety backup a drop took
+ * (<prefix>/<db>_before_replace_<ts>.bak), as an S3 URI when the bucket is known.
+ */
+export function replaceOutcome(
+  database: string,
+  texts: readonly (string | undefined)[],
+  bucket?: string,
+): { kept?: string; backup?: string } {
+  const db = escapeRegExp(database);
+  const kept = findIn(texts, new RegExp(`${db}_old_[A-Za-z0-9]+`));
+  const found = findIn(
+    texts,
+    new RegExp(`(?:s3://[^/\\s]+/)?[A-Za-z0-9._/+=@-]*${db}_before_replace_[A-Za-z0-9]+\\.bak`),
+  );
+  const key = found?.replace(/^\/+/, "");
+  const backup = key && !key.startsWith("s3://") && bucket ? `s3://${bucket}/${key}` : key;
+  return { kept, backup };
 }

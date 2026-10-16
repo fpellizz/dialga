@@ -1,6 +1,7 @@
 import type { JobItemRequest, JobPlan } from "./exportJob";
 import type { MessageKey } from "./i18n";
 import type { InspectedBackup, InspectResult } from "./inspect";
+import type { ReplaceMode } from "./plans";
 
 /** The steps of the wizard, in order (plan §3.5 "Importa"). */
 export const STEPS = ["files", "verify", "destination", "preview", "progress", "result"] as const;
@@ -137,10 +138,19 @@ export interface Destination {
   database: string;
   /** Leave the database RESTORING (WITH NORECOVERY), to apply a differential next. */
   noRecovery: boolean;
+  /** What to do when the database already exists: "" refuses. */
+  replace: ReplaceMode;
+  /** With "drop": back the current database up to S3 first. */
+  backupFirst: boolean;
 }
 
 export function defaultDestinations(result: InspectResult): Destination[] {
-  return result.backups.map((b) => ({ database: defaultDatabaseName(b), noRecovery: false }));
+  return result.backups.map((b) => ({
+    database: defaultDatabaseName(b),
+    noRecovery: false,
+    replace: "",
+    backupFirst: true,
+  }));
 }
 
 /** The problem of each destination; duplicated names are refused too. */
@@ -193,6 +203,12 @@ export function importItems(
     }
     if (overwrite) {
       item.overwrite = true;
+    }
+    if (destinations[i].replace) {
+      item.replace = destinations[i].replace as "auto" | "swap" | "drop";
+      if (item.replace === "drop") {
+        item.backupFirst = destinations[i].backupFirst;
+      }
     }
     return item;
   });

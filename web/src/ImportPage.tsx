@@ -11,7 +11,14 @@ import {
   Upload,
 } from "lucide-react";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
-import { errorText, listTargets, type StepEvent, type TargetList, type TargetSummary } from "./api";
+import {
+  errorText,
+  listDatabases,
+  listTargets,
+  type StepEvent,
+  type TargetList,
+  type TargetSummary,
+} from "./api";
 import { formatBytes } from "./databases";
 import type { EngineInfo } from "./engine";
 import { cancelJob, followSnapshots, type Job, type JobPlan, mapJob } from "./exportJob";
@@ -34,6 +41,8 @@ import {
   type WizardStep,
 } from "./importWizard";
 import { type InspectedBackup, type InspectResult, inspectBackups } from "./inspect";
+import { databaseExists } from "./plans";
+import { ReplaceChoice } from "./ReplaceChoice";
 import { StepList } from "./StepList";
 import { Wizard } from "./Wizard";
 
@@ -326,6 +335,7 @@ export function ImportPage({
       )}
       {step === "destination" && inspect.result && (
         <DestinationStep
+          engine={engine}
           target={target}
           result={inspect.result}
           folder={s3Folder}
@@ -722,6 +732,7 @@ function VerifyStep({
 
 /** 3. The database name of each backup, its options and the S3 folder. */
 function DestinationStep({
+  engine,
   target,
   result,
   folder,
@@ -731,6 +742,7 @@ function DestinationStep({
   onBack,
   onNext,
 }: {
+  engine: EngineInfo;
   target: TargetSummary;
   result: InspectResult;
   folder: string;
@@ -742,6 +754,17 @@ function DestinationStep({
 }) {
   const { t } = useI18n();
   const [submitted, setSubmitted] = useState(false);
+  // The databases of the instance: a name that exists offers to replace it.
+  // Without the list (no password yet, no network) the preview still refuses an existing one.
+  const [existing, setExisting] = useState<string[]>([]);
+  useEffect(() => {
+    const controller = new AbortController();
+    listDatabases(engine, target.name, controller.signal).then(
+      (list) => setExisting(list.map((d) => d.name)),
+      () => setExisting([]),
+    );
+    return () => controller.abort();
+  }, [engine, target.name]);
   const errors = destinationErrors(destinations);
   const folderProblem = folderError(folder);
   const update = (i: number, change: Partial<Destination>) =>
@@ -807,7 +830,14 @@ function DestinationStep({
                 id={id}
                 className="input mono"
                 value={d.database}
-                onChange={(e) => update(i, { database: e.target.value.trim() })}
+                onChange={(e) => {
+                  const database = e.target.value.trim();
+                  // Another name: what to do with the old one no longer applies.
+                  update(
+                    i,
+                    databaseExists(existing, database) ? { database } : { database, replace: "" },
+                  );
+                }}
                 autoComplete="off"
                 spellCheck={false}
                 aria-invalid={error ? true : undefined}
@@ -823,6 +853,14 @@ function DestinationStep({
               )}
             </div>
             {differential && <p className="hint">{t("import.differential", { db: d.database })}</p>}
+            {databaseExists(existing, d.database) && (
+              <ReplaceChoice
+                database={d.database}
+                mode={d.replace}
+                backupFirst={d.backupFirst}
+                onChange={(change) => update(i, change)}
+              />
+            )}
             <div className="check">
               <input
                 id={`${id}-norecovery`}
