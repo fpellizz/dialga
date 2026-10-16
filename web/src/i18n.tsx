@@ -250,6 +250,7 @@ const en = {
   "report.noAccess": "The login cannot enter the database: users and objects are not read.",
   "tasks.cancel": "Cancel",
   "tasks.cancelOf": "Cancel task #{id}",
+  "plan.pending.upload": "Uploaded by the next step",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -508,6 +509,7 @@ const it: Record<MessageKey, string> = {
   "report.noAccess": "Il login non entra nel database: utenti e oggetti non vengono letti.",
   "tasks.cancel": "Annulla",
   "tasks.cancelOf": "Annulla il task #{id}",
+  "plan.pending.upload": "Caricato dal passo successivo",
 };
 
 export const messages: Record<Lang, Record<MessageKey, string>> = { en, it };
