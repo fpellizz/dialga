@@ -1,9 +1,18 @@
 import { Activity, Database, Download, Server, Settings, Upload } from "lucide-react";
+import { useEffect } from "react";
 import symbolUrl from "./assets/decisyon-symbol.svg";
 import type { EngineInfo } from "./engine";
 import { type MessageKey, useI18n } from "./i18n";
+import { TunnelSummary } from "./TunnelIndicator";
 
 export type Page = "instances" | "databases" | "settings";
+
+/** The window title of each page: "Databases · Dialga". */
+const PAGE_TITLE: Record<Page, MessageKey> = {
+  instances: "nav.instances",
+  databases: "nav.databases",
+  settings: "nav.settings",
+};
 
 const SOON: { icon: typeof Upload; key: MessageKey }[] = [
   { icon: Upload, key: "nav.import" },
@@ -32,8 +41,20 @@ export function Sidebar({
   }
   const current = (p: Page) => (page === p ? "page" : undefined);
 
+  useEffect(() => {
+    document.title = `${t(PAGE_TITLE[page])} · Dialga`;
+  }, [page, t]);
+
   return (
     <aside className="sidebar">
+      {/* Keyboard users skip the navigation; a button, as a #fragment link would change the page. */}
+      <button
+        type="button"
+        className="skip-link"
+        onClick={() => document.getElementById("main")?.focus()}
+      >
+        {t("app.skip")}
+      </button>
       <div className="brand">
         <img src={symbolUrl} alt="Decisyon" className="logo" />
         <div>
@@ -59,18 +80,17 @@ export function Sidebar({
             <span className="soon">{t("nav.soon")}</span>
           </span>
         ))}
-      </nav>
-
-      <div className="sidebar-footer">
-        <a href="#settings" className="nav-link" aria-current={current("settings")}>
+        <a href="#settings" className="nav-link nav-bottom" aria-current={current("settings")}>
           <Settings size={16} className="nav-icon" aria-hidden="true" />
           {t("nav.settings")}
         </a>
-        <div className="engine" title={engineError || undefined}>
-          <span className={dot} />
-          {status}
-        </div>
+      </nav>
+
+      <div className="engine" title={engineError || undefined}>
+        <span className={dot} />
+        {status}
       </div>
+      <TunnelSummary engine={engine} />
     </aside>
   );
 }

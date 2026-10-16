@@ -504,3 +504,50 @@ func TestGlobAndBytes(t *testing.T) {
 		}
 	}
 }
+
+func TestRestoreFreeStorage(t *testing.T) {
+	const gib = int64(1) << 30
+	objects := fakeBucket{"import/sales.bak": 50 * gib, "import/p1.bak": 1, "import/p2.bak": 1}
+	tests := []struct {
+		name   string
+		free   int64
+		err    error
+		key    string
+		opts   mssql.RestoreOptions
+		want   string
+		detail string
+	}{
+		{"plenty", 100 * gib, nil, "sales.bak", mssql.RestoreOptions{}, "source:ok storage:ok database:ok tasks:ok", "100.0 GiB free, backup 50.0 GiB"},
+		{"over 80%", 60 * gib, nil, "sales.bak", mssql.RestoreOptions{}, "source:ok storage:warning database:ok tasks:ok", "over 80% of the 60.0 GiB free"},
+		{"larger than free", 40 * gib, nil, "sales.bak", mssql.RestoreOptions{}, "source:ok storage:warning database:ok tasks:ok", "the backup alone is 50.0 GiB and 40.0 GiB is free"},
+		{"no CloudWatch", 0, errors.New("AccessDenied"), "sales.bak", mssql.RestoreOptions{}, "source:ok storage:warning database:ok tasks:ok", "not read from CloudWatch"},
+		{"object missing", 100 * gib, nil, "nope.bak", mssql.RestoreOptions{}, "source:failed database:ok tasks:ok", ""},
+		{"striped: no size", 100 * gib, nil, "import/p*.bak", mssql.RestoreOptions{}, "source:ok database:ok tasks:ok", ""},
+		{"differential", 1, nil, "sales.bak", mssql.RestoreOptions{Differential: true}, "source:ok database:ok tasks:ok", ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			states := map[string]string{}
+			if tc.opts.Differential {
+				states["sales"] = "RESTORING"
+			}
+			s := newSession(&fakeSQL{states: states, active: map[string]int{}}, objects)
+			s.FreeStorage = func(context.Context) (int64, error) { return tc.free, tc.err }
+			p, err := s.Restore(context.Background(), "sales", tc.key, tc.opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := verdicts(p); got != tc.want {
+				t.Fatalf("checks %s, want %s", got, tc.want)
+			}
+			for _, c := range p.Checks {
+				if c.Step == "storage" && !strings.Contains(c.Detail, tc.detail) {
+					t.Fatalf("storage detail %q, want %q", c.Detail, tc.detail)
+				}
+			}
+			if strings.Contains(tc.want, "storage:warning") && !p.Ready() {
+				t.Fatal("a space warning must not block the plan")
+			}
+		})
+	}
+}

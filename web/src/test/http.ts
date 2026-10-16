@@ -61,9 +61,20 @@ export type Route = (request: FetchRequest, call: number) => Response | Promise<
 
 export type FetchMock = Mock<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>;
 
+/** Requests that matched no route since the last takeUnexpected(). */
+let unexpected: string[] = [];
+
+/** The unmatched requests, cleared: setup-dom.ts fails a test that made any. */
+export function takeUnexpected(): string[] {
+  const list = unexpected;
+  unexpected = [];
+  return list;
+}
+
 /**
  * Replaces fetch with routes keyed by "METHOD /path" (no query string). Like
  * the real fetch, a request rejects with an AbortError when its signal aborts.
+ * A request without a route rejects and fails the test.
  */
 export function mockFetch(routes: Record<string, Route>): FetchMock {
   const calls = new Map<string, number>();
@@ -72,6 +83,7 @@ export function mockFetch(routes: Record<string, Route>): FetchMock {
     const key = `${init.method ?? "GET"} ${url.pathname}`;
     const route = routes[key];
     if (!route) {
+      unexpected.push(key);
       return Promise.reject(new Error(`unexpected request ${key}`));
     }
     const call = calls.get(key) ?? 0;

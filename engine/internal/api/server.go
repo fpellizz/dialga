@@ -34,9 +34,13 @@ import (
 
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/config"
+	"github.com/decisyon/dialga/engine/internal/discover"
+	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/ops"
 	"github.com/decisyon/dialga/engine/internal/session"
+	"github.com/decisyon/dialga/engine/internal/transfer"
+	"github.com/decisyon/dialga/engine/internal/tunnels"
 	"github.com/decisyon/dialga/engine/internal/validate"
 )
 
@@ -72,6 +76,19 @@ type Options struct {
 	// task an execution follows (default 30s).
 	OpenOps      func(ctx context.Context, name string, t config.Target, password string) (*ops.Session, func(), error)
 	TaskInterval time.Duration
+	// Discover answers the first-run questions: prerequisites, AWS profiles
+	// and instances (default discover.System; tests replace it).
+	Discover discover.Service
+	// Jobs runs the import/export jobs (default: a manager in memory only;
+	// "dialga serve" passes the one with the journal).
+	Jobs *jobs.Manager
+	// Tunnels are the shared tunnels of the tunnel-mode targets (default: a
+	// new manager, closed by Serve). The default sessions and checks borrow
+	// them instead of opening a tunnel per call.
+	Tunnels *tunnels.Manager
+	// OpenS3 opens the S3 client of a target for the transfers (default
+	// transfer.Open; tests replace it).
+	OpenS3 func(context.Context, config.Target) (transfer.Client, error)
 }
 
 // Server is the HTTP API of the engine.
@@ -137,11 +154,14 @@ func New(opts Options) (*Server, error) {
 	if opts.RunCheck == nil {
 		opts.RunCheck = check.Run
 	}
+	if opts.Tunnels == nil {
+		opts.Tunnels = tunnels.New(tunnels.Options{Log: opts.Log})
+	}
 	if opts.OpenTasks == nil {
-		opts.OpenTasks = session.OpenTasks
+		opts.OpenTasks = session.Sessions{Tunnels: opts.Tunnels}.OpenTasks
 	}
 	if opts.OpenDatabases == nil {
-		opts.OpenDatabases = session.OpenDatabases
+		opts.OpenDatabases = session.Sessions{Tunnels: opts.Tunnels}.OpenDatabases
 	}
 	if opts.DescribeTarget == nil {
 		opts.DescribeTarget = session.DescribeTarget
@@ -151,6 +171,9 @@ func New(opts Options) (*Server, error) {
 	}
 	if opts.TaskInterval <= 0 {
 		opts.TaskInterval = 30 * time.Second
+	}
+	if opts.Jobs == nil {
+		opts.Jobs = jobs.New(jobs.Options{Log: opts.Log})
 	}
 	s := &Server{opts: opts, mux: http.NewServeMux()}
 	for _, rt := range s.routes() {
@@ -190,18 +213,29 @@ var extraRoutes []func(*Server) []route
 // Handler returns the guarded handler.
 func (s *Server) Handler() http.Handler { return s.guard(s.mux) }
 
+// ShutdownTimeout is how long Serve waits, once ctx ends, for the requests
+// in flight: their contexts end with ctx, and they get time to clean up (a
+// transfer aborts its multipart upload, within 30 seconds).
+const ShutdownTimeout = 40 * time.Second
+
 // Serve listens on 127.0.0.1 (random port), writes one JSON ready line to
 // ready ({"event":"ready","port":N,"version":"…"}) and serves until ctx ends.
+// Then it closes the shared tunnels, terminating their SSM sessions.
 func Serve(ctx context.Context, opts Options, ready io.Writer) error {
 	s, err := New(opts)
 	if err != nil {
 		return err
 	}
+	defer func() { _ = s.opts.Tunnels.Close() }()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return err
 	}
-	srv := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{
+		Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second,
+		// Requests live within ctx: when it ends they all see it.
+		BaseContext: func(net.Listener) context.Context { return ctx },
+	}
 	port := ln.Addr().(*net.TCPAddr).Port
 	line, _ := json.Marshal(map[string]any{"event": "ready", "port": port, "version": opts.Version})
 	if _, err := fmt.Fprintf(ready, "%s\n", line); err != nil {
@@ -214,7 +248,9 @@ func Serve(ctx context.Context, opts Options, ready io.Writer) error {
 	go func() { errc <- srv.Serve(ln) }()
 	select {
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// The tunnels first: their event streams end, sessions stop waiting.
+		_ = s.opts.Tunnels.Close()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), ShutdownTimeout)
 		defer cancel()
 		_ = srv.Shutdown(shutdownCtx)
 		return nil
@@ -242,7 +278,7 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			w.Header().Add("Vary", "Origin")
 		}
 		if r.Method == http.MethodOptions {
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE")
 			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 			w.Header().Set("Access-Control-Max-Age", "600")
 			w.WriteHeader(http.StatusNoContent)
@@ -328,6 +364,9 @@ func (s *Server) checkTarget(w http.ResponseWriter, r *http.Request) {
 		send("notice", Notice{Message: "SQL login will be skipped: " + perr.Error()})
 	}
 	s.opts.Log.Info("check started", "target", name, "instance", t.Instance)
+	if req.Tunnel {
+		req.Lender = s.opts.Tunnels.Lender(t)
+	}
 	passed := s.opts.RunCheck(r.Context(), req, password, func(e check.Event) { send("step", e) })
 	send("done", Done{OK: passed})
 	s.opts.Log.Info("check finished", "target", name, "ok", passed)

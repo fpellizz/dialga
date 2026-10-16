@@ -11,7 +11,12 @@ import (
 
 // OpenDatabases opens a session on t for reading its databases; close ends it.
 func OpenDatabases(ctx context.Context, t config.Target, password string) (mssql.DatabaseReader, func(), error) {
-	db, err := Open(ctx, t, password)
+	return Sessions{}.OpenDatabases(ctx, t, password)
+}
+
+// OpenDatabases is the package OpenDatabases, with the shared tunnel when there is one.
+func (s Sessions) OpenDatabases(ctx context.Context, t config.Target, password string) (mssql.DatabaseReader, func(), error) {
+	db, err := s.Open(ctx, t, password)
 	if err != nil {
 		return nil, nil, err
 	}

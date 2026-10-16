@@ -6,6 +6,8 @@ import { CONFIG_PATH, renderI18n } from "./test/fixtures";
 import { deferred, ENGINE, json, mockFetch, text } from "./test/http";
 
 const TARGETS = "GET /api/v1/targets";
+/** The Prerequisites card (PrerequisitesCard.test.tsx covers it). */
+const PREREQS = { "GET /api/v1/prerequisites": () => json({ prerequisites: [] }) };
 
 function section(name: string) {
   return screen.getByRole("region", { name });
@@ -13,7 +15,7 @@ function section(name: string) {
 
 describe("SettingsPage", () => {
   it("switches the language, saves it and updates <html lang>", async () => {
-    mockFetch({ [TARGETS]: () => json({ configPath: CONFIG_PATH, targets: [] }) });
+    mockFetch({ [TARGETS]: () => json({ configPath: CONFIG_PATH, targets: [] }), ...PREREQS });
     renderI18n(<SettingsPage engine={ENGINE} theme="system" onThemeChange={() => {}} />);
     expect(screen.getByRole("heading", { level: 1, name: "Settings" })).toBeInTheDocument();
     expect(document.documentElement.lang).toBe("en");
@@ -34,7 +36,7 @@ describe("SettingsPage", () => {
   });
 
   it("reports the theme choice and shows the current one", async () => {
-    mockFetch({ [TARGETS]: () => json({ configPath: CONFIG_PATH, targets: [] }) });
+    mockFetch({ [TARGETS]: () => json({ configPath: CONFIG_PATH, targets: [] }), ...PREREQS });
     const onThemeChange = vi.fn();
     const { rerender } = renderI18n(
       <SettingsPage engine={ENGINE} theme="system" onThemeChange={onThemeChange} />,
@@ -56,13 +58,20 @@ describe("SettingsPage", () => {
   });
 
   it("shows a skeleton, then the path of the configuration", async () => {
-    const answer = deferred<Response>();
-    mockFetch({ [TARGETS]: () => answer.promise });
+    // The Targets card asks for the same list: one gate, a new answer for each request.
+    const gate = deferred<void>();
+    mockFetch({
+      [TARGETS]: async () => {
+        await gate.promise;
+        return json({ configPath: CONFIG_PATH, targets: [] });
+      },
+      ...PREREQS,
+    });
     renderI18n(<SettingsPage engine={ENGINE} theme="system" onThemeChange={() => {}} />);
     const config = section("Configuration file");
     expect(config.querySelector(".skeleton")).not.toBeNull();
 
-    answer.resolve(json({ configPath: CONFIG_PATH, targets: [] }));
+    gate.resolve();
     expect(await within(config).findByText(CONFIG_PATH)).toHaveClass("path");
     expect(config.querySelector(".skeleton")).toBeNull();
     expect(within(config).queryByRole("alert")).toBeNull();
@@ -72,6 +81,7 @@ describe("SettingsPage", () => {
     mockFetch({
       [TARGETS]: () =>
         json({ configPath: CONFIG_PATH, error: "invalid YAML: line 2", targets: [] }),
+      ...PREREQS,
     });
     renderI18n(<SettingsPage engine={ENGINE} theme="system" onThemeChange={() => {}} />);
     const config = section("Configuration file");
@@ -82,14 +92,14 @@ describe("SettingsPage", () => {
   });
 
   it("shows a failed request without the Error: prefix", async () => {
-    mockFetch({ [TARGETS]: () => text("forbidden origin\n", 403) });
+    mockFetch({ [TARGETS]: () => text("forbidden origin\n", 403), ...PREREQS });
     renderI18n(<SettingsPage engine={ENGINE} theme="system" onThemeChange={() => {}} />);
     const banner = await within(section("Configuration file")).findByRole("alert");
     expect(banner.querySelector("pre")).toHaveTextContent(/^forbidden origin$/);
   });
 
   it("shows the engine version and the local API", async () => {
-    mockFetch({ [TARGETS]: () => json({ configPath: CONFIG_PATH, targets: [] }) });
+    mockFetch({ [TARGETS]: () => json({ configPath: CONFIG_PATH, targets: [] }), ...PREREQS });
     renderI18n(<SettingsPage engine={ENGINE} theme="system" onThemeChange={() => {}} />);
     const about = section("About");
     expect(within(about).getByText("Engine").nextElementSibling).toHaveTextContent("0.1.0-test");

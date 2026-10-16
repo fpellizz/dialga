@@ -94,8 +94,8 @@ type SQL struct {
 // Connect says how the engine reaches SQL Server.
 type Connect struct {
 	Mode      string `yaml:"mode"`
-	LocalPort int    `yaml:"local_port"`
-	BridgeTag string `yaml:"bridge_tag"`
+	LocalPort int    `yaml:"local_port,omitempty"`
+	BridgeTag string `yaml:"bridge_tag,omitempty"`
 }
 
 // PasswordSource is a parsed SQL.Password.

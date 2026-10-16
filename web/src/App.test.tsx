@@ -10,7 +10,12 @@ import { installMatchMedia } from "./test/media";
 function devEngine() {
   vi.stubEnv("VITE_ENGINE_URL", ENGINE.url);
   vi.stubEnv("VITE_ENGINE_TOKEN", ENGINE.token);
-  return mockFetch({ "GET /api/v1/targets": () => json({ configPath: CONFIG_PATH, targets: [] }) });
+  return mockFetch({
+    "GET /api/v1/targets": () => json({ configPath: CONFIG_PATH, targets: [] }),
+    "GET /api/v1/prerequisites": () => json({ prerequisites: [] }),
+    // The tunnel summary of the sidebar.
+    "GET /api/v1/tunnels": () => json({ tunnels: [] }),
+  });
 }
 
 function heading() {
@@ -47,6 +52,15 @@ describe("App", () => {
     expect(link("Settings")).toHaveAttribute("aria-current", "page");
   });
 
+  it.each(["#databases", "#databases/dev-sql"])("opens Databases from %s", async (hash) => {
+    window.location.hash = hash;
+    render(<App />);
+    expect(heading()).toHaveTextContent("Databases");
+    expect(link("Databases")).toHaveAttribute("aria-current", "page");
+    // The fake engine has no targets.
+    expect(await screen.findByText("No instances configured")).toBeInTheDocument();
+  });
+
   it("follows the hash as it changes", async () => {
     render(<App />);
     goTo("#settings");
@@ -58,8 +72,34 @@ describe("App", () => {
 
     goTo("#settings");
     await screen.findByRole("heading", { level: 1, name: "Settings" });
+    goTo("#databases/prod-sql");
+    expect(await screen.findByRole("heading", { level: 1, name: "Databases" })).toBeInTheDocument();
+    goTo("#databasesx");
+    expect(await screen.findByRole("heading", { level: 1, name: "Instances" })).toBeInTheDocument();
+
+    goTo("#settings");
+    await screen.findByRole("heading", { level: 1, name: "Settings" });
     goTo("#unknown");
     expect(await screen.findByRole("heading", { level: 1, name: "Instances" })).toBeInTheDocument();
+  });
+
+  it("moves the focus to the title of a new page, not on start", async () => {
+    render(<App />);
+    const start = heading();
+    expect(start).not.toHaveFocus();
+    expect(document.title).toBe("Instances · Dialga");
+
+    goTo("#databases");
+    const title = await screen.findByRole("heading", { level: 1, name: "Databases" });
+    expect(title).toHaveFocus();
+    expect(title).toHaveAttribute("tabindex", "-1");
+    expect(document.title).toBe("Databases · Dialga");
+  });
+
+  it("skips the navigation to the page", async () => {
+    render(<App />);
+    await userEvent.click(screen.getByRole("button", { name: "Skip to content" }));
+    expect(screen.getByRole("main")).toHaveFocus();
   });
 
   it("navigates from the sidebar links", async () => {

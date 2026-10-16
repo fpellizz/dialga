@@ -24,7 +24,3 @@ TEST*.xml
 !.vscode/extensions.json
 .DS_Store
 Thumbs.db
-
-# Playwright (web/e2e)
-web/test-results/
-web/playwright-report/
