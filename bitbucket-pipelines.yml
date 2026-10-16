@@ -154,7 +154,9 @@ definitions:
 
     - step: &desktop-linux
         name: "Desktop · Linux bundles (deb, rpm)"
-        image: node:24
+        # Pinned: the packages require the glibc of this image (Debian 12,
+        # glibc 2.36); a newer default would drop Debian 12 / Ubuntu 22.04.
+        image: node:24-bookworm
         size: 2x
         caches:
           - pnpm
@@ -243,6 +245,9 @@ definitions:
           - cargo-target
         script:
           - if [ ! -f desktop/src-tauri/Cargo.toml ]; then echo "desktop/ not there yet - skip"; exit 0; fi
+          # On a tag, every version file must match it: fail in seconds, not
+          # after integration and dist.
+          - if [ -n "${BITBUCKET_TAG:-}" ]; then bash ci/bump-version.sh --check "$BITBUCKET_TAG"; fi
           - apt-get update -qq && apt-get install -y -qq
               build-essential pkg-config file libssl-dev libxdo-dev
               libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
