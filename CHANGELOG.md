@@ -11,6 +11,14 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ### Aggiunto
 
+- **Elenco dei bucket**. *Add instance* mostra il bucket come campo con
+  elenco (combobox accessibile) riempito con i bucket dell'account nella
+  regione scelta, con filtro mentre si scrive; un nome digitato resta sempre
+  valido. `dialga config init` propone i bucket come scelta numerata più
+  «other (type it)» (`--bucket` ha la precedenza). Senza `s3:ListAllMyBuckets`
+  l'elenco non c'è e si digita il nome. API: `GET /api/v1/discovery/buckets`
+  (403 con testo fisso senza il permesso, 502 per gli altri errori). Policy
+  IAM: nuovo statement facoltativo `OptionalListBuckets`.
 - **Password SQL: quattro fonti**. `keyring` (portachiavi di sistema, servizio
   `dialga`, account = nome del target) e `secretsmanager:<ARN>` (JSON con
   `password`, o testo semplice; profilo, regione e controllo dell'account del

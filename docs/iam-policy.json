@@ -32,6 +32,12 @@
       "Resource": "arn:aws:s3:::[bucket]"
     },
     {
+      "Sid": "OptionalListBuckets",
+      "Effect": "Allow",
+      "Action": "s3:ListAllMyBuckets",
+      "Resource": "*"
+    },
+    {
       "Sid": "BackupObjects",
       "Effect": "Allow",
       "Action": [

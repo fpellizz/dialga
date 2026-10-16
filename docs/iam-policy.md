@@ -28,6 +28,7 @@ oggetti per ciascuno.
 | `RdsDescribe` | `rds:DescribeDBInstances`, `rds:DescribeOptionGroups` | Check: stato dell'istanza, endpoint, option group, storage |
 | `RdsFreeStorage` | `cloudwatch:GetMetricStatistics` | Check: spazio libero (`FreeStorageSpace`). CloudWatch non ha permessi a livello di risorsa: `*` |
 | `BackupBucket` | `s3:ListBucket` | Check: `HeadBucket`. Non limitato per prefisso, altrimenti `HeadBucket` viene negato |
+| `OptionalListBuckets` | `s3:ListAllMyBuckets` | Solo per il menu dei bucket in Add instance e in `config init`: elenca i nomi dei bucket dell'account. Non si può limitare ad alcuni bucket (`*`) e mostra tutti i nomi della regione. Facoltativo: senza, il nome del bucket si digita a mano |
 | `BackupObjects` | `s3:GetObject`, `s3:PutObject`, `s3:AbortMultipartUpload`, `s3:ListMultipartUploadParts` | Upload dei `.bak` nel prefisso di import, download dal prefisso di export, ripresa e annullamento degli upload multipart |
 | `TunnelFindBridge` | `ec2:DescribeInstances` | Modalità tunnel: trovare il bridge SSM. Nessun permesso a livello di risorsa: `*` |
 | `TunnelStartSession` | `ssm:StartSession` | Modalità tunnel: port forwarding attraverso il bridge, solo con il documento `AWS-StartPortForwardingSessionToRemoteHost` (nessuna shell) |
