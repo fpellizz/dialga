@@ -212,20 +212,32 @@ La lettura è **stretta**: una chiave sconosciuta (un refuso) è un errore, mai 
 
 ### 4.3 Password SQL
 
-| `sql.password` | Da dove arriva | CLI | App desktop |
-|---|---|---|---|
-| `prompt` (default) | Variabile `DIALGA_SQL_PASSWORD`, altrimenti la chiede | La chiede sul terminale se la variabile è vuota | Solo da `DIALGA_SQL_PASSWORD` nell'ambiente dell'app |
-| `env:VAR` | Variabile d'ambiente `VAR` | Sì | Sì, se l'app la eredita |
-| `keyring` | Portachiavi dell'OS | Previsto, non ancora attivo | Previsto |
-| `secretsmanager:<ARN>` | AWS Secrets Manager | Previsto, non ancora attivo | Previsto |
+| `sql.password` | Da dove arriva | Memorizzabile |
+|---|---|---|
+| `prompt` (default) | La memoria dell'engine (digitata nell'app), poi `DIALGA_SQL_PASSWORD`, poi il portachiavi se l'hai ricordata; altrimenti la chiede (terminale o app) | Sì, nel portachiavi |
+| `env:VAR` | Variabile d'ambiente `VAR` | No: viene dall'ambiente |
+| `keyring` | Voce del portachiavi di sistema (servizio `dialga`, account = nome del target) | Sì: `dialga password set <target>` |
+| `secretsmanager:<ARN>` | AWS Secrets Manager, con profilo e regione del target (stesso controllo dell'account) | No: viene da AWS |
 
-La password non viaggia mai nelle richieste dell'app né nei log. Per l'app desktop con `prompt`:
+Per `secretsmanager` il segreto è un JSON con il campo `password` (come i segreti gestiti da RDS) oppure una stringa semplice. Serve il permesso `secretsmanager:GetSecretValue` sul segreto, e `kms:Decrypt` se usa una chiave gestita dal cliente (`docs/iam-policy.md`).
+
+**CLI.** Con `prompt` la password viene chiesta sul terminale se nessuna fonte la fornisce; prima Dialga prova `DIALGA_SQL_PASSWORD` e il portachiavi. Per memorizzarla:
+
+```bash
+dialga password set dev        # chiede senza eco (due volte), oppure legge una riga da stdin
+dialga password status         # per ogni target: fonte e voce del portachiavi (stored, empty, unavailable)
+dialga password forget dev     # rimuove la voce
+```
+
+`dialga password status` non mostra mai la password. Il portachiavi è quello dell'OS: Secret Service su Linux (GNOME Keyring, KWallet), Keychain su macOS, Credential Manager su Windows. Senza un servizio attivo (sessione remota, headless) `set` fallisce e `status` dice `unavailable`: usa `env:VAR` o `secretsmanager:`.
+
+**App desktop.** Con `prompt` o `keyring` e nessuna password disponibile l'app la chiede e può ricordarla nel portachiavi di sistema; altrimenti la tiene solo in memoria fino alla chiusura. Con `env:VAR` e `secretsmanager:` l'app non chiede nulla (la password non si può digitare). L'app può anche dimenticarla (voce del portachiavi compresa). In alternativa, avviala con la variabile:
 
 ```bash
 read -rs DIALGA_SQL_PASSWORD && export DIALGA_SQL_PASSWORD && dialga-desktop
 ```
 
-`read -rs` non mostra la password e non la lascia nella history. Senza password i controlli SQL vengono saltati e lo si vede nei risultati (§7.2).
+`read -rs` non mostra la password e non la lascia nella history. La password digitata nell'app viene dimenticata se cambiano istanza, account, regione o `sql.user` del target, o se lo rimuovi. Non viene mai scritta su file, nel journal dei job, negli eventi o nei log. Senza password i controlli SQL vengono saltati e lo si vede nei risultati (§7.2).
 
 ### 4.4 Modalità di connessione
 
@@ -940,9 +952,13 @@ I messaggi sono quelli che stampano la CLI e l'app (in inglese).
 | Messaggio | Causa | Cosa fare |
 |---|---|---|
 | `SQL login will be skipped: environment variable <VAR> is empty` e passi SQL `SKIP` | `sql.password: env:VAR` ma la variabile non è impostata nel terminale (o nell'ambiente dell'app) | `read -rs VAR && export VAR`, poi rilancia |
-| `no SQL password in the engine environment: sql.password says where it comes from …` | L'engine non ha la password: con `prompt` serve `DIALGA_SQL_PASSWORD`, con `env:VAR` la variabile indicata | Esporta la variabile giusta nell'ambiente dell'app o del terminale, poi riprova |
-| `sql.password is prompt: set DIALGA_SQL_PASSWORD, or use env:VAR in the configuration` | App desktop con `prompt`: non può chiedere la password | Avvia l'app da terminale con `DIALGA_SQL_PASSWORD` (§4.3) |
-| *Databases and tasks need the SQL password* (app) | Come sopra | Come sopra |
+| `SQL password needed for target <nome>` (HTTP 428, passo SQL `SKIP`) | `prompt` o `keyring` e nessuna fonte ha la password | App: digitala nella finestra e ricordala se vuoi. CLI: `dialga password set <target>` o `DIALGA_SQL_PASSWORD` |
+| `sql.password is keyring and no password is stored for <target>: run dialga password set <target>` | Target `keyring` senza voce nel portachiavi | `dialga password set <target>` |
+| `no system keyring is usable on this machine` (501 dall'app, o da `password set`) | Nessun servizio portachiavi (Secret Service assente, sessione remota) | Avvia/sblocca GNOME Keyring o KWallet, oppure usa `env:VAR`/`secretsmanager:`. L'app può comunque tenere la password in memoria senza ricordarla |
+| `the password comes from the environment variable <VAR>` / `… from AWS Secrets Manager` (409) | Si prova a digitare la password di un target `env:` o `secretsmanager:` | Cambia la variabile o il segreto, non la password nell'app |
+| `secret <ARN>: …AccessDenied…` | Il profilo non può leggere il segreto (o la chiave KMS) | Aggiungi `secretsmanager:GetSecretValue` (e `kms:Decrypt`) all'utente (`docs/iam-policy.md`) |
+| `secret <ARN> is JSON without a password field` | Il segreto è un JSON senza `password` | Aggiungi il campo `password`, o salva la sola password come testo |
+| Verifica della password rifiutata (422, `Login failed for user '<u>'`) | La password digitata nell'app non è valida: non viene memorizzata | Riprova con quella giusta |
 | `SQL password: environment variable <VAR> is empty` (`databases`, `status`, `wait`) | Questi comandi richiedono la password | Imposta la variabile |
 | `Login failed for user '<u>'` | Utente o password sbagliati | Controlla `sql.user` e la password |
 | Errore di certificato (`x509: certificate is valid for …`) | Il tunnel `external` porta a un'altra istanza | Controlla che `local_port` sia il tunnel di **questa** istanza |
