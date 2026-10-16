@@ -35,6 +35,7 @@ import (
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/config"
 	"github.com/decisyon/dialga/engine/internal/discover"
+	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/ops"
 	"github.com/decisyon/dialga/engine/internal/session"
@@ -76,6 +77,9 @@ type Options struct {
 	// Discover answers the first-run questions: prerequisites, AWS profiles
 	// and instances (default discover.System; tests replace it).
 	Discover discover.Service
+	// Jobs runs the import/export jobs (default: a manager in memory only;
+	// "dialga serve" passes the one with the journal).
+	Jobs *jobs.Manager
 }
 
 // Server is the HTTP API of the engine.
@@ -155,6 +159,9 @@ func New(opts Options) (*Server, error) {
 	}
 	if opts.TaskInterval <= 0 {
 		opts.TaskInterval = 30 * time.Second
+	}
+	if opts.Jobs == nil {
+		opts.Jobs = jobs.New(jobs.Options{Log: opts.Log})
 	}
 	s := &Server{opts: opts, mux: http.NewServeMux()}
 	for _, rt := range s.routes() {

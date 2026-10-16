@@ -495,6 +495,95 @@ paths:
           content:
             text/plain:
               schema: { type: string }
+  /api/v1/jobs:
+    get:
+      summary: The import/export jobs, newest first
+      description: |
+        Jobs kept by the engine: the running ones and the history (the last
+        200 ended jobs, 30 days at most). Jobs that were running when the
+        engine stopped are interrupted.
+      responses:
+        "200":
+          description: The jobs, without steps and events.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v1/jobs/{id}:
+    get:
+      summary: One job, with its databases, steps and event log
+      parameters:
+        - $ref: "#/components/parameters/JobID"
+      responses:
+        "200":
+          description: The job.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownJob" }
+  /api/v1/jobs/{id}/events:
+    get:
+      summary: The events of a job, logged then live
+      description: |
+        Server-Sent Events: the logged events after Last-Event-ID (or
+        ?after=), then the live ones (also upload.progress and the
+        task.status percentages, which the log does not keep). Each event
+        has id = its seq, event = its type and data = JobEvent. The stream
+        closes after the final job.succeeded, job.failed, job.cancelled or
+        job.interrupted event; if it closes without one (the client fell
+        behind, the engine stops), reconnect with Last-Event-ID. Comment
+        lines keep an idle stream alive.
+      parameters:
+        - $ref: "#/components/parameters/JobID"
+        - name: Last-Event-ID
+          in: header
+          description: Seq of the last event received; wins over ?after=.
+          schema: { type: integer, minimum: 0 }
+        - name: after
+          in: query
+          description: Seq of the last event received.
+          schema: { type: integer, minimum: 0, default: 0 }
+      responses:
+        "200":
+          description: The event stream.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "400":
+          description: Last-Event-ID or after is not a seq.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownJob" }
+  /api/v1/jobs/{id}/cancel:
+    post:
+      summary: Cancel a job
+      description: |
+        Queued and waiting steps do not start, running steps stop. A native
+        RDS task already running on the instance is not stopped: its
+        database gets taskLeftRunning and a warning in the log. The job ends
+        with a job.cancelled event once its steps have returned.
+      parameters:
+        - $ref: "#/components/parameters/JobID"
+      responses:
+        "202":
+          description: Cancel requested.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/JobSummary" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownJob" }
+        "409":
+          description: The job already ended.
+          content:
+            text/plain:
+              schema: { type: string }
 components:
   securitySchemes:
     bearer:
@@ -502,6 +591,12 @@ components:
       scheme: bearer
       description: The session token (32 characters at least) the shell generated.
   parameters:
+    JobID:
+      name: id
+      in: path
+      required: true
+      description: Job id.
+      schema: { type: string, pattern: "^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$" }
     TargetName:
       name: name
       in: path
@@ -509,6 +604,11 @@ components:
       description: Target name from the configuration.
       schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,62}$" }
   responses:
+    UnknownJob:
+      description: No job with that id (or removed by the retention).
+      content:
+        text/plain:
+          schema: { type: string }
     Unauthorized:
       description: Missing or wrong bearer token.
       content:
@@ -974,3 +1074,147 @@ components:
         replace:
           type: boolean
           description: Replace the target with the same name; prefixes, max_tasks and bridge_tag keep their values.
+    JobList:
+      type: object
+      required: [jobs]
+      properties:
+        jobs:
+          type: array
+          items: { $ref: "#/components/schemas/JobSummary" }
+    JobSummary:
+      type: object
+      description: A job in a list.
+      required: [id, kind, target, instance, state, createdAt, updatedAt, databases, succeeded, failed]
+      properties:
+        id: { type: string }
+        kind: { type: string, examples: [import, export] }
+        target: { type: string }
+        instance: { type: string, description: RDS DB instance identifier. }
+        state:
+          type: string
+          enum: [queued, running, succeeded, failed, cancelled, interrupted]
+          description: interrupted = the engine stopped (app closed, crash) while it ran.
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        endedAt: { type: string, format: date-time }
+        cancelRequested: { type: boolean }
+        databases: { type: array, items: { type: string } }
+        succeeded: { type: integer, description: Databases done. }
+        failed: { type: integer, description: Databases failed. }
+    Job:
+      type: object
+      required: [id, kind, target, instance, maxTasks, state, createdAt, updatedAt, items, events]
+      properties:
+        id: { type: string }
+        kind: { type: string, examples: [import, export] }
+        target: { type: string }
+        instance: { type: string, description: RDS DB instance identifier. }
+        maxTasks: { type: integer, minimum: 1, maximum: 2, description: Native tasks at once on the instance. }
+        state:
+          type: string
+          enum: [queued, running, succeeded, failed, cancelled, interrupted]
+          description: interrupted = the engine stopped (app closed, crash) while it ran.
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        endedAt: { type: string, format: date-time }
+        cancelRequested: { type: boolean }
+        items:
+          type: array
+          description: One per database, in the order of the job.
+          items: { $ref: "#/components/schemas/JobItem" }
+        events:
+          type: array
+          description: The log; upload.progress and the task percentages are live only.
+          items: { $ref: "#/components/schemas/JobEvent" }
+    JobItem:
+      type: object
+      description: One database of a job.
+      required: [name, state, percent, steps]
+      properties:
+        name: { type: string }
+        state:
+          type: string
+          enum: [queued, running, succeeded, failed, cancelled, interrupted]
+          description: interrupted = the engine stopped (app closed, crash) while it ran.
+        step: { type: string, description: The current step, or the last one reached. }
+        percent: { type: integer, minimum: 0, maximum: 100, description: Progress of the current step. }
+        steps:
+          type: array
+          items: { $ref: "#/components/schemas/JobStep" }
+        transfer: { $ref: "#/components/schemas/TransferProgress" }
+        task: { $ref: "#/components/schemas/TaskProgress" }
+        taskIds:
+          type: array
+          description: Every native task of the database, oldest first.
+          items: { type: integer }
+        taskLeftRunning:
+          type: boolean
+          description: The database stopped (cancel, interrupt) while its native task still ran on the instance.
+        upload: { $ref: "#/components/schemas/MultipartUpload" }
+        error: { type: string }
+        result: { type: string }
+    JobStep:
+      type: object
+      required: [id, title, status]
+      properties:
+        id: { type: string, examples: [upload, restore, wait, post] }
+        title: { type: string, description: English label; the GUI translates known step ids. }
+        resource:
+          type: string
+          description: What the scheduler limits; absent for local work.
+          examples: [transfer, rds-task]
+        status:
+          type: string
+          enum: [pending, waiting, running, succeeded, failed, skipped, cancelled, interrupted]
+          description: waiting = next, waiting for a free slot of its resource; skipped = an earlier step failed.
+        startedAt: { type: string, format: date-time }
+        endedAt: { type: string, format: date-time }
+        detail: { type: string, description: Result line, or the error of a failed step. }
+    JobEvent:
+      type: object
+      description: One change of a job; seq grows by one per event of the job.
+      required: [seq, time, type]
+      properties:
+        seq: { type: integer }
+        time: { type: string, format: date-time }
+        type:
+          type: string
+          examples: [job.queued, job.started, job.cancelling, job.succeeded, job.failed, job.cancelled, job.interrupted,
+            step.waiting, step.started, step.succeeded, step.failed, step.skipped, step.cancelled, step.interrupted,
+            upload.progress, task.status, log]
+        item: { type: string, description: The database. }
+        step: { type: string }
+        message: { type: string }
+        level: { type: string, enum: [info, warn, error], description: Set on log events. }
+        transfer: { $ref: "#/components/schemas/TransferProgress" }
+        task: { $ref: "#/components/schemas/TaskProgress" }
+    TransferProgress:
+      type: object
+      description: An S3 upload or download; speed and ETA computed by the engine.
+      required: [direction, bytes, total, bytesPerSecond]
+      properties:
+        direction: { type: string, enum: [upload, download] }
+        bytes: { type: integer }
+        total: { type: integer }
+        bytesPerSecond: { type: integer }
+        etaSeconds: { type: integer, description: Absent while the speed is not known. }
+    TaskProgress:
+      type: object
+      description: The last known state of a native RDS task.
+      required: [id, lifecycle, percent]
+      properties:
+        id: { type: integer }
+        type: { type: string, examples: [RESTORE_DB, BACKUP_DB] }
+        lifecycle: { type: string, enum: [CREATED, IN_PROGRESS, SUCCESS, ERROR, CANCEL_REQUESTED, CANCELLED] }
+        percent: { type: integer, minimum: 0, maximum: 100 }
+    MultipartUpload:
+      type: object
+      description: What resuming the upload of the database needs; on resume, ListParts on S3 is the truth.
+      required: [bucket, key, uploadId, size, partSize, partsDone]
+      properties:
+        bucket: { type: string }
+        key: { type: string }
+        uploadId: { type: string }
+        size: { type: integer }
+        partSize: { type: integer }
+        partsDone: { type: array, items: { type: integer } }
