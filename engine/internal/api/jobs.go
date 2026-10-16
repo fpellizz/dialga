@@ -27,6 +27,7 @@ func (s *Server) jobRoutes() []route {
 		{http.MethodGet, "/api/v1/jobs/{id}", s.getJob},
 		{http.MethodGet, "/api/v1/jobs/{id}/events", s.jobEvents},
 		{http.MethodPost, "/api/v1/jobs/{id}/cancel", s.cancelJob},
+		{http.MethodPost, "/api/v1/jobs/{id}/resume", s.resumeJob},
 	}
 }
 

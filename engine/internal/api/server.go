@@ -89,6 +89,10 @@ type Options struct {
 	// OpenS3 opens the S3 client of a target for the transfers (default
 	// transfer.Open; tests replace it).
 	OpenS3 func(context.Context, config.Target) (transfer.Client, error)
+	// JobEnv builds what resumed steps run with (the pipeline's
+	// environment, handed to the step factories). Nil: POST
+	// /api/v1/jobs/{id}/resume answers 501.
+	JobEnv func(ctx context.Context, name string, t config.Target, password string) (any, error)
 }
 
 // Server is the HTTP API of the engine.

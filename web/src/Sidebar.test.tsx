@@ -44,19 +44,14 @@ describe("Sidebar", () => {
     expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "#settings");
   });
 
-  it("lists the coming pages as disabled, not as links", () => {
+  it("links every page", () => {
     renderI18n(<Sidebar page="instances" engine={ENGINE} engineError="" />);
     const nav = screen.getByRole("navigation", { name: "Main navigation" });
     expect(
       within(nav)
         .getAllByRole("link")
         .map((link) => link.textContent),
-    ).toEqual(["Instances", "Databases", "Import", "Export", "Settings"]);
-    for (const name of ["Activity"]) {
-      const item = within(nav).getByText(name);
-      expect(item).toHaveAttribute("aria-disabled", "true");
-      expect(item).toHaveTextContent(`${name}Soon`);
-    }
+    ).toEqual(["Instances", "Databases", "Import", "Export", "Activity", "Settings"]);
   });
 
   it.each([
@@ -147,8 +142,9 @@ describe("Sidebar", () => {
       "aria-current",
       "page",
     );
+    expect(screen.getByRole("link", { name: "Importa" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Esporta" })).toBeInTheDocument();
-    expect(screen.getAllByText("Presto")).toHaveLength(1);
+    expect(screen.queryByText("Presto")).not.toBeInTheDocument();
     expect(screen.getByText("Avvio dell'engine…")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Vai al contenuto" })).toBeInTheDocument();
     expect(document.title).toBe("Impostazioni · Dialga");

@@ -105,6 +105,8 @@ function engineEnv(dir: string): NodeJS.ProcessEnv {
   return {
     ...env,
     HOME: dir,
+    // The job journal of the engine under test, never the user's.
+    XDG_STATE_HOME: path.join(dir, "state"),
     DIALGA_DEV: "1",
     AWS_CONFIG_FILE: awsConfig,
     AWS_SHARED_CREDENTIALS_FILE: awsCredentials,

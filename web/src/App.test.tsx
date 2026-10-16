@@ -15,6 +15,8 @@ function devEngine() {
     "GET /api/v1/prerequisites": () => json({ prerequisites: [] }),
     // The tunnel summary of the sidebar.
     "GET /api/v1/tunnels": () => json({ tunnels: [] }),
+    // The Activity badge of the sidebar.
+    "GET /api/v1/jobs": () => json({ jobs: [] }),
   });
 }
 

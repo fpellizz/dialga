@@ -21,6 +21,7 @@
 package jobs
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/decisyon/dialga/engine/internal/mssql"
@@ -83,6 +84,8 @@ const (
 	EventJobFailed      EventType = "job.failed"
 	EventJobCancelled   EventType = "job.cancelled"
 	EventJobInterrupted EventType = "job.interrupted"
+	// EventJobResumed: an interrupted job runs again (Manager.Resume).
+	EventJobResumed EventType = "job.resumed"
 
 	EventStepWaiting     EventType = "step.waiting"
 	EventStepStarted     EventType = "step.started"
@@ -166,10 +169,17 @@ type UploadState struct {
 
 // StepInfo is one step of an item as the GUI and the journal see it.
 type StepInfo struct {
-	ID        string     `json:"id"`
-	Title     string     `json:"title"`
-	Resource  Resource   `json:"resource,omitempty"`
-	Status    StepStatus `json:"status"`
+	ID       string     `json:"id"`
+	Title    string     `json:"title"`
+	Resource Resource   `json:"resource,omitempty"`
+	Status   StepStatus `json:"status"`
+	// Kind and Params rebuild the step on a resume (Resumable): the factory
+	// registered for Kind gets Params back. Never secrets: they are in the
+	// journal and in the API.
+	Kind   string          `json:"kind,omitempty"`
+	Params json.RawMessage `json:"params,omitempty"`
+	// TaskID is the native task the step reported (Reporter.Task).
+	TaskID    int        `json:"taskId,omitempty"`
 	StartedAt *time.Time `json:"startedAt,omitempty"`
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
 	// Detail is the result line of a succeeded step or the error of a
