@@ -216,6 +216,12 @@ func TestRefusedExecuteIsRecorded(t *testing.T) {
 			if tc.path == "cancel" && got.Items[0].Name != "task 7" || tc.path != "cancel" && got.Items[0].Name != "sales" {
 				t.Fatalf("items %+v", got.Items)
 			}
+			var l JobList
+			_ = json.Unmarshal(doJSON(js.h, http.MethodGet, "/api/v1/jobs", "").Body.Bytes(), &l)
+			if len(l.Jobs) != 1 || l.Jobs[0].Kind != jobs.Operation || l.Jobs[0].Operation != tc.path || l.Jobs[0].Origin != jobs.OriginApp ||
+				l.Jobs[0].Refusal == nil || l.Jobs[0].Refusal.Status != tc.want || l.Jobs[0].Refusal.Reason == "" || len(l.Jobs[0].Refusal.Checks) != 0 {
+				t.Fatalf("list summary %+v", l.Jobs)
+			}
 			if strings.Contains(string(mustMarshal(t, got)), "s3cret") {
 				t.Fatal("the password reached the journal")
 			}

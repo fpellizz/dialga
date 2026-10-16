@@ -302,9 +302,13 @@ type Summary struct {
 // Summary returns the list view of the job.
 func (j Job) Summary() Summary {
 	s := Summary{
-		ID: j.ID, Kind: j.Kind, Operation: j.Operation, Origin: j.Origin, Refusal: j.Refusal, Target: j.Target, Instance: j.Instance, State: j.State,
+		ID: j.ID, Kind: j.Kind, Operation: j.Operation, Origin: j.Origin, Target: j.Target, Instance: j.Instance, State: j.State,
 		CreatedAt: j.CreatedAt, UpdatedAt: j.UpdatedAt, EndedAt: j.EndedAt,
 		CancelRequested: j.CancelRequested, Databases: make([]string, 0, len(j.Items)),
+	}
+	if j.Refusal != nil {
+		// The checks are for the detail.
+		s.Refusal = &Refusal{Status: j.Refusal.Status, Reason: j.Refusal.Reason}
 	}
 	for _, it := range j.Items {
 		s.Databases = append(s.Databases, it.Name)

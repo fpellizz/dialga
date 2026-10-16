@@ -236,8 +236,10 @@ func TestStartJobErrors(t *testing.T) {
 					recorded[0].Kind != jobs.Import || len(recorded[0].Databases) != 1 || recorded[0].Databases[0] != "sales" {
 					t.Fatalf("refusal not recorded: %+v", recorded)
 				}
-				if tc.want == http.StatusPreconditionFailed && tc.name == "pre-flight fails" && len(recorded[0].Refusal.Checks) == 0 {
-					t.Fatalf("the failing checks are missing: %+v", recorded[0].Refusal)
+				if tc.want == http.StatusPreconditionFailed && tc.name == "pre-flight fails" {
+					if d, _ := js.jobs.Get(recorded[0].ID); d.Refusal == nil || len(d.Refusal.Checks) == 0 {
+						t.Fatalf("the failing checks are missing: %+v", d.Refusal)
+					}
 				}
 			case http.StatusBadRequest, http.StatusNotFound, http.StatusConflict:
 				if len(recorded) != 0 {

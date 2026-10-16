@@ -1645,7 +1645,7 @@ components:
         origin:
           type: string
           enum: [app, cli]
-          description: The process that ran the job - the app engine or a command line run (journals of older versions read as app).
+          description: The process that ran the job - the app engine or a command line run (journals of older versions read as app). The list (JobSummary) has kind, operation, origin and refusal too, the refusal without its checks (detail only).
         refusal: { $ref: "#/components/schemas/Refusal" }
         target: { type: string }
         instance: { type: string, description: RDS DB instance identifier. }
@@ -1673,7 +1673,7 @@ components:
         origin:
           type: string
           enum: [app, cli]
-          description: The process that ran the job - the app engine or a command line run (journals of older versions read as app).
+          description: The process that ran the job - the app engine or a command line run (journals of older versions read as app). The list (JobSummary) has kind, operation, origin and refusal too, the refusal without its checks (detail only).
         refusal: { $ref: "#/components/schemas/Refusal" }
         target: { type: string }
         instance: { type: string, description: RDS DB instance identifier. }
