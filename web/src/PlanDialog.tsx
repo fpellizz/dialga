@@ -442,7 +442,13 @@ export function PlanDialog({
         <ReplaceOutcome
           database={database}
           mode={preview.request.replace}
-          texts={[...run.steps.flatMap((s) => [s.label, s.detail]), ...run.notices]}
+          texts={[
+            run.done?.result,
+            preview.replace?.old,
+            preview.replace?.backupKey,
+            ...run.steps.flatMap((s) => [s.label, s.detail]),
+            ...run.notices,
+          ]}
           bucket={bucket}
           onDropOld={onDropOld}
         />

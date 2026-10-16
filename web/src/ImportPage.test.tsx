@@ -633,6 +633,7 @@ describe("ImportPage", () => {
     const REPLACE_PLAN: JobPlan = {
       ...PLAN,
       confirmation: "app_db",
+      stamp: "20261016100000",
       items: [
         {
           ...PLAN.items[0],
@@ -753,6 +754,7 @@ describe("ImportPage", () => {
       expect(JSON.parse(String(requestsTo(fetch, JOBS)[1].body))).toMatchObject({
         items: [{ database: "app_db", replace: "swap" }],
         confirm: "app_db",
+        stamp: "20261016100000",
       });
       stream.send("job.succeeded", {});
       stream.close();

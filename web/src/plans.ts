@@ -31,6 +31,8 @@ export interface PlanRequest {
   replace?: ReplaceMode;
   /** Drop only: back the current database up to S3 first (the engine default is true). */
   backupFirst?: boolean;
+  /** Set by the engine's preview (yyyymmddhhmmss): sent back on execute so the names match. */
+  stamp?: string;
 }
 
 /** The body of .../execute: the previewed request, the confirmation and the digest. */
@@ -67,6 +69,17 @@ export interface PlanPreview {
   confirmation?: string;
   digest: string;
   preview: string;
+  /** How a restore over an existing database resolved, and the names it will use. */
+  replace?: {
+    strategy: string;
+    reason?: string;
+    backupFirst?: boolean;
+    stamp?: string;
+    temp?: string;
+    old?: string;
+    backupKey?: string;
+    result?: string;
+  };
   /** The request with the defaults resolved (the export key): what execute sends back. */
   request: PlanRequest;
 }
@@ -75,6 +88,8 @@ export interface PlanDone {
   ok: boolean;
   error?: string;
   task?: Task;
+  /** A replace: names the old database it kept, or the S3 key of the safety backup. */
+  result?: string;
 }
 
 export interface DatabaseInfo {

@@ -79,6 +79,8 @@ export interface JobPlan {
   ready: boolean;
   confirmation?: string;
   digest: string;
+  /** The timestamp the replace names are built with: sent back on start so they match the preview. */
+  stamp?: string;
   warnings?: string[];
   items: JobItemPlan[];
   preview: string;
@@ -180,7 +182,12 @@ export async function startJob(
   const response = await fetch(`${engine.url}/api/v1/jobs`, {
     method: "POST",
     headers: headers(engine),
-    body: JSON.stringify({ ...jobBody(target, items, options), digest: plan.digest, confirm }),
+    body: JSON.stringify({
+      ...jobBody(target, items, options),
+      digest: plan.digest,
+      ...(plan.stamp ? { stamp: plan.stamp } : {}),
+      confirm,
+    }),
   });
   if (response.status === 412) {
     // {reason, plan}: a pre-flight check failed or the plan changed since the preview.

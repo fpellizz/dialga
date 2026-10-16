@@ -60,7 +60,7 @@ const SWAP_PREVIEW: PlanPreview = {
     },
   ],
   confirmation: "sales",
-  request: { database: "sales", key: "import/sales.bak", replace: "swap" },
+  request: { database: "sales", key: "import/sales.bak", replace: "swap", stamp: "20261016100000" },
 };
 
 function serve(routes: Record<string, () => Response>) {
@@ -143,6 +143,7 @@ describe("Restore from S3 over an existing database", () => {
     expect(body(requestsTo(fetch, `${RESTORE}/execute`)[0])).toMatchObject({
       database: "sales",
       replace: "swap",
+      stamp: "20261016100000",
       confirm: "sales",
     });
 
@@ -150,9 +151,8 @@ describe("Restore from S3 over an existing database", () => {
       step: "swap",
       label: "Swap the databases",
       status: "ok",
-      detail: `kept as ${OLD}`,
     });
-    stream.send("done", { ok: true });
+    stream.send("done", { ok: true, result: `kept the old database as ${OLD}` });
     stream.close();
     const outcome = within(await screen.findByRole("region", { name: "Result of the replace" }));
     expect(outcome.getByText(`The previous database was kept as ${OLD}.`)).toBeInTheDocument();
