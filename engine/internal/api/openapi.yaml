@@ -947,6 +947,8 @@ components:
         sqlDetail: { type: string, description: Why the SQL part is skipped or failed. }
         userDatabases: { type: integer, description: Present when sql is ok. }
         activeTasks: { type: integer, description: Native tasks queued, running or being cancelled; present when sql is ok. }
+        backupWindow: { type: string, description: "Daily automated backup window, UTC: 04:29-04:59.", examples: ["04:29-04:59"] }
+        maintenanceWindow: { type: string, description: "Weekly maintenance window, UTC: sun:05:00-sun:05:30.", examples: ["sun:05:00-sun:05:30"] }
     InspectRequest:
       type: object
       required: [paths]

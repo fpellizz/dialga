@@ -63,6 +63,9 @@ type Instance struct {
 	MaxAllocatedGiB int
 	// BackupWindow is the daily automated backup window, UTC (04:29-04:59).
 	BackupWindow string
+	// MaintenanceWindow is the weekly maintenance window, UTC
+	// (sun:05:00-sun:05:30).
+	MaintenanceWindow string
 	// Class is the DB instance class (db.m6i.large).
 	Class string
 	// VPC of the instance (its DB subnet group): the tunnel bridge is there.
@@ -82,15 +85,16 @@ func DescribeInstance(ctx context.Context, cfg aws.Config, id string) (Instance,
 	}
 	db := out.DBInstances[0]
 	inst := Instance{
-		Endpoint:        aws.ToString(db.Endpoint.Address),
-		Port:            int(aws.ToInt32(db.Endpoint.Port)),
-		Status:          aws.ToString(db.DBInstanceStatus),
-		Engine:          aws.ToString(db.Engine),
-		EngineVersion:   aws.ToString(db.EngineVersion),
-		AllocatedGiB:    int(aws.ToInt32(db.AllocatedStorage)),
-		MaxAllocatedGiB: int(aws.ToInt32(db.MaxAllocatedStorage)),
-		BackupWindow:    aws.ToString(db.PreferredBackupWindow),
-		Class:           aws.ToString(db.DBInstanceClass),
+		Endpoint:          aws.ToString(db.Endpoint.Address),
+		Port:              int(aws.ToInt32(db.Endpoint.Port)),
+		Status:            aws.ToString(db.DBInstanceStatus),
+		Engine:            aws.ToString(db.Engine),
+		EngineVersion:     aws.ToString(db.EngineVersion),
+		AllocatedGiB:      int(aws.ToInt32(db.AllocatedStorage)),
+		MaxAllocatedGiB:   int(aws.ToInt32(db.MaxAllocatedStorage)),
+		BackupWindow:      aws.ToString(db.PreferredBackupWindow),
+		MaintenanceWindow: aws.ToString(db.PreferredMaintenanceWindow),
+		Class:             aws.ToString(db.DBInstanceClass),
 	}
 	if inst.Port == 0 {
 		inst.Port = 1433
