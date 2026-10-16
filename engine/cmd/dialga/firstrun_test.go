@@ -100,7 +100,7 @@ func TestConfigInitNonInteractive(t *testing.T) {
 		AccountID: "123456789012", Region: "eu-south-1", AWSProfile: "sales", Instance: "Dev-SQLServer", Bucket: "dev-backups",
 		Prefixes: config.Prefixes{Import: "import", Export: "export"}, MaxTasks: 2,
 		SQL:     config.SQL{User: "admin", Password: "prompt"},
-		Connect: config.Connect{Mode: "external", LocalPort: 11433},
+		Connect: config.Connect{Mode: "tunnel"},
 	}
 	if got := loadTarget(t, a, "dev-sqlserver"); got != want {
 		t.Fatalf("target %+v\nwant   %+v", got, want)
@@ -183,7 +183,7 @@ func TestConfigInitInteractive(t *testing.T) {
 		"dev-backups", // bucket
 		"",            // SQL login: the master user
 		"env:DEV_PW",  // password source
-		"",            // connection: external
+		"2",           // connection: external
 		"21433",       // local port
 		"",            // name: dev-sqlserver
 		"",            // protected: no
@@ -209,7 +209,7 @@ func TestConfigInitInteractive(t *testing.T) {
 }
 
 func TestConfigInitInteractiveDeclined(t *testing.T) {
-	a, _ := firstRunApp(t, "", "", "", "1", "dev-backups", "", "", "", "", "", "y", "n")
+	a, _ := firstRunApp(t, "", "", "", "1", "dev-backups", "", "", "", "", "y", "n")
 	if code, _, errOut := run(a, "config", "init"); code != exitFailure || !strings.Contains(errOut, "not saved") {
 		t.Fatalf("code %d, stderr %q", code, errOut)
 	}
@@ -230,7 +230,7 @@ func TestConfigAddTarget(t *testing.T) {
 		t.Fatalf("add: code %d, out %q, stderr %q", code, out, errOut)
 	}
 	got := loadTarget(t, a, "prod-sql")
-	if got.Region != "eu-south-1" || got.Connect.LocalPort != 11433 || !got.Protected || got.SQL.Password != "env:PROD_PW" {
+	if got.Region != "eu-south-1" || got.Connect != (config.Connect{Mode: "tunnel"}) || !got.Protected || got.SQL.Password != "env:PROD_PW" {
 		t.Fatalf("target %+v", got)
 	}
 	if code, _, errOut := run(a, full...); code != exitFailure || !strings.Contains(errOut, "use --replace") {

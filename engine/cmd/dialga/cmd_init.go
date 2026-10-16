@@ -57,7 +57,7 @@ func (f *targetFlags) register(cmd *cobra.Command, withAccount bool) {
 	fl.StringVar(&f.bucket, "bucket", "", "S3 bucket of the SQLSERVER_BACKUP_RESTORE option")
 	fl.StringVar(&f.sqlUser, "sql-user", "", "SQL Server login")
 	fl.StringVar(&f.password, "password", "", "where the SQL password comes from: prompt or env:VAR (default prompt), never the password")
-	fl.StringVar(&f.mode, "mode", "", "connection: external (a tunnel open on --local-port), direct or tunnel (default external)")
+	fl.StringVar(&f.mode, "mode", "", "connection: tunnel (Dialga opens the SSM tunnel), external (a tunnel open on --local-port) or direct (default tunnel)")
 	fl.IntVar(&f.localPort, "local-port", 0, fmt.Sprintf("port of the open tunnel with --mode external (default %d)", defaultLocalPort))
 	fl.BoolVar(&f.protected, "protected", false, "every change on the instance asks to retype the target name")
 	fl.BoolVar(&f.replace, "replace", false, "replace the target with the same name")
@@ -311,13 +311,13 @@ func (a *app) runInit(cmd *cobra.Command, f *targetFlags, name string, noBucketC
 	// 5. Connection.
 	mode, port := f.mode, f.localPort
 	if !set("mode") {
-		mode = config.ModeExternal
+		mode = config.ModeTunnel
 		if p != nil {
-			modes := []string{config.ModeExternal, config.ModeDirect, config.ModeTunnel}
+			modes := []string{config.ModeTunnel, config.ModeExternal, config.ModeDirect}
 			i, err := p.choose("Connection", modes, []string{
+				"tunnel: Dialga opens the SSM tunnel (recommended)",
 				"external: a tunnel already open on 127.0.0.1 (open-dloop-tunnels.sh)",
 				"direct: the RDS endpoint itself (from inside the VPC)",
-				"tunnel: Dialga opens the SSM tunnel",
 			}, 0)
 			if err != nil {
 				return err
@@ -540,7 +540,7 @@ previous version stays next to it as .bak.`,
 			return a.saveTarget(cmd, path, name, f.replace, func(t config.Target) config.Target {
 				if !exists {
 					t.AWSProfile = a.defaultProfile()
-					t.Connect.Mode = config.ModeExternal
+					t.Connect.Mode = config.ModeTunnel
 				}
 				for flag, apply := range map[string]func(){
 					"profile":    func() { t.AWSProfile = f.profile },
