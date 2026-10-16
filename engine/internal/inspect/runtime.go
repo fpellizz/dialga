@@ -82,6 +82,14 @@ func lastLines(s string, n int) string {
 
 const installHint = "install podman (Fedora: sudo dnf install podman; Debian/Ubuntu: sudo apt install podman) or docker"
 
+// DetectRuntime finds the container runtime inspect would use: podman, else
+// docker, or the one DIALGA_CONTAINER_RUNTIME forces. It runs "info", so a
+// docker daemon that does not answer is an error; the error carries the
+// install hint when there is none.
+func DetectRuntime(ctx context.Context) (Runtime, error) {
+	return newInspector().detectRuntime(ctx)
+}
+
 // detectRuntime picks podman, else docker; DIALGA_CONTAINER_RUNTIME forces one.
 func (in *inspector) detectRuntime(ctx context.Context) (Runtime, error) {
 	names := []string{Podman, Docker}
