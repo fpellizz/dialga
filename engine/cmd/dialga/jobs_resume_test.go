@@ -100,9 +100,11 @@ func TestJobsResume(t *testing.T) {
 	if *built != "dev-sql with s3cret" {
 		t.Fatalf("env built %q", *built)
 	}
+	// Progress events are best effort (never replayed, skipped for a late or
+	// slow subscriber): the printer has its own test, so none is required here.
 	for _, want := range []string{
 		"job.resumed", "Resumed: 1 database(s) to finish, 0 kept as they were.",
-		"step.started", "sales/upload", "10.0 MiB of 100.0 MiB (upload)", "100.0 MiB of 100.0 MiB",
+		"step.started", "sales/upload",
 		"resumed up-1", "task 9 SUCCESS 100%", "job.succeeded",
 		"Job " + id + " succeeded. Detail: dialga jobs show " + id,
 	} {
