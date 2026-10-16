@@ -124,6 +124,150 @@ paths:
           content:
             text/plain:
               schema: { type: string }
+  /api/v1/targets/{name}/plans/{operation}:
+    post:
+      summary: Preview a native operation (dry run)
+      description: |
+        Runs the read-only pre-flight checks of the operation and answers its
+        plan with the exact T-SQL it would run. Nothing is changed: a failed
+        check is in the answer (ready false), not an error. Each call opens
+        its own SQL session.
+      parameters:
+        - $ref: "#/components/parameters/TargetName"
+        - name: operation
+          in: path
+          required: true
+          schema: { type: string, enum: [restore, export, finish, cancel, drop] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PlanRequest" }
+      responses:
+        "200":
+          description: The plan, its checks and the text to retype to execute it.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PlanPreview" }
+        "400":
+          description: Invalid body or parameters (database name, S3 key, task id).
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: Unknown target or operation.
+          content:
+            text/plain:
+              schema: { type: string }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "422":
+          description: No SQL password in the engine environment, or connect.mode tunnel.
+          content:
+            text/plain:
+              schema: { type: string }
+        "502":
+          description: AWS or SQL Server did not answer (credentials, tunnel, login).
+          content:
+            text/plain:
+              schema: { type: string }
+  /api/v1/targets/{name}/plans/{operation}/execute:
+    post:
+      summary: Execute a native operation
+      description: |
+        Builds the plan again, refuses it when a pre-flight check fails, when
+        digest is set and differs from the plan (it changed since the
+        preview) or when confirm differs from the confirmation; then streams
+        Server-Sent Events: "notice" (Notice) for the pre-flight warnings,
+        "step" (StepEvent) when an action, or the wait for the task, starts
+        or ends, "task" (Task) for every change of the followed task, then
+        one "done" (PlanDone). Closing the stream stops the wait, never the
+        task on the instance.
+      parameters:
+        - $ref: "#/components/parameters/TargetName"
+        - name: operation
+          in: path
+          required: true
+          schema: { type: string, enum: [restore, export, finish, cancel, drop] }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExecuteRequest" }
+      responses:
+        "200":
+          description: The event stream.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "400":
+          description: Invalid body or parameters (database name, S3 key, task id).
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: Unknown target or operation.
+          content:
+            text/plain:
+              schema: { type: string }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "412":
+          description: A pre-flight check failed, or the plan changed since the preview (digest). Nothing was changed.
+          content:
+            text/plain:
+              schema: { type: string }
+        "422":
+          description: Confirmation missing or different, no SQL password in the engine environment, or connect.mode tunnel.
+          content:
+            text/plain:
+              schema: { type: string }
+        "502":
+          description: AWS or SQL Server did not answer (credentials, tunnel, login).
+          content:
+            text/plain:
+              schema: { type: string }
+  /api/v1/targets/{name}/databases/{db}/report:
+    get:
+      summary: Post-restore report of a database (read-only)
+      description: Properties, files, login access, orphaned SQL users, Windows principals and objects by type.
+      parameters:
+        - $ref: "#/components/parameters/TargetName"
+        - name: db
+          in: path
+          required: true
+          schema: { type: string, pattern: "^[A-Za-z0-9_][A-Za-z0-9_-]{0,99}$" }
+      responses:
+        "200":
+          description: The report; ok is false when the database is not online or the login cannot enter it.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DatabaseReport" }
+        "400":
+          description: Invalid database name.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: Unknown target, or no such database on the instance.
+          content:
+            text/plain:
+              schema: { type: string }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "422":
+          description: No SQL password in the engine environment, or connect.mode tunnel.
+          content:
+            text/plain:
+              schema: { type: string }
+        "502":
+          description: AWS or SQL Server did not answer (credentials, tunnel, login).
+          content:
+            text/plain:
+              schema: { type: string }
 components:
   securitySchemes:
     bearer:
@@ -234,3 +378,125 @@ components:
         tasks:
           type: array
           items: { $ref: "#/components/schemas/Task" }
+    PlanAction:
+      type: object
+      description: One action of a plan, with the exact statement it runs.
+      required: [id, title, kind, risk, statement]
+      properties:
+        id: { type: string, description: "Stable action id: restore, export, finish, cancel, drop." }
+        title: { type: string }
+        kind: { type: string, enum: [sql, aws] }
+        risk: { type: string, enum: [change, destructive] }
+        statement: { type: string, description: The T-SQL (or AWS call) as it runs. }
+    Plan:
+      type: object
+      description: An operation on a target, ready to preview or execute.
+      required: [operation, target, instance, protected, actions]
+      properties:
+        operation: { type: string }
+        target: { type: string }
+        instance: { type: string }
+        protected: { type: boolean, description: The target asks to retype its name before any change. }
+        subject: { type: string, description: What a destructive plan removes (the database name). }
+        actions:
+          type: array
+          items: { $ref: "#/components/schemas/PlanAction" }
+    PlanRequest:
+      type: object
+      description: |
+        The parameters of an operation: database (restore, export, finish,
+        drop), key (restore; optional for export, default
+        <export prefix>/<db>_<YYYYMMDD-HHMMSS>.bak in UTC), differential and
+        noRecovery (restore), taskId (cancel). A bare file name goes under the
+        target prefix, s3://<bucket>/<key> must name the target bucket.
+      properties:
+        database: { type: string, pattern: "^[A-Za-z0-9_][A-Za-z0-9_-]{0,99}$" }
+        key: { type: string }
+        differential: { type: boolean }
+        noRecovery: { type: boolean }
+        taskId: { type: integer, minimum: 1 }
+    ExecuteRequest:
+      type: object
+      description: The parameters of the preview (send back its request), plus how to run it.
+      properties:
+        database: { type: string, pattern: "^[A-Za-z0-9_][A-Za-z0-9_-]{0,99}$" }
+        key: { type: string }
+        differential: { type: boolean }
+        noRecovery: { type: boolean }
+        taskId: { type: integer, minimum: 1 }
+        confirm: { type: string, description: The confirmation of the preview, retyped by the user. }
+        digest: { type: string, description: The digest of the preview; when set, a different plan is refused (412). }
+        noWait: { type: boolean, description: Return once the native task is started instead of following it. }
+    PlanPreview:
+      type: object
+      required: [plan, checks, ready, digest, preview, request]
+      properties:
+        plan: { $ref: "#/components/schemas/Plan" }
+        checks:
+          type: array
+          description: The read-only pre-flight checks (StepEvent, status ok, warning or failed).
+          items: { $ref: "#/components/schemas/StepEvent" }
+        ready: { type: boolean, description: No check failed; the plan can be executed. }
+        confirmation: { type: string, description: The text the user must retype to execute; absent when none. }
+        digest: { type: string, description: Identifies the plan (same statements on the same target). }
+        preview: { type: string, description: The dry-run text, as the CLI prints it. }
+        request: { $ref: "#/components/schemas/PlanRequest" }
+    PlanDone:
+      type: object
+      required: [ok]
+      properties:
+        ok: { type: boolean, description: Every action ran and the followed task ended in SUCCESS. }
+        error: { type: string }
+        task: { $ref: "#/components/schemas/Task" }
+    DatabaseInfo:
+      type: object
+      required: [name, state, recoveryModel, compatibilityLevel, userAccess, readOnly]
+      properties:
+        name: { type: string }
+        state: { type: string, examples: [ONLINE, RESTORING] }
+        recoveryModel: { type: string }
+        compatibilityLevel: { type: integer }
+        collation: { type: string, description: Absent while the database is not online. }
+        owner: { type: string }
+        userAccess: { type: string }
+        readOnly: { type: boolean }
+    DatabaseFile:
+      type: object
+      required: [type, name, sizeMB, physicalName]
+      properties:
+        type: { type: string, examples: [ROWS, LOG] }
+        name: { type: string }
+        sizeMB: { type: number }
+        maxSizeMB: { type: number, description: Absent when the file grows without a limit. }
+        physicalName: { type: string }
+    ObjectCount:
+      type: object
+      required: [type, count]
+      properties:
+        type: { type: string, examples: [USER_TABLE, VIEW] }
+        count: { type: integer }
+    DatabaseReport:
+      type: object
+      description: The post-restore report of a database (mssql-import.sh post).
+      required: [target, instance, ok, findings, database, files, access, orphanUsers, windowsPrincipals, objects]
+      properties:
+        target: { type: string }
+        instance: { type: string }
+        ok: { type: boolean, description: No finding failed (warnings allowed). }
+        findings:
+          type: array
+          description: "Verdicts (StepEvent): database, access, orphans, windows."
+          items: { $ref: "#/components/schemas/StepEvent" }
+        database: { $ref: "#/components/schemas/DatabaseInfo" }
+        files:
+          type: array
+          items: { $ref: "#/components/schemas/DatabaseFile" }
+        access: { type: boolean, description: The SQL login can enter the database; without it users and objects are not read. }
+        orphanUsers:
+          type: array
+          description: SQL users without a login on the instance.
+          items: { type: string }
+        windowsPrincipals: { type: integer, description: Windows users and groups, unusable on RDS without Active Directory. }
+        objects:
+          type: array
+          items: { $ref: "#/components/schemas/ObjectCount" }
