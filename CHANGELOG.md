@@ -19,6 +19,17 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
   l'elenco non c'è e si digita il nome. API: `GET /api/v1/discovery/buckets`
   (403 con testo fisso senza il permesso, 502 per gli altri errori). Policy
   IAM: nuovo statement facoltativo `OptionalListBuckets`.
+
+## [0.4.0] - 2026-10-16
+
+### Aggiunto
+
+- **App desktop: la password SQL si inserisce dall'app**. Dove serve e manca
+  compare *Enter password*: il dialogo verifica il login prima di salvarla,
+  la tiene in memoria per la sessione e, se richiesto, la ricorda nel
+  portachiavi di sistema (*Remember in the system keyring*). Le viste si
+  ricaricano da sole; le azioni già avviate vanno ripetute. La scheda
+  dell'istanza mostra da dove arriva la password, con *Forget password*.
 - **Password SQL: quattro fonti**. `keyring` (portachiavi di sistema, servizio
   `dialga`, account = nome del target) e `secretsmanager:<ARN>` (JSON con
   `password`, o testo semplice; profilo, regione e controllo dell'account del
@@ -44,6 +55,8 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
   invece di 422 (le fonti `env:` e `secretsmanager:` che non danno nulla
   restano 422).
 - CORS: `PUT` consentito, `Dialga-Password-Target` esposto.
+- Il suggerimento sotto gli errori di sessione SQL segue la modalità di
+  connessione del target (prima citava sempre il tunnel già aperto).
 
 ## [0.3.0] - 2026-10-16
 
