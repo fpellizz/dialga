@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -19,7 +20,9 @@ type fakeDiscover struct {
 	profiles  []discover.Profile
 	prereqs   []discover.Prerequisite
 	bucketErr error
-	asked     []string // profile/region of the discoveries, bucket checks
+	buckets   []discover.Bucket // what Buckets lists
+	listErr   error             // what Buckets fails with
+	asked     []string          // profile/region of the discoveries, bucket checks
 }
 
 func (f *fakeDiscover) Profiles() ([]discover.Profile, error) { return f.profiles, nil }
@@ -35,6 +38,11 @@ func (f *fakeDiscover) Instances(_ context.Context, profile, region string) (dis
 }
 
 func (f *fakeDiscover) Prerequisites(context.Context) []discover.Prerequisite { return f.prereqs }
+
+func (f *fakeDiscover) Buckets(_ context.Context, profile, region string) ([]discover.Bucket, error) {
+	f.asked = append(f.asked, "buckets "+profile+"/"+region)
+	return f.buckets, f.listErr
+}
 
 func (f *fakeDiscover) CheckBucket(_ context.Context, profile, _, bucket string) error {
 	f.asked = append(f.asked, "bucket "+profile+" "+bucket)
@@ -203,7 +211,7 @@ func TestConfigInitInteractive(t *testing.T) {
 		got.Connect.LocalPort != 21433 || got.Protected {
 		t.Fatalf("target %+v", got)
 	}
-	if len(fake.asked) != 2 {
+	if len(fake.asked) != 3 {
 		t.Fatalf("AWS calls %v", fake.asked)
 	}
 }
@@ -374,5 +382,70 @@ func TestDoctorUnusableRuntime(t *testing.T) {
 	code, out, _ := run(a, "doctor")
 	if code != 0 || !strings.Contains(out, "WARN  Container runtime          not usable: docker info: cannot connect to the daemon") {
 		t.Fatalf("code %d, out:\n%s", code, out)
+	}
+}
+
+// bucketTail are the answers after the bucket question of an interactive
+// init: SQL login, password source, connection, name, protected, save.
+var bucketTail = []string{"", "env:DEV_PW", "1", "", "", ""}
+
+func TestConfigInitBucketChoice(t *testing.T) {
+	answers := append([]string{"2", "", "1", "2"}, bucketTail...) // bucket: the second listed
+	a, fake := firstRunApp(t, "", answers...)
+	fake.buckets = []discover.Bucket{{Name: "alpha-backups"}, {Name: "beta-backups"}}
+	code, _, errOut := run(a, "config", "init")
+	if code != 0 || !strings.Contains(errOut, "1) alpha-backups") || !strings.Contains(errOut, "3) other (type it)") {
+		t.Fatalf("code %d, stderr %q", code, errOut)
+	}
+	if got := loadTarget(t, a, "dev-sqlserver"); got.Bucket != "beta-backups" {
+		t.Fatalf("bucket %q", got.Bucket)
+	}
+	if !slices.Contains(fake.asked, "buckets sales/eu-south-1") {
+		t.Fatalf("AWS calls %v", fake.asked)
+	}
+}
+
+func TestConfigInitBucketOther(t *testing.T) {
+	answers := append([]string{"2", "", "1", "other (type it)", "typed-backups"}, bucketTail...)
+	a, fake := firstRunApp(t, "", answers...)
+	fake.buckets = []discover.Bucket{{Name: "alpha-backups"}}
+	if code, _, errOut := run(a, "config", "init"); code != 0 {
+		t.Fatalf("code %d, stderr %q", code, errOut)
+	}
+	if got := loadTarget(t, a, "dev-sqlserver"); got.Bucket != "typed-backups" {
+		t.Fatalf("bucket %q", got.Bucket)
+	}
+}
+
+func TestConfigInitBucketListFallsBackToTyping(t *testing.T) {
+	for name, listErr := range map[string]error{
+		"denied": discover.ErrBucketListDenied,
+		"failed": errors.New("throttled"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			answers := append([]string{"2", "", "1", "typed-backups"}, bucketTail...)
+			a, fake := firstRunApp(t, "", answers...)
+			fake.listErr = listErr
+			code, _, errOut := run(a, "config", "init")
+			if code != 0 || !strings.Contains(errOut, "type the bucket name") {
+				t.Fatalf("code %d, stderr %q", code, errOut)
+			}
+			if got := loadTarget(t, a, "dev-sqlserver"); got.Bucket != "typed-backups" {
+				t.Fatalf("bucket %q", got.Bucket)
+			}
+		})
+	}
+}
+
+func TestConfigInitBucketFlagSkipsTheListing(t *testing.T) {
+	a, fake := firstRunApp(t, "")
+	fake.buckets = []discover.Bucket{{Name: "alpha-backups"}}
+	if code, _, errOut := run(a, "config", "init", "--instance", "legacy-sql", "--bucket", "dev-backups"); code != 0 {
+		t.Fatalf("code %d, stderr %q", code, errOut)
+	}
+	for _, call := range fake.asked {
+		if strings.HasPrefix(call, "buckets") {
+			t.Fatalf("listed the buckets despite --bucket: %v", fake.asked)
+		}
 	}
 }
