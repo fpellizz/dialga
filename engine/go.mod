@@ -6,8 +6,10 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.47.3
 	github.com/aws/aws-sdk-go-v2/config v1.33.9
 	github.com/aws/aws-sdk-go-v2/service/cloudwatch v1.73.0
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.338.1
 	github.com/aws/aws-sdk-go-v2/service/rds v1.130.3
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.0
+	github.com/aws/aws-sdk-go-v2/service/ssm v1.79.0
 	github.com/aws/aws-sdk-go-v2/service/sts v1.51.4
 	github.com/aws/smithy-go v1.28.5
 	github.com/microsoft/go-mssqldb v1.11.2
