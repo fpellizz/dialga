@@ -389,6 +389,10 @@ const en = {
   "tasks.cancel": "Cancel",
   "tasks.cancelOf": "Cancel task #{id}",
   "add.close": "Close",
+  "wizard.steps": "Steps",
+  "wizard.goTo": "Go back to {step}",
+  "wizard.done": "(done)",
+  "wizard.count": "Step {n} of {total}",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -788,6 +792,10 @@ const it: Record<MessageKey, string> = {
   "tasks.cancel": "Annulla",
   "tasks.cancelOf": "Annulla il task #{id}",
   "add.close": "Chiudi",
+  "wizard.steps": "Passi",
+  "wizard.goTo": "Torna a {step}",
+  "wizard.done": "(completato)",
+  "wizard.count": "Passo {n} di {total}",
 };
 
 export const messages: Record<Lang, Record<MessageKey, string>> = { en, it };
