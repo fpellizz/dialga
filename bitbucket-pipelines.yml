@@ -125,7 +125,9 @@ definitions:
           # testcontainers must run without its Ryuk reaper.
           - export TESTCONTAINERS_RYUK_DISABLED=true
           - cd engine
-          - go test -tags integration -count=1 -timeout 30m ./...
+          # -p 1: one package at a time, so the SQL Server containers of
+          # different packages never run together in the 4 GB docker service.
+          - go test -tags integration -p 1 -count=1 -timeout 30m ./...
 
     - step: &engine-dist
         name: "Engine · cross-build CLI (linux/windows/darwin x amd64/arm64)"
