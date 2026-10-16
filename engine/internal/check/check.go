@@ -1,7 +1,9 @@
 // Package check runs the read-only pre-flight checks of a target: AWS
 // credentials, RDS instance, native backup option, S3 bucket, storage,
 // connection, SQL Server login and native backup tasks. It is the Go
-// counterpart of "mssql-import.sh check", with the same verdicts.
+// counterpart of "mssql-import.sh check", with the same verdicts. With
+// Request.Tunnel the connection step opens the integrated SSM tunnel, and
+// the check closes it when it ends, or borrows the engine's shared one.
 //
 // Each step reports itself through an Emitter as it starts and ends, so the
 // API can stream progress to the GUI. A failed step skips the ones that
@@ -20,6 +22,7 @@ import (
 
 	"github.com/decisyon/dialga/engine/internal/awsx"
 	"github.com/decisyon/dialga/engine/internal/mssql"
+	"github.com/decisyon/dialga/engine/internal/tunnel"
 )
 
 // Request selects the target to check. The SQL password never travels in
@@ -38,6 +41,13 @@ type Request struct {
 	// Direct connects to the RDS endpoint itself (inside the VPC) instead
 	// of the tunnel on 127.0.0.1:LocalPort.
 	Direct bool `json:"direct,omitempty"`
+	// Tunnel opens the integrated SSM tunnel for the check, on LocalPort
+	// (0: a free port), through the instance tagged Name=BridgeTag.
+	Tunnel    bool   `json:"tunnel,omitempty"`
+	BridgeTag string `json:"bridgeTag,omitempty"`
+	// Lender, with Tunnel, lends the engine's shared tunnel of the target
+	// instead of the check opening its own.
+	Lender tunnel.Lender `json:"-"`
 }
 
 var (
@@ -47,6 +57,7 @@ var (
 	loginPattern    = regexp.MustCompile(`^[A-Za-z0-9._@-]{1,128}$`)
 	accountPattern  = regexp.MustCompile(`^[0-9]{12}$`)
 	bucketPattern   = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$`)
+	tagPattern      = regexp.MustCompile(`^[A-Za-z0-9 _.:/=+@-]{1,255}$`)
 )
 
 // Validate rejects values that could not name a real target.
@@ -58,8 +69,13 @@ func (r Request) Validate() error {
 		return fmt.Errorf("invalid AWS region %q", r.Region)
 	case !instancePattern.MatchString(r.Instance):
 		return fmt.Errorf("invalid RDS instance identifier %q", r.Instance)
-	case !r.Direct && (r.LocalPort < 1 || r.LocalPort > 65535):
+	case r.Direct && r.Tunnel:
+		return errors.New("direct and tunnel exclude each other")
+	case !r.Direct && !r.Tunnel && (r.LocalPort < 1 || r.LocalPort > 65535),
+		r.Tunnel && (r.LocalPort < 0 || r.LocalPort > 65535):
 		return fmt.Errorf("invalid local port %d", r.LocalPort)
+	case r.BridgeTag != "" && !tagPattern.MatchString(r.BridgeTag):
+		return fmt.Errorf("invalid bridge tag %q", r.BridgeTag)
 	case !loginPattern.MatchString(r.SQLUser):
 		return fmt.Errorf("invalid SQL login %q", r.SQLUser)
 	case r.ExpectedAccount != "" && !accountPattern.MatchString(r.ExpectedAccount):
@@ -174,6 +190,21 @@ func Run(ctx context.Context, req Request, sqlPassword string, emit Emitter) boo
 
 	r.start(stepTunnel)
 	addr := mssql.Addr(req.Direct, req.LocalPort, inst.Endpoint, inst.Port)
+	var bridge, kind string
+	if req.Tunnel {
+		lease, err := lendTunnel(ctx, cfg, req, inst)
+		if err != nil {
+			r.end(stepTunnel, Failed, "integrated tunnel: "+err.Error())
+			r.skip("needs a connection", stepSQL)
+			r.skip("needs a SQL session", stepTasks)
+			return false
+		}
+		defer lease.Release()
+		addr, bridge, kind = lease.Addr, lease.Bridge, "integrated"
+		if req.Lender != nil {
+			kind = "integrated, shared"
+		}
+	}
 	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(ctx, "tcp", addr)
 	if err != nil {
 		if req.Direct {
@@ -186,15 +217,18 @@ func Run(ctx context.Context, req Request, sqlPassword string, emit Emitter) boo
 		return false
 	}
 	_ = conn.Close()
-	if req.Direct {
+	switch {
+	case req.Direct:
 		r.end(stepTunnel, OK, "direct · "+addr)
-	} else {
+	case req.Tunnel:
+		r.end(stepTunnel, OK, fmt.Sprintf("tunnel (%s) %s → %s:%d via bridge %s", kind, addr, inst.Endpoint, inst.Port, bridge))
+	default:
 		r.end(stepTunnel, OK, fmt.Sprintf("tunnel %s → %s:%d", addr, inst.Endpoint, inst.Port))
 	}
 
 	r.start(stepSQL)
 	if sqlPassword == "" {
-		r.end(stepSQL, Skipped, "no SQL password in the engine environment (DIALGA_SQL_PASSWORD)")
+		r.end(stepSQL, Skipped, "no SQL password in the engine environment: sql.password says where it comes from (DIALGA_SQL_PASSWORD for prompt, the variable of env:VAR)")
 		r.skip("needs a SQL session", stepTasks)
 		return false
 	}
@@ -231,6 +265,24 @@ func Run(ctx context.Context, req Request, sqlPassword string, emit Emitter) boo
 		r.end(stepTasks, OK, fmt.Sprintf("%d user databases · no native task running", userDBs))
 	}
 	return !r.failed
+}
+
+// lendTunnel borrows the shared tunnel from req.Lender, or opens one for the
+// check, closed by the release.
+func lendTunnel(ctx context.Context, cfg aws.Config, req Request, inst awsx.Instance) (tunnel.Lease, error) {
+	if req.Lender != nil {
+		return req.Lender.Lend(ctx)
+	}
+	// A private tunnel takes a free port: connect.local_port belongs to the
+	// shared tunnel of the app and to "dialga tunnel", which may hold it.
+	tun, err := tunnel.Open(ctx, cfg, tunnel.Target{
+		Region: req.Region, Profile: req.Profile, VPC: inst.VPC, Host: inst.Endpoint, Port: inst.Port,
+		BridgeTag: req.BridgeTag,
+	}, tunnel.Options{})
+	if err != nil {
+		return tunnel.Lease{}, err
+	}
+	return tunnel.Lease{Addr: tun.Addr(), Bridge: tun.Bridge(), Release: func() { _ = tun.Close() }}, nil
 }
 
 // checkOption: native backup and restore need SQLSERVER_BACKUP_RESTORE in

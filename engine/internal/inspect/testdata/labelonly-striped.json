@@ -1,0 +1,17 @@
+[
+  {
+    "FamilyCount": "2",
+    "FamilySequenceNumber": "2",
+    "IsCompressed": "0",
+    "MediaDate": "2026-10-16T08:33:30",
+    "MediaDescription": "",
+    "MediaFamilyId": "BF8F8A00-0000-0000-0000-000000000000",
+    "MediaLabelPresent": "0",
+    "MediaName": "",
+    "MediaSequenceNumber": "1",
+    "MediaSetId": "CD705F76-42B0-40DD-9C57-431BE649FBB7",
+    "MirrorCount": "1",
+    "SoftwareName": "Microsoft SQL Server",
+    "SoftwareVendorId": "4608"
+  }
+]

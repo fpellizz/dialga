@@ -6,9 +6,6 @@ import (
 
 // RequestFor maps a configured target onto a check request.
 func RequestFor(t config.Target) (Request, error) {
-	if t.Connect.Mode == config.ModeTunnel {
-		return Request{}, config.ErrTunnelNotYet
-	}
 	req := Request{
 		Profile:         t.AWSProfile,
 		Region:          t.Region,
@@ -18,6 +15,8 @@ func RequestFor(t config.Target) (Request, error) {
 		Bucket:          t.Bucket,
 		ExpectedAccount: t.AccountID,
 		Direct:          t.Connect.Mode == config.ModeDirect,
+		Tunnel:          t.Connect.Mode == config.ModeTunnel,
+		BridgeTag:       t.Connect.BridgeTag,
 	}
 	return req, req.Validate()
 }

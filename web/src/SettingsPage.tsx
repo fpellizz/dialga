@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import { errorText, listTargets } from "./api";
 import type { EngineInfo } from "./engine";
+import { HintText } from "./Feedback";
+import { hintFor } from "./hints";
 import { type Lang, useI18n } from "./i18n";
+import { PrerequisitesCard } from "./PrerequisitesCard";
+import { TargetsCard } from "./TargetsCard";
 import { THEME_PREFS, type ThemePref } from "./theme";
 
 /** Language names in their own language: the same in every UI language. */
@@ -10,7 +14,7 @@ const LANGUAGES: { value: Lang; label: string }[] = [
   { value: "it", label: "Italiano" },
 ];
 
-function Segmented<T extends string>({
+export function Segmented<T extends string>({
   legend,
   name,
   value,
@@ -116,9 +120,13 @@ export function SettingsPage({
           <div className="banner banner-fail" role="alert">
             <strong>{t("instances.error")}</strong>
             <pre className="error-pre">{configError}</pre>
+            <HintText hint={hintFor(configError) ?? { key: "hint.config" }} />
           </div>
         )}
       </section>
+
+      <TargetsCard engine={engine} />
+      <PrerequisitesCard engine={engine} />
 
       <section className="card settings" aria-labelledby="settings-about">
         <h2 id="settings-about">{t("settings.about")}</h2>

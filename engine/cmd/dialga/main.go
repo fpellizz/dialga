@@ -11,14 +11,18 @@ import (
 	"io/fs"
 	"os"
 	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/config"
+	"github.com/decisyon/dialga/engine/internal/discover"
 	"github.com/decisyon/dialga/engine/internal/mssql"
+	"github.com/decisyon/dialga/engine/internal/ops"
 	"github.com/decisyon/dialga/engine/internal/session"
+	"github.com/decisyon/dialga/engine/internal/transfer"
 )
 
 // version is overridden at build time by ci/build-engine.sh
@@ -48,6 +52,16 @@ type app struct {
 	readPassword     func(prompt string) (string, error)
 	runCheck         func(context.Context, check.Request, string, check.Emitter) bool
 	openTasks        func(context.Context, config.Target, string) (mssql.TaskReader, func(), error)
+	openDatabases    func(context.Context, config.Target, string) (mssql.DatabaseReader, func(), error)
+	openTunnel       tunnelOpener // nil: openTunnel
+	runInspect       inspectFunc  // nil: inspect.Run
+	// openOps opens a target for the native operations (cmd_ops.go);
+	// readConfirm asks to retype a confirmation on the terminal.
+	openOps     func(ctx context.Context, name string, t config.Target, password string) (*ops.Session, func(), error)
+	readConfirm func(prompt string) (string, error)
+	// discover answers config init and doctor (nil: discover.System).
+	discover discover.Service
+	openS3   func(context.Context, config.Target) (transfer.Client, error)
 }
 
 func main() {
@@ -58,12 +72,22 @@ func main() {
 		readPassword:     readPasswordFromTerminal,
 		runCheck:         check.Run,
 		openTasks:        session.OpenTasks,
+		openDatabases:    session.OpenDatabases,
+		openOps:          ops.Open,
+		readConfirm:      readLineFromTerminal,
+		openS3:           transfer.Open,
 	}
 	os.Exit(a.execute(os.Args[1:], os.Stdout, os.Stderr))
 }
 
+// stopSignals end a command the way Ctrl-C does, so its deferred cleanup
+// runs: an integrated tunnel terminates its SSM session instead of leaving
+// it to the idle timeout. SIGPIPE comes from a reader that went away
+// (dialga wait 42 | head -1); writes then fail instead of killing dialga.
+var stopSignals = []os.Signal{os.Interrupt, syscall.SIGTERM, syscall.SIGHUP, syscall.SIGPIPE}
+
 func (a *app) execute(args []string, stdout, stderr io.Writer) int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), stopSignals...)
 	defer stop()
 	root := a.rootCmd()
 	root.SetArgs(args)
@@ -157,7 +181,7 @@ func (a *app) loadConfig() (*config.Config, string, error) {
 	}
 	cfg, err := config.Load(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, path, fmt.Errorf("no configuration at %s (start from docs/config.example.yaml)", path)
+		return nil, path, fmt.Errorf("no configuration at %s (run dialga config init, or start from docs/config.example.yaml)", path)
 	}
 	return cfg, path, err
 }

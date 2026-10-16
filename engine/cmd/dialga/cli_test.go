@@ -150,9 +150,10 @@ func TestCheckModes(t *testing.T) {
 	if code, _, _ := run(direct, "check"); code != 0 || !req.Direct {
 		t.Fatalf("direct: code %d, request %+v", code, *req)
 	}
-	tunnel, _, _ := testApp(t, strings.Replace(testConfig, "mode: external", "mode: tunnel", 1))
-	if code, _, errOut := run(tunnel, "check"); code != exitFailure || !strings.Contains(errOut, "v0.4") {
-		t.Fatalf("tunnel: code %d, stderr %q", code, errOut)
+	tunnel, req, _ := testApp(t, strings.Replace(testConfig, "mode: external, local_port: 11433",
+		"mode: tunnel, bridge_tag: my-bridge", 1), check.OK)
+	if code, _, _ := run(tunnel, "check"); code != 0 || !req.Tunnel || req.Direct || req.LocalPort != 0 || req.BridgeTag != "my-bridge" {
+		t.Fatalf("tunnel: code %d, request %+v", code, *req)
 	}
 }
 
