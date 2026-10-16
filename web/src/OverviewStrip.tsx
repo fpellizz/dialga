@@ -78,15 +78,16 @@ export function OverviewStrip({ engine, target }: { engine: EngineInfo; target: 
       className="btn btn-ghost btn-sm"
       onClick={() => !loading && setReload((n) => n + 1)}
       aria-disabled={loading || undefined}
-      aria-label={t("overview.refresh")}
-      title={t("overview.refresh")}
+      aria-label={t("overview.refresh", { target })}
+      title={t("overview.refresh", { target })}
     >
       <RefreshCw size={14} className={loading ? "spin" : undefined} aria-hidden="true" />
     </button>
   );
 
   return (
-    <div ref={ref} className="overview" aria-busy={loading}>
+    // Busy from the first render: the skeleton shows before the request starts.
+    <div ref={ref} className="overview" aria-busy={loading || (!overview && error === null)}>
       {!overview && error === null && (
         <div aria-hidden="true">
           <div className="skeleton skeleton-line" />
