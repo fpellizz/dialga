@@ -375,15 +375,33 @@ describe("PlanDialog", () => {
       "#activity/job-7",
     );
 
-    // Cancel goes through the job and the dialog keeps following.
+    // Cancel asks first: the focus moves to the safe choice, Escape keeps it running.
     const cancel = screen.getByRole("button", { name: "Cancel operation" });
     await userEvent.click(cancel);
+    const keep = screen.getByRole("button", { name: "Keep running" });
+    await waitFor(() => expect(keep).toHaveFocus());
+    expect(screen.getByText("Cancel the remaining steps?")).toBeInTheDocument();
+    expect(screen.getByText(/intermediate state shown in the steps/)).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByText("Cancel the remaining steps?")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    await waitFor(() => expect(cancel).toHaveFocus());
+    expect(requestsTo(fetch, "POST /api/v1/jobs/job-7/cancel")).toHaveLength(0);
+
+    // Confirming cancels through the job and the dialog keeps following.
+    await userEvent.click(cancel);
+    await userEvent.click(
+      within(
+        screen.getByText("Cancel the remaining steps?").closest("section") as HTMLElement,
+      ).getByRole("button", { name: "Cancel operation" }),
+    );
     await waitFor(() =>
       expect(requestsTo(fetch, "POST /api/v1/jobs/job-7/cancel")).toHaveLength(1),
     );
     expect(await screen.findByText(/Cancelling: the operation stops/)).toBeInTheDocument();
     expect(cancel).toHaveAttribute("aria-disabled", "true");
     await userEvent.click(cancel);
+    expect(screen.queryByText("Cancel the remaining steps?")).toBeNull();
     expect(requestsTo(fetch, "POST /api/v1/jobs/job-7/cancel")).toHaveLength(1);
 
     // Closing while it runs hands the job to the page.

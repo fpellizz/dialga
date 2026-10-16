@@ -311,7 +311,7 @@ const en = {
   "activity.cancel": "Cancel job",
   "activity.cancelTitle": "Cancel this job?",
   "activity.cancelHint":
-    "Databases that are queued or waiting do not start, and running uploads stop. A native RDS task already running on the instance is not stopped: it ends on its own.",
+    "Databases that are queued or waiting do not start, and running uploads stop. A native RDS task already running on the instance is not stopped: it ends on its own. With a swap or a drop, the database may be left in the intermediate state shown in the steps.",
   "activity.keepRunning": "Keep running",
   "activity.cancelling":
     "Cancelling: the running steps are stopping. Native RDS tasks already running on the instance are not stopped.",
@@ -457,6 +457,9 @@ const en = {
   "plan.keepsRunning": "It keeps running: follow it in Activity.",
   "plan.openActivity": "Open in Activity",
   "plan.cancelOperation": "Cancel operation",
+  "plan.cancelTitle": "Cancel the remaining steps?",
+  "plan.cancelHint":
+    "The steps that have not started will not start. A native RDS task already running is not stopped: it ends on its own. With a swap or a drop, the database may be left in the intermediate state shown in the steps.",
   "plan.cancelling": "Cancelling: the operation stops when the engine has processed the request.",
   "plan.announce.task": "Task {id}: {lifecycle}",
   "plan.done.restore":
@@ -1114,7 +1117,7 @@ const it: Record<MessageKey, string> = {
   "activity.cancel": "Annulla il job",
   "activity.cancelTitle": "Annullare questo job?",
   "activity.cancelHint":
-    "I database in coda o in attesa non partono e gli upload in corso si fermano. Un task nativo RDS già in corso sull'istanza non viene interrotto: finisce da solo.",
+    "I database in coda o in attesa non partono e gli upload in corso si fermano. Un task nativo RDS già in corso sull'istanza non viene interrotto: finisce da solo. Con uno swap o un drop il database può restare nello stato intermedio mostrato nei passaggi.",
   "activity.keepRunning": "Continua",
   "activity.cancelling":
     "Annullamento: i passaggi in corso si stanno fermando. I task nativi RDS già in corso sull'istanza non vengono interrotti.",
@@ -1261,6 +1264,9 @@ const it: Record<MessageKey, string> = {
   "plan.keepsRunning": "Continua: seguila in Attività.",
   "plan.openActivity": "Apri in Attività",
   "plan.cancelOperation": "Annulla l'operazione",
+  "plan.cancelTitle": "Annullare i passaggi rimanenti?",
+  "plan.cancelHint":
+    "I passaggi non ancora iniziati non partiranno. Un task nativo RDS già in corso non viene interrotto: finisce da solo. Con uno swap o un drop il database può restare nello stato intermedio mostrato nei passaggi.",
   "plan.cancelling":
     "Annullamento in corso: l'operazione si ferma quando l'engine ha elaborato la richiesta.",
   "plan.announce.task": "Task {id}: {lifecycle}",

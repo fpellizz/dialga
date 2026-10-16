@@ -296,7 +296,7 @@ describe("ActivityPage detail", () => {
 
     const box = screen.getByRole("region", { name: "Cancel this job?" });
     expect(box).toHaveAccessibleDescription(
-      "Databases that are queued or waiting do not start, and running uploads stop. A native RDS task already running on the instance is not stopped: it ends on its own.",
+      "Databases that are queued or waiting do not start, and running uploads stop. A native RDS task already running on the instance is not stopped: it ends on its own. With a swap or a drop, the database may be left in the intermediate state shown in the steps.",
     );
     expect(within(box).getByRole("button", { name: "Keep running" })).toHaveFocus();
     await user.keyboard("{Escape}");

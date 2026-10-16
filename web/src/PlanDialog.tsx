@@ -180,6 +180,17 @@ export function PlanDialog({
     }
   }
 
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const cancelButton = useRef<HTMLButtonElement>(null);
+  // The question is gone: the focus goes back to the button that asked it.
+  function leaveCancel(confirmed: boolean) {
+    setConfirmingCancel(false);
+    if (confirmed) {
+      void cancel();
+    }
+    queueMicrotask(() => cancelButton.current?.focus());
+  }
+
   function close() {
     const following = run?.status === "running";
     previewAbort.current?.abort();
@@ -262,8 +273,10 @@ export function PlanDialog({
           <button
             type="button"
             className="btn btn-outline"
+            ref={cancelButton}
             aria-disabled={run.cancelling}
-            onClick={() => !run.cancelling && void cancel()}
+            aria-expanded={confirmingCancel}
+            onClick={() => !run.cancelling && setConfirmingCancel(true)}
           >
             {t("plan.cancelOperation")}
           </button>
@@ -463,6 +476,40 @@ export function PlanDialog({
           request={preview?.request ?? params}
           strategy={preview?.replace?.strategy}
         />
+      )}
+      {run?.status === "running" && confirmingCancel && !run.cancelling && (
+        <section
+          className="confirm-cancel"
+          aria-labelledby={`${ids}-cancel-title`}
+          aria-describedby={`${ids}-cancel-hint`}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              // Keeps it running, not the dialog closed.
+              e.preventDefault();
+              e.stopPropagation();
+              leaveCancel(false);
+            }
+          }}
+        >
+          <strong id={`${ids}-cancel-title`}>{t("plan.cancelTitle")}</strong>
+          <p id={`${ids}-cancel-hint`} className="hint">
+            {t("plan.cancelHint")}
+          </p>
+          <div className="actions actions-start">
+            <button type="button" className="btn btn-destructive" onClick={() => leaveCancel(true)}>
+              {t("plan.cancelOperation")}
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={() => leaveCancel(false)}
+              // biome-ignore lint/a11y/noAutofocus: the safe choice takes the focus when the question appears
+              autoFocus
+            >
+              {t("activity.keepRunning")}
+            </button>
+          </div>
+        </section>
       )}
       {run?.status === "done" && operation === "restore" && preview?.request.replace && (
         <ReplaceOutcome
