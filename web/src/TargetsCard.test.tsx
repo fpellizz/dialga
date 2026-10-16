@@ -61,7 +61,8 @@ describe("TargetsCard", () => {
     mockFetch({ [TARGETS]: answer });
     renderI18n(<TargetsCard engine={ENGINE} />);
     const banner = await within(card()).findByRole("alert");
-    expect(banner.querySelector("pre")).toHaveTextContent(new RegExp(`^${message}$`));
+    // A configuration error keeps its lines; a failed request is one message.
+    expect(banner.querySelector("pre, .banner-text")).toHaveTextContent(new RegExp(`^${message}$`));
     expect(screen.queryByText(/No targets yet/)).toBeNull();
   });
 
@@ -134,15 +135,18 @@ describe("TargetsCard", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Remove dev-sql" }));
     await userEvent.type(confirmField(), "dev-sql");
     await userEvent.click(confirmButton());
-    expect(confirmButton()).toBeDisabled();
+    expect(confirmButton()).toHaveAttribute("aria-disabled", "true");
 
     answer.resolve(text("config: cannot write config.yaml: read-only file system\n", 500));
     const form = screen.getByRole("form", { name: "Remove dev-sql?" });
-    expect(await within(form).findByRole("alert")).toHaveTextContent(
+    const alert = await within(form).findByRole("alert");
+    expect(alert.querySelector(".banner-text")).toHaveTextContent(
       /^config: cannot write config\.yaml: read-only file system$/,
     );
+    expect(confirmButton()).not.toHaveAttribute("aria-disabled");
     expect(confirmButton()).toBeEnabled();
-    expect(within(card()).queryByRole("status")).toBeNull();
+    // The live region stays, with nothing removed to announce.
+    expect(within(card()).getByRole("status")).toBeEmptyDOMElement();
   });
 
   it("waits for the engine without asking anything", () => {

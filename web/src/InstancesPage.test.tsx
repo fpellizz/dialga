@@ -359,7 +359,7 @@ describe("InstancesPage", () => {
       const dialog = screen.getByRole("dialog", { name: "Add instance" });
       await within(dialog).findByRole("combobox", { name: "AWS profile" });
 
-      await userEvent.click(within(dialog).getAllByRole("button", { name: "Cancel" })[1]);
+      await userEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
       expect(screen.queryByRole("dialog")).toBeNull();
       // The focus goes back to the button that opened the dialog.
       expect(add).toHaveFocus();

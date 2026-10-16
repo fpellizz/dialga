@@ -161,8 +161,9 @@ describe("AddInstanceDialog", () => {
     );
 
     await discover();
-    const busy = screen.getByRole("button", { name: "Discovering…" });
-    expect(busy).toHaveAttribute("aria-busy", "true");
+    // Busy is announced on the results it is loading, not on the button.
+    expect(screen.getByRole("button", { name: "Discovering…" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Instance" })).toHaveAttribute("aria-busy", "true");
     expect(discoveries(fetch)).toEqual(["?profile=default&region=eu-west-1"]);
 
     answer.resolve();
@@ -220,7 +221,9 @@ describe("AddInstanceDialog", () => {
     ).toBeInTheDocument();
 
     await discover();
-    expect(await within(dialog()).findByRole("alert")).toHaveTextContent(
+    // The engine's message first, then the what-to-do hint.
+    const alert = await within(dialog()).findByRole("alert");
+    expect(alert.querySelector(".banner-text")).toHaveTextContent(
       /^operation error RDS: DescribeDBInstances, AccessDenied$/,
     );
   });
@@ -293,7 +296,10 @@ describe("AddInstanceDialog", () => {
     expect(within(dialog()).queryByRole("textbox", { name: "Local port" })).toBeNull();
 
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(screen.getByRole("button", { name: "Saving…" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Saving…" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
     expect(saved(fetch)).toEqual([
       {
         name: "my-sqlserver",
@@ -329,7 +335,9 @@ describe("AddInstanceDialog", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    const footer = screen.getByRole("button", { name: "Save" }).closest("footer") as HTMLElement;
+    const footer = screen
+      .getByRole("button", { name: "Save" })
+      .closest(".dialog-foot") as HTMLElement;
     expect(await within(footer).findByRole("alert")).toHaveTextContent(
       'target "my-sqlserver" exists: choose another name, or replace it',
     );
@@ -340,12 +348,9 @@ describe("AddInstanceDialog", () => {
   it.each([
     [
       "the close button",
-      () => userEvent.click(within(dialog()).getAllByRole("button", { name: "Cancel" })[0]),
+      () => userEvent.click(within(dialog()).getByRole("button", { name: "Close" })),
     ],
-    [
-      "Cancel",
-      () => userEvent.click(within(dialog()).getAllByRole("button", { name: "Cancel" })[1]),
-    ],
+    ["Cancel", () => userEvent.click(within(dialog()).getByRole("button", { name: "Cancel" }))],
     ["Escape", () => fireEvent(dialog(), new Event("cancel", { cancelable: true }))],
   ])("closes with %s", async (_name, close) => {
     const { onClose } = open({});
