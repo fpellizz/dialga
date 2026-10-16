@@ -15,17 +15,17 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/modules/minio"
 
 	"github.com/decisyon/dialga/engine/internal/config"
 	"github.com/decisyon/dialga/engine/internal/transfer"
+	"github.com/decisyon/dialga/engine/internal/transfer/transfertest"
 )
 
 // TestUploadDownloadOnMinIO runs the commands with the real SDK against
 // MinIO, standing in for the bucket of the target.
 func TestUploadDownloadOnMinIO(t *testing.T) {
 	ctx := context.Background()
-	ctr, err := minio.Run(ctx, "quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z")
+	ctr, err := transfertest.RunMinIO(ctx)
 	testcontainers.CleanupContainer(t, ctr)
 	if err != nil {
 		t.Fatal(err)

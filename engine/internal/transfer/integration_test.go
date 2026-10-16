@@ -18,10 +18,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/testcontainers/testcontainers-go/modules/minio"
-)
 
-// minioImage is the MinIO release the CI pulls.
-const minioImage = "quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z"
+	"github.com/decisyon/dialga/engine/internal/transfer/transfertest"
+)
 
 var (
 	minioOnce   sync.Once
@@ -44,7 +43,7 @@ func minioS3(t *testing.T) (*s3.Client, string) {
 	t.Helper()
 	ctx := context.Background()
 	minioOnce.Do(func() {
-		minioCtr, minioErr = minio.Run(ctx, minioImage)
+		minioCtr, minioErr = transfertest.RunMinIO(ctx)
 		if minioErr != nil {
 			return
 		}
