@@ -384,3 +384,48 @@ func TestDefaultDir(t *testing.T) {
 		t.Error("no config dir: no error")
 	}
 }
+
+func TestReadJournalChangesNothing(t *testing.T) {
+	if list, errs := ReadJournal(filepath.Join(t.TempDir(), "missing")); list != nil || errs != nil {
+		t.Fatalf("missing dir: %v %v", list, errs)
+	}
+	dir := t.TempDir()
+	running := Job{ID: "20261016T090000Z-0000abcd", Kind: Import, Target: "dev", State: Running,
+		Items: []Item{{Name: "a", State: Running, Steps: []StepInfo{{ID: "upload", Status: StepRunning}}}}, Events: []Event{}}
+	writeJob(t, dir, running)
+	tmp := filepath.Join(dir, ".20261016T090000Z-0000abcd.json.1.tmp")
+	if err := os.WriteFile(tmp, []byte("half"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.ReadFile(filepath.Join(dir, running.ID+".json"))
+
+	// An engine holds the journal: reading still works.
+	m := openT(t, dir, Options{})
+	defer closeT(t, m)
+	after, _ := os.ReadFile(filepath.Join(dir, running.ID+".json"))
+	list, errs := ReadJournal(dir)
+	if len(errs) != 0 || len(list) != 1 || list[0].State != Interrupted {
+		t.Fatalf("read while an engine runs: %v %v", list, errs)
+	}
+	if string(before) == string(after) {
+		t.Fatal("the engine did not mark the job (test setup)")
+	}
+
+	// Without an engine: the file stays as it is, temporary files too.
+	dir2 := t.TempDir()
+	writeJob(t, dir2, running)
+	tmp2 := filepath.Join(dir2, ".x.tmp")
+	if err := os.WriteFile(tmp2, []byte("half"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	list, errs = ReadJournal(dir2)
+	if len(errs) != 0 || len(list) != 1 || list[0].State != Running {
+		t.Fatalf("read: %v %v", list, errs)
+	}
+	if _, err := os.Stat(tmp2); err != nil {
+		t.Fatal("ReadJournal removed a file")
+	}
+	if _, err := os.Stat(filepath.Join(dir2, ".lock")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("ReadJournal created the lock file")
+	}
+}
