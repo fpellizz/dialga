@@ -93,7 +93,8 @@ describe("InstancesPage", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
     expect(await screen.findByRole("region", { name: "prod-sql" })).toBeInTheDocument();
-    expect(fetch).toHaveBeenCalledTimes(2);
+    // The cards also ask for their overview: count the list requests only.
+    expect(requestsTo(fetch, TARGETS)).toHaveLength(2);
   });
 
   it("streams a check: notice, steps and a verdict with warnings", async () => {

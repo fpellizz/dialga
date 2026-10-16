@@ -56,13 +56,16 @@ describe("SettingsPage", () => {
   });
 
   it("shows a skeleton, then the path of the configuration", async () => {
-    const answer = deferred<Response>();
-    mockFetch({ [TARGETS]: () => answer.promise });
+    // Several cards list the targets: each request gets its own answer.
+    const answer = deferred<void>();
+    mockFetch({
+      [TARGETS]: () => answer.promise.then(() => json({ configPath: CONFIG_PATH, targets: [] })),
+    });
     renderI18n(<SettingsPage engine={ENGINE} theme="system" onThemeChange={() => {}} />);
     const config = section("Configuration file");
     expect(config.querySelector(".skeleton")).not.toBeNull();
 
-    answer.resolve(json({ configPath: CONFIG_PATH, targets: [] }));
+    answer.resolve();
     expect(await within(config).findByText(CONFIG_PATH)).toHaveClass("path");
     expect(config.querySelector(".skeleton")).toBeNull();
     expect(within(config).queryByRole("alert")).toBeNull();

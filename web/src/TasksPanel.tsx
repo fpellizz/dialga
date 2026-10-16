@@ -7,7 +7,7 @@ import { useI18n } from "./i18n";
 /** While a task is running the list refreshes itself (RDS updates every ~2 min). */
 const POLL_MS = 30_000;
 
-const BADGE: Record<Lifecycle, string> = {
+export const BADGE: Record<Lifecycle, string> = {
   CREATED: "badge-running",
   IN_PROGRESS: "badge-running",
   SUCCESS: "badge-ok",

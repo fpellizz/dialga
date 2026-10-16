@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { checkTarget, errorText, listTargets, listTasks, type StepEvent } from "./api";
+import {
+  checkTarget,
+  errorText,
+  HttpError,
+  listTargets,
+  listTasks,
+  type StepEvent,
+} from "./api";
 
 const ENGINE = { url: "http://127.0.0.1:43210", token: "t".repeat(48), version: "0.1.0" };
 const AUTH = { Authorization: `Bearer ${ENGINE.token}` };
@@ -42,7 +49,8 @@ describe("api", () => {
     ["the status without a message", "", 502, "HTTP 502"],
   ])("fails with %s", async (_name, body, status, message) => {
     stubFetch(() => new Response(body, { status }));
-    await expect(listTargets(ENGINE)).rejects.toThrow(new Error(message));
+    // The message is the engine text as is; the status comes along.
+    await expect(listTargets(ENGINE)).rejects.toThrow(new HttpError(message, status));
   });
 
   it("lists the tasks of an escaped target name", async () => {
@@ -92,7 +100,7 @@ describe("api", () => {
   it("fails a refused check with the engine message", async () => {
     stubFetch(() => new Response("connect.mode tunnel arrives in v0.4\n", { status: 422 }));
     await expect(checkTarget(ENGINE, "dev-sql", ignore, ignore)).rejects.toThrow(
-      new Error("connect.mode tunnel arrives in v0.4"),
+      new HttpError("connect.mode tunnel arrives in v0.4", 422),
     );
   });
 

@@ -22,6 +22,9 @@ export interface TargetSummary {
   connectMode: "external" | "direct" | "tunnel";
   localPort?: number;
   protected: boolean;
+  /** S3 key prefixes of the target: uploads to restore, exports. */
+  importPrefix: string;
+  exportPrefix: string;
 }
 
 /** GET /api/v1/targets: an empty list with no error means "no configuration yet". */
@@ -67,12 +70,28 @@ export function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function authHeaders(engine: EngineInfo): HeadersInit {
+export function authHeaders(engine: EngineInfo): HeadersInit {
   return { Authorization: `Bearer ${engine.token}` };
 }
 
-async function failure(response: Response): Promise<Error> {
-  return new Error((await response.text()).trim() || `HTTP ${response.status}`);
+/**
+ * An engine answer that is not 2xx: the message is the engine text, as is.
+ * Its name stays "Error": callers that only read the message see no change.
+ */
+export class HttpError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+  }
+}
+
+export async function failure(response: Response): Promise<HttpError> {
+  return new HttpError(
+    (await response.text()).trim() || `HTTP ${response.status}`,
+    response.status,
+  );
 }
 
 export async function listTargets(engine: EngineInfo): Promise<TargetList> {

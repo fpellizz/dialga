@@ -6,6 +6,7 @@ import {
   Plus,
   RefreshCw,
   TriangleAlert,
+  Upload,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AddInstanceDialog } from "./AddInstanceDialog";
@@ -18,6 +19,7 @@ import {
   type TargetSummary,
 } from "./api";
 import type { EngineInfo } from "./engine";
+import { importHref } from "./ImportPage";
 import { useI18n } from "./i18n";
 import { OverviewStrip } from "./OverviewStrip";
 import { StepList } from "./StepList";
@@ -219,6 +221,14 @@ function TargetCard({ engine, target }: { engine: EngineInfo; target: TargetSumm
       <OverviewStrip engine={engine} target={target.name} />
 
       <div className="actions">
+        <a
+          className="btn btn-outline"
+          href={importHref(target.name)}
+          aria-label={t("import.into", { target: target.name })}
+        >
+          <Upload size={16} aria-hidden="true" />
+          {t("nav.import")}
+        </a>
         <button
           type="button"
           className="btn btn-outline"
