@@ -124,6 +124,141 @@ paths:
           content:
             text/plain:
               schema: { type: string }
+  /api/v1/prerequisites:
+    get:
+      summary: The programs Dialga runs, found or not
+      description: |
+        session-manager-plugin (SSM tunnels) and the container runtime (podman,
+        otherwise docker; inspect). Each item carries the install command for
+        Fedora and Debian, worth showing when it is missing.
+      responses:
+        "200":
+          description: The prerequisites.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PrerequisiteList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v1/discovery/profiles:
+    get:
+      summary: The AWS profiles of this computer
+      description: |
+        Names from the shared config and credentials files (AWS_CONFIG_FILE,
+        AWS_SHARED_CREDENTIALS_FILE or ~/.aws), with the region of the config
+        file. Of the credentials file only the section headers are read.
+        Missing files are an empty list.
+      responses:
+        "200":
+          description: The profiles, sorted by name.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProfileList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "500":
+          description: A shared file exists but cannot be read.
+          content:
+            text/plain:
+              schema: { type: string }
+  /api/v1/discovery/instances:
+    get:
+      summary: The RDS SQL Server instances a profile sees in a region
+      description: |
+        Read-only: sts:GetCallerIdentity (the account, to pre-fill accountId),
+        rds:DescribeDBInstances and rds:DescribeOptionGroups (whether each
+        option group has SQLSERVER_BACKUP_RESTORE).
+      parameters:
+        - name: profile
+          in: query
+          required: true
+          schema: { type: string, pattern: "^[A-Za-z0-9._@+-]{1,64}$" }
+        - name: region
+          in: query
+          required: true
+          schema: { type: string, pattern: "^[a-z]{2}(-[a-z]+)+-[0-9]$" }
+      responses:
+        "200":
+          description: The instances, sorted by identifier.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/InstanceDiscovery" }
+        "400":
+          description: Invalid profile or region.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "502":
+          description: AWS did not answer (credentials, expired SSO session, permissions).
+          content:
+            text/plain:
+              schema: { type: string }
+  /api/v1/config/targets:
+    post:
+      summary: Add a target to the configuration file, or replace it
+      description: |
+        Validated with the rules of the file, then written atomically (0600,
+        the previous file kept as .bak; comments are not kept). The file on
+        disk must parse: an invalid one is never overwritten. The body never
+        holds a password, only where to find it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TargetInput" }
+      responses:
+        "200":
+          description: The target replaced an existing one (replace).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TargetSummary" }
+        "201":
+          description: The target was added.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TargetSummary" }
+        "400":
+          description: Invalid body or target; the message says which fields.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409":
+          description: A target has that name (and replace is not set), or the file on disk does not parse.
+          content:
+            text/plain:
+              schema: { type: string }
+  /api/v1/config/targets/{name}:
+    delete:
+      summary: Remove a target from the configuration file
+      description: |
+        Removing the last target removes the file (the previous one is kept
+        as .bak): the next start is a first run.
+      parameters:
+        - $ref: "#/components/parameters/TargetName"
+        - name: confirm
+          in: query
+          required: true
+          description: The target name again.
+          schema: { type: string }
+      responses:
+        "204":
+          description: The target was removed.
+        "400":
+          description: confirm does not repeat the name.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409":
+          description: The file on disk does not parse.
+          content:
+            text/plain:
+              schema: { type: string }
 components:
   securitySchemes:
     bearer:
@@ -234,3 +369,89 @@ components:
         tasks:
           type: array
           items: { $ref: "#/components/schemas/Task" }
+    InstallHint:
+      type: object
+      required: [distro, command]
+      properties:
+        distro: { type: string, enum: [fedora, debian], description: debian also covers Ubuntu. }
+        command: { type: string }
+    Prerequisite:
+      type: object
+      required: [id, program, found, purpose, install]
+      properties:
+        id: { type: string, enum: [session-manager-plugin, container-runtime] }
+        program: { type: string, description: The program found, or the one to install when none is. }
+        found: { type: boolean }
+        path: { type: string }
+        version: { type: string, description: Empty when the program does not tell it. }
+        purpose: { type: string, description: What needs it (English; the GUI translates known ids). }
+        install:
+          type: array
+          items: { $ref: "#/components/schemas/InstallHint" }
+    PrerequisiteList:
+      type: object
+      required: [prerequisites]
+      properties:
+        prerequisites:
+          type: array
+          items: { $ref: "#/components/schemas/Prerequisite" }
+    AWSProfile:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        region: { type: string, description: The region of the profile in the config file. }
+    ProfileList:
+      type: object
+      required: [profiles]
+      properties:
+        profiles:
+          type: array
+          items: { $ref: "#/components/schemas/AWSProfile" }
+    DiscoveredInstance:
+      type: object
+      required: [identifier, engine, engineVersion, class, status, backupRestore]
+      properties:
+        identifier: { type: string, description: RDS DB instance identifier. }
+        endpoint: { type: string }
+        port: { type: integer }
+        engine: { type: string, examples: [sqlserver-se, sqlserver-ee, sqlserver-ex, sqlserver-web] }
+        engineVersion: { type: string }
+        class: { type: string, examples: [db.m6i.large] }
+        status: { type: string, examples: [available] }
+        masterUser: { type: string, description: The default SQL login of a new target. }
+        optionGroup: { type: string }
+        backupRestore: { type: boolean, description: The option group has SQLSERVER_BACKUP_RESTORE. }
+    InstanceDiscovery:
+      type: object
+      required: [profile, region, accountId, instances]
+      properties:
+        profile: { type: string }
+        region: { type: string }
+        accountId: { type: string, pattern: "^[0-9]{12}$", description: The account the profile points to. }
+        instances:
+          type: array
+          items: { $ref: "#/components/schemas/DiscoveredInstance" }
+    TargetInput:
+      type: object
+      description: A target as the GUI form fills it. No password, only where to find it.
+      required: [name, accountId, region, profile, instance, bucket, sqlUser, passwordSource, connectMode, protected]
+      additionalProperties: false
+      properties:
+        name: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,62}$" }
+        accountId: { type: string, pattern: "^[0-9]{12}$" }
+        region: { type: string }
+        profile: { type: string }
+        instance: { type: string }
+        bucket: { type: string }
+        sqlUser: { type: string }
+        passwordSource:
+          type: string
+          description: prompt (DIALGA_SQL_PASSWORD in the engine environment, or asked on the terminal) or env:VAR.
+          examples: [prompt, "env:MSSQL_PASSWORD"]
+        connectMode: { type: string, enum: [external, direct, tunnel] }
+        localPort: { type: integer, minimum: 1, maximum: 65535, description: Required with external. }
+        protected: { type: boolean }
+        replace:
+          type: boolean
+          description: Replace the target with the same name; prefixes, max_tasks and bridge_tag keep their values.

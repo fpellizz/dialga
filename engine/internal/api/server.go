@@ -34,6 +34,7 @@ import (
 
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/config"
+	"github.com/decisyon/dialga/engine/internal/discover"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/session"
 	"github.com/decisyon/dialga/engine/internal/validate"
@@ -58,6 +59,9 @@ type Options struct {
 	// (default session.OpenTasks; tests replace it).
 	OpenTasks func(context.Context, config.Target, string) (mssql.TaskReader, func(), error)
 	Log       *slog.Logger
+	// Discover answers the first-run questions: prerequisites, AWS profiles
+	// and instances (default discover.System; tests replace it).
+	Discover discover.Service
 }
 
 // Server is the HTTP API of the engine.
@@ -216,7 +220,7 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			w.Header().Add("Vary", "Origin")
 		}
 		if r.Method == http.MethodOptions {
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE")
 			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
 			w.Header().Set("Access-Control-Max-Age", "600")
 			w.WriteHeader(http.StatusNoContent)
