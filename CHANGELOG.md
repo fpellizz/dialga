@@ -1,58 +1,82 @@
 # Changelog
 
-All notable changes to Dialga are recorded here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
-uses [Semantic Versioning](https://semver.org/) (`0.x`: the CLI, the API
-and the configuration may still change between minor versions).
+Qui sono registrate tutte le modifiche rilevanti di Dialga. Il formato segue
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) e il progetto
+usa il [Semantic Versioning](https://semver.org/) (`0.x`: la CLI,
+l'API e la configurazione possono ancora cambiare tra versioni minor).
 
-Releasing: `docs/release.md`.
+Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
-## [Unreleased]
+## [Non rilasciato]
 
-First release line (v0.1): configuration, read-only checks and native
-task tracking, from the CLI and from the Linux desktop app.
+Prima linea di rilascio: configurazione, controlli in sola lettura,
+tunnel SSM integrato, database dell'istanza, ispezione dei `.bak` e
+monitoraggio dei task nativi, dalla CLI e dall'app desktop Linux.
 
-### Added
+### Aggiunto
 
 - **CLI `dialga`**: `check [target]`, `status [target]` (`--db`,
-  `--limit`), `wait <task-id>` (`--interval`; Ctrl-C stops the wait, never
-  the task), `config path|validate|show`, `serve`, `version` and
-  `completion`. Global `--config` and `--output text|json`. Exit codes:
-  0 OK, 1 error, 2 a check failed, 3 the RDS task ended in `ERROR` or
+  `--limit`), `wait <task-id>` (`--interval`; Ctrl-C ferma l'attesa, mai il
+  task), `config path|validate|show`, `serve`, `version` e `completion`.
+  Opzioni globali `--config` e `--output text|json`. Exit code: 0 OK,
+  1 errore, 2 un controllo non superato, 3 task RDS finito in `ERROR` o
   `CANCELLED`.
-- **Target configuration** (`apiVersion: v1`) in
-  `<user config dir>/dialga/config.yaml`: strict parsing (unknown keys are
-  errors), defaults, validation and an account guard on every command.
-  The SQL password is only a reference (`prompt`, `env:VAR`), never
-  stored. Commented example: `docs/config.example.yaml`.
-- **Pre-flight checks** with the same verdicts as `mssql-import.sh check`:
-  AWS account, instance (`available`, option group `in-sync`),
-  `SQLSERVER_BACKUP_RESTORE` option, bucket reachable, storage (free space
-  from CloudWatch), tunnel, SQL login with the TLS certificate verified
-  against the embedded Amazon RDS CA bundle, native tasks. A `warning`
-  status reports what needs attention without failing.
-- **Native backup/restore tasks**: list them (`status`) and follow one to
-  the end (`wait`), from `msdb.dbo.rds_fn_task_status`.
-- **Action plans** in the engine: dry-run preview by default, confirmation
-  for protected targets and destructive actions, and the T-SQL of the
-  `rds_*` procedures, identical to `mssql-import.sh` (golden files). Used
-  by the import and export commands of v0.2.
-- **Local API** for the desktop app (`dialga serve`): 127.0.0.1 on a
-  random port, per-session bearer token received on stdin, `Host` and
-  `Origin` checks, the engine stops when its stdin closes. Endpoints for
-  health, targets, checks (Server-Sent Events) and tasks, described by an
-  OpenAPI 3.1 contract served at `GET /api/v1/openapi.yaml`.
-- **Desktop app** (Tauri v2, React, Decisyon Design System) with the
-  engine as sidecar: Instances screen (one card per target, live checks,
-  tasks panel) and Settings (language English or Italian, theme system,
-  light or dark, configuration path, engine version).
-- **Linux packages** (deb, rpm), unsigned: the app, the `dialga` CLI in
-  `/usr/bin`, a desktop entry, icons from 16 to 512 px, and the example
-  configuration, the minimal IAM policy and this changelog in
-  `/usr/share/doc/dialga/`.
-- **Minimal IAM policy** for Dialga users: `docs/iam-policy.json`
-  (explained in `docs/iam-policy.md`).
-- **Release tooling**: Bitbucket Pipelines (checks on pull requests; on
-  `v*` tags the CLI for six platforms, the Linux packages and a manual
-  upload to the repository Downloads with `SHA256SUMS`),
-  `ci/bump-version.sh` and `docs/release.md`.
+- **Configurazione dei target** (`apiVersion: v1`) in
+  `<cartella di configurazione utente>/dialga/config.yaml`: lettura stretta
+  (le chiavi sconosciute sono errori), default, validazione e controllo
+  dell'account su ogni comando. La password SQL è solo un riferimento
+  (`prompt`, `env:VAR`), mai salvata. Esempio commentato:
+  `docs/config.example.yaml`.
+- **Controlli preliminari** con gli stessi verdetti di
+  `mssql-import.sh check`: account AWS, istanza (`available`, option group
+  `in-sync`), opzione `SQLSERVER_BACKUP_RESTORE`, bucket raggiungibile,
+  storage (spazio libero da CloudWatch), tunnel, login SQL con il
+  certificato TLS verificato sul bundle CA di Amazon RDS incorporato, task
+  nativi. Lo stato `warning` segnala ciò che richiede attenzione senza far
+  fallire il controllo.
+- **Task nativi di backup e restore**: elenco (`status`) e attesa fino alla
+  fine (`wait`), da `msdb.dbo.rds_fn_task_status`.
+- **Tunnel SSM integrato** (`connect.mode: tunnel`): port forwarding verso
+  l'endpoint RDS attraverso l'istanza bridge (tag `Name=ssm-bridge`, o
+  `connect.bridge_tag`) nel VPC dell'istanza, con riconnessione automatica.
+  Lo usano `check`, `status`, `wait`, `databases` e l'API; `dialga tunnel
+  [target] [--port N]` ne tiene aperto uno in primo piano per i client SQL
+  (stati in NDJSON con `-o json`). Richiede `session-manager-plugin` dopo
+  la 1.2.497.0.
+- **Database dell'istanza**: `dialga databases [target]` (alias `dbs`) con
+  stato, dimensione di dati e log, compatibility level, recovery model e
+  owner.
+- **Ispezione dei `.bak`** (`dialga inspect <file.bak>... [-t target]
+  [--image IMG]`): SQL Server usa e getta in podman o docker, file montati
+  in sola lettura, `RESTORE LABELONLY`/`HEADERONLY`/`FILELISTONLY`, backup
+  su più file (stripe) raggruppati. Con un target: verdetto sulla versione
+  del motore, cifratura, TDE e FILESTREAM, con il rimedio `.bacpac`, e
+  spazio dei file ripristinati rispetto al libero (avviso oltre l'80%).
+  Exit code 0 ripristinabile, 2 non ripristinabile, 1 errore.
+- **Piani di azioni** nell'engine: anteprima (dry-run) per default,
+  conferma per i target protetti e le azioni distruttive, e il T-SQL delle
+  procedure `rds_*` identico a `mssql-import.sh` (golden file). Li useranno
+  i comandi di import ed export.
+- **API locale** per l'app desktop (`dialga serve`): 127.0.0.1 su una porta
+  casuale, token bearer di sessione ricevuto su stdin, controlli su `Host`
+  e `Origin`, l'engine si ferma quando il suo stdin si chiude. Endpoint per
+  stato, target, check (Server-Sent Events), task, database, panoramica
+  dell'istanza e ispezione dei `.bak`, descritti da un contratto
+  OpenAPI 3.1 servito su `GET /api/v1/openapi.yaml`.
+- **App desktop** (Tauri v2, React, Decisyon Design System) con l'engine
+  come sidecar: schermata Instances (una scheda per target con panoramica
+  dell'istanza, check dal vivo e pannello dei task), schermata Databases
+  (filtro e ordinamento) e Settings (lingua inglese o italiano, tema
+  sistema, chiaro o scuro, percorso della configurazione, versione
+  dell'engine).
+- **Pacchetti Linux** (deb, rpm), non firmati: l'app, la CLI `dialga` in
+  `/usr/bin`, una voce di menu, icone da 16 a 512 px, e in
+  `/usr/share/doc/dialga/` la configurazione di esempio, la policy IAM
+  minima e questo changelog.
+- **Policy IAM minima** per gli utenti di Dialga: `docs/iam-policy.json`
+  (spiegata in `docs/iam-policy.md`).
+- **Strumenti di rilascio**: Bitbucket Pipelines (controlli sulle pull
+  request; sui tag `v*` la CLI per sei piattaforme, i pacchetti Linux e un
+  upload manuale nei Downloads del repository con `SHA256SUMS`),
+  `ci/bump-version.sh` e `docs/release.md`.
+- **Documentazione per l'utente**: `docs/guida-utente.md`.

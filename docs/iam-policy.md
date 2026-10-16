@@ -1,51 +1,54 @@
-# Minimal IAM policy
+# Policy IAM minima
 
-`iam-policy.json` grants a Dialga user what the engine calls, and nothing
-else. Attach it to the IAM user, group or role behind the `aws_profile` of
-each target (one copy per account and region if targets live in several).
+`iam-policy.json` concede a un utente di Dialga ciò che l'engine chiama, e
+nient'altro. Va associata all'utente, al gruppo o al ruolo IAM dietro
+l'`aws_profile` di ogni target (una copia per account e regione, se i target
+stanno in più account o regioni).
 
-## Placeholders
+## Segnaposto
 
-| Placeholder | Replace with | Example |
+| Segnaposto | Da sostituire con | Esempio |
 |---|---|---|
-| `[account-id]` | `account_id` of the target | `123456789012` |
-| `[region]` | `region` of the target | `eu-west-1` |
-| `[bucket]` | `bucket` of the target | `my-sqlserver-backups` |
+| `[account-id]` | `account_id` del target | `123456789012` |
+| `[region]` | `region` del target | `eu-west-1` |
+| `[bucket]` | `bucket` del target | `my-sqlserver-backups` |
 | `[import-prefix]` | `prefixes.import` (default `import`) | `import` |
 | `[export-prefix]` | `prefixes.export` (default `export`) | `export` |
-| `[secret-name]` | Only for the optional statement, see below | `dialga/dev-sql` |
+| `[secret-name]` | Solo per lo statement facoltativo, vedi sotto | `dialga/dev-sql` |
 
-Several targets on the same bucket: add one `[bucket]/[prefix]/*` line per
-prefix. Several buckets: one `BackupBucket` resource and the object
-resources for each.
+Più target sullo stesso bucket: aggiungi una riga `[bucket]/[prefix]/*` per
+ogni prefisso. Più bucket: una risorsa `BackupBucket` e le risorse degli
+oggetti per ciascuno.
 
-## Statements
+## Statement
 
-| Sid | Actions | Used by |
+| Sid | Azioni | A cosa servono |
 |---|---|---|
-| `Identity` | `sts:GetCallerIdentity` | Account guard on every command |
-| `RdsDescribe` | `rds:DescribeDBInstances`, `rds:DescribeOptionGroups` | Check: instance state, endpoint, option group, storage |
-| `RdsFreeStorage` | `cloudwatch:GetMetricStatistics` | Check: free storage (`FreeStorageSpace`). No resource-level permissions in CloudWatch: `*` |
-| `BackupBucket` | `s3:ListBucket` | Check: `HeadBucket`. Not limited by prefix, or `HeadBucket` is denied |
-| `BackupObjects` | `s3:GetObject`, `s3:PutObject`, `s3:AbortMultipartUpload`, `s3:ListMultipartUploadParts` | Upload of `.bak` files to the import prefix, download from the export prefix, resume and cancel of multipart uploads |
-| `TunnelFindBridge` | `ec2:DescribeInstances` | Tunnel mode: find the SSM bridge. No resource-level permissions: `*` |
-| `TunnelStartSession` | `ssm:StartSession` | Tunnel mode: port forwarding through the bridge, with the `AWS-StartPortForwardingSessionToRemoteHost` document only (no shell) |
-| `TunnelTerminateOwnSession` | `ssm:TerminateSession` | Tunnel mode: close the user's own sessions only |
-| `OptionalSqlPasswordFromSecretsManager` | `secretsmanager:GetSecretValue` | Only with `sql.password: secretsmanager:<ARN>` (planned). Remove it otherwise |
+| `Identity` | `sts:GetCallerIdentity` | Controllo dell'account su ogni comando |
+| `RdsDescribe` | `rds:DescribeDBInstances`, `rds:DescribeOptionGroups` | Check: stato dell'istanza, endpoint, option group, storage |
+| `RdsFreeStorage` | `cloudwatch:GetMetricStatistics` | Check: spazio libero (`FreeStorageSpace`). CloudWatch non ha permessi a livello di risorsa: `*` |
+| `BackupBucket` | `s3:ListBucket` | Check: `HeadBucket`. Non limitato per prefisso, altrimenti `HeadBucket` viene negato |
+| `BackupObjects` | `s3:GetObject`, `s3:PutObject`, `s3:AbortMultipartUpload`, `s3:ListMultipartUploadParts` | Upload dei `.bak` nel prefisso di import, download dal prefisso di export, ripresa e annullamento degli upload multipart |
+| `TunnelFindBridge` | `ec2:DescribeInstances` | Modalità tunnel: trovare il bridge SSM. Nessun permesso a livello di risorsa: `*` |
+| `TunnelStartSession` | `ssm:StartSession` | Modalità tunnel: port forwarding attraverso il bridge, solo con il documento `AWS-StartPortForwardingSessionToRemoteHost` (nessuna shell) |
+| `TunnelTerminateOwnSession` | `ssm:TerminateSession` | Modalità tunnel: chiudere solo le sessioni dell'utente stesso |
+| `OptionalSqlPasswordFromSecretsManager` | `secretsmanager:GetSecretValue` | Solo con `sql.password: secretsmanager:<ARN>` (previsto). Altrimenti va tolto |
 
-## What the policy does not cover
+## Cosa la policy non copre
 
-- **RDS reading and writing S3**: `rds_restore_database` and
-  `rds_backup_database` use the IAM role of the `SQLSERVER_BACKUP_RESTORE`
-  option in the option group, not the user's credentials. That role is set
-  up once per instance, as described in the AWS documentation on native
-  backup and restore for RDS for SQL Server.
-- **SQL Server**: the login comes from the target configuration (`sql.user`
-  and the password reference), not from IAM.
-- **KMS**: with SSE-KMS on the bucket, add `kms:GenerateDataKey` and
-  `kms:Decrypt` on that key, for the user and for the option role.
-- **Tunnel scope**: `ssm:StartSession` is allowed on every instance of the
-  account and region. To limit it to the bridge, add a condition on its tag,
-  for example `"Condition": {"StringEquals": {"ssm:resourceTag/Name": "ssm-bridge"}}`
-  on the instance resource (split the statement: the condition does not
-  apply to the document).
+- **RDS che legge e scrive su S3**: `rds_restore_database` e
+  `rds_backup_database` usano il ruolo IAM dell'opzione
+  `SQLSERVER_BACKUP_RESTORE` dell'option group, non le credenziali
+  dell'utente. Quel ruolo si configura una volta per istanza, come descritto
+  nella documentazione AWS sul backup e restore nativo di RDS for SQL
+  Server.
+- **SQL Server**: il login viene dalla configurazione del target
+  (`sql.user` e il riferimento alla password), non da IAM.
+- **KMS**: con SSE-KMS sul bucket, aggiungi `kms:GenerateDataKey` e
+  `kms:Decrypt` su quella chiave, per l'utente e per il ruolo dell'opzione.
+- **Ambito del tunnel**: `ssm:StartSession` è consentito su tutte le istanze
+  dell'account e della regione. Per limitarlo al bridge aggiungi una
+  condizione sul suo tag, per esempio
+  `"Condition": {"StringEquals": {"ssm:resourceTag/Name": "ssm-bridge"}}`
+  sulla risorsa dell'istanza (dividi lo statement: la condizione non si
+  applica al documento).
