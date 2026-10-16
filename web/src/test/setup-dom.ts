@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
-import { takeUnexpected } from "./http";
+import { mockFetch, takeUnexpected } from "./http";
 import { installMatchMedia } from "./media";
 
 // jsdom has <dialog> but not showModal() and close(): open and close it like a browser.
@@ -18,6 +18,8 @@ if (!HTMLDialogElement.prototype.showModal) {
 
 beforeEach(() => {
   installMatchMedia(false);
+  // No test reaches the network: a request without a route fails it (see afterEach).
+  mockFetch({});
 });
 
 afterEach(() => {

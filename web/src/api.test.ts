@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { checkTarget, errorText, listTargets, listTasks, type StepEvent } from "./api";
+import { ApiError, checkTarget, errorText, listTargets, listTasks, type StepEvent } from "./api";
 
 const ENGINE = { url: "http://127.0.0.1:43210", token: "t".repeat(48), version: "0.1.0" };
 const AUTH = { Authorization: `Bearer ${ENGINE.token}` };
@@ -40,9 +40,12 @@ describe("api", () => {
   it.each([
     ["the engine message", 'unknown target "x"\n', 404, 'unknown target "x"'],
     ["the status without a message", "", 502, "HTTP 502"],
-  ])("fails with %s", async (_name, body, status, message) => {
+  ])("fails with %s and the HTTP status", async (_name, body, status, message) => {
     stubFetch(() => new Response(body, { status }));
-    await expect(listTargets(ENGINE)).rejects.toThrow(new Error(message));
+    const error = await listTargets(ENGINE).catch((e: unknown) => e);
+    // The status lets the UI pick a hint (hints.ts).
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ name: "ApiError", status, message });
   });
 
   it("lists the tasks of an escaped target name", async () => {
@@ -91,9 +94,10 @@ describe("api", () => {
 
   it("fails a refused check with the engine message", async () => {
     stubFetch(() => new Response("connect.mode tunnel arrives in v0.4\n", { status: 422 }));
-    await expect(checkTarget(ENGINE, "dev-sql", ignore, ignore)).rejects.toThrow(
-      new Error("connect.mode tunnel arrives in v0.4"),
-    );
+    await expect(checkTarget(ENGINE, "dev-sql", ignore, ignore)).rejects.toMatchObject({
+      status: 422,
+      message: "connect.mode tunnel arrives in v0.4",
+    });
   });
 
   it("drops the Error: prefix from failure messages", () => {

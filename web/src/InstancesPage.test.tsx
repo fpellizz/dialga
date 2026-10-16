@@ -18,6 +18,28 @@ const OVERVIEWS = Object.fromEntries(
   ]),
 );
 
+/** The tunnel-mode card follows its shared tunnel: one state, then the stream stays open. */
+const TUNNEL = {
+  "GET /api/v1/targets/lab-sql/tunnel/events": () => {
+    const events = sseStream();
+    events.send("state", { target: "lab-sql", status: "closed", users: 0, keepOpen: false });
+    return events.response;
+  },
+};
+
+/** The page Refresh; its name says what it refreshes. */
+function pageRefresh() {
+  return within(screen.getByRole("banner")).getByRole("button", { name: "Refresh the instances" });
+}
+
+/** The live region of a card: progress and outcome of its check. */
+function announced(region: HTMLElement) {
+  return within(region).getByRole("status");
+}
+
+const ENGINE_HINT =
+  "Restart Dialga. If it happens again, start it from a terminal to read the engine log.";
+
 function list(body: Partial<TargetList>) {
   return () => json({ configPath: CONFIG_PATH, targets: [], ...body });
 }
@@ -36,7 +58,7 @@ describe("InstancesPage", () => {
     const fetch = mockFetch({});
     const { container } = renderI18n(<InstancesPage engine={null} engineError="" />);
     expect(container.querySelectorAll(".card.skeleton")).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "Refresh" })).toBeDisabled();
+    expect(pageRefresh()).toBeDisabled();
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -44,7 +66,9 @@ describe("InstancesPage", () => {
     const { container } = renderI18n(
       <InstancesPage engine={null} engineError="The engine did not start" />,
     );
-    expect(screen.getByRole("alert")).toHaveTextContent("The engine did not start");
+    const banner = screen.getByRole("alert");
+    expect(banner.querySelector(".banner-text")).toHaveTextContent("The engine did not start");
+    expect(banner.querySelector(".banner-hint")).toHaveTextContent(ENGINE_HINT);
     expect(container.querySelector(".skeleton")).toBeNull();
   });
 
@@ -64,17 +88,23 @@ describe("InstancesPage", () => {
     const banner = await screen.findByRole("alert");
     expect(within(banner).getByText("The configuration file has errors")).toBeInTheDocument();
     expect(banner.querySelector("pre")).toHaveTextContent(error);
+    expect(banner).toHaveTextContent(
+      "Fix the configuration file (its path is in Settings), then refresh.",
+    );
     expect(screen.queryByText("No instances yet")).toBeNull();
   });
 
   it("shows a failed request without the Error: prefix", async () => {
     mockFetch({ [TARGETS]: () => text("unauthorized\n", 401) });
     renderI18n(<InstancesPage engine={ENGINE} engineError="" />);
-    expect(await screen.findByRole("alert")).toHaveTextContent(/^unauthorized$/);
+    const banner = await screen.findByRole("alert");
+    expect(banner.querySelector(".banner-text")).toHaveTextContent(/^unauthorized$/);
+    // 401: the session token is not the engine's.
+    expect(banner.querySelector(".banner-hint")).toHaveTextContent(ENGINE_HINT);
   });
 
   it("shows one card per target with its facts", async () => {
-    mockFetch({ [TARGETS]: list({ targets: [DEV, LAB, PROD] }), ...OVERVIEWS });
+    mockFetch({ [TARGETS]: list({ targets: [DEV, LAB, PROD] }), ...OVERVIEWS, ...TUNNEL });
     renderI18n(<InstancesPage engine={ENGINE} engineError="" />);
 
     const dev = await screen.findByRole("region", { name: "dev-sql" });
@@ -87,7 +117,12 @@ describe("InstancesPage", () => {
     // The overview strip of the card, from GET /overview.
     expect(await within(dev).findByText("SQL Server 2017 Standard")).toBeInTheDocument();
 
-    expect(fact(card("lab-sql"), "Connection")).toHaveTextContent("Integrated tunnel");
+    const lab = card("lab-sql");
+    expect(fact(lab, "Connection")).toHaveTextContent("Integrated tunnel");
+    // Only a tunnel-mode target shows its shared tunnel.
+    expect(await within(lab).findByText("Not connected")).toBeInTheDocument();
+    expect(within(lab).getByRole("button", { name: "Connect" })).toBeEnabled();
+    expect(within(dev).queryByRole("button", { name: "Connect" })).toBeNull();
     const prod = card("prod-sql");
     expect(fact(prod, "Connection")).toHaveTextContent("Direct to the endpoint");
     expect(within(prod).getByText("Protected")).toHaveClass("badge-warning");
@@ -103,10 +138,7 @@ describe("InstancesPage", () => {
     const dev = await screen.findByRole("region", { name: "dev-sql" });
     expect(await within(dev).findByText("Available")).toBeInTheDocument();
 
-    // The page button; every overview strip has its own Refresh too.
-    await userEvent.click(
-      within(screen.getByRole("banner")).getByRole("button", { name: "Refresh" }),
-    );
+    await userEvent.click(pageRefresh());
     expect(await screen.findByRole("region", { name: "prod-sql" })).toBeInTheDocument();
     expect(requestsTo(fetch, TARGETS)).toHaveLength(2);
     // The card that stays keeps its strip; only the new one asks for its overview.
@@ -128,14 +160,23 @@ describe("InstancesPage", () => {
 
     await userEvent.click(within(dev).getByRole("button", { name: "Run check" }));
     const running = await within(dev).findByRole("button", { name: "Checking…" });
-    expect(running).toBeDisabled();
+    // Busy, not disabled: it keeps the focus, and another click starts nothing.
+    expect(running).toHaveAttribute("aria-disabled", "true");
+    expect(running).toHaveFocus();
+    await userEvent.click(running);
+    expect(requestsTo(fetch, CHECK)).toHaveLength(1);
     const [init] = requestsTo(fetch, CHECK);
     expect(init.headers).toEqual({ Authorization: `Bearer ${ENGINE.token}` });
+    expect(announced(dev)).toHaveTextContent(/^Checking…$/);
 
     stream.send("notice", { message: "SQL login will be skipped: DIALGA_SQL_PASSWORD is empty" });
     expect(
       await within(dev).findByText("SQL login will be skipped: DIALGA_SQL_PASSWORD is empty"),
-    ).toBeInTheDocument();
+    ).toHaveClass("banner-text");
+    // One polite region per card: the progress with the notice, not every step.
+    expect(announced(dev)).toHaveTextContent(
+      /^Checking… SQL login will be skipped: DIALGA_SQL_PASSWORD is empty$/,
+    );
 
     stream.send("step", { step: "aws", label: "AWS credentials", status: "running" });
     const aws = (await within(dev).findByText("AWS credentials")).closest("li") as HTMLElement;
@@ -151,18 +192,21 @@ describe("InstancesPage", () => {
     stream.send("done", { ok: true });
     stream.close();
 
-    expect(await within(dev).findByText("All checks passed, with warnings")).toHaveClass(
-      "banner-ok",
-    );
+    expect(
+      await within(dev).findByText("All checks passed, with warnings", { selector: ".banner" }),
+    ).toHaveClass("banner-ok");
+    expect(announced(dev)).toHaveTextContent(/^All checks passed, with warnings$/);
     // A step that ends replaces the row it started, it does not add one.
     expect(within(dev).getAllByRole("listitem")).toHaveLength(2);
     expect(within(aws).getByText("Passed")).toBeInTheDocument();
-    expect(within(dev).getByRole("button", { name: "Run check" })).toBeEnabled();
+    expect(within(dev).getByRole("button", { name: "Run check" })).not.toHaveAttribute(
+      "aria-disabled",
+    );
   });
 
   it.each([
     [true, "ok", "All checks passed", "banner-ok"],
-    [false, "failed", "Some checks failed", "banner-fail"],
+    [false, "failed", "Some checks failed · Failed: 1 · warnings: 0", "banner-fail"],
   ] as const)("shows the verdict ok=%s", async (ok, status, verdict, tone) => {
     const stream = sseStream();
     mockFetch({
@@ -177,7 +221,8 @@ describe("InstancesPage", () => {
     stream.send("step", { step: "aws", label: "AWS credentials", status });
     stream.send("done", { ok });
     stream.close();
-    expect(await within(dev).findByText(verdict)).toHaveClass(tone);
+    expect(await within(dev).findByText(verdict, { selector: ".banner" })).toHaveClass(tone);
+    expect(announced(dev)).toHaveTextContent(verdict);
   });
 
   it("shows a check refused by the engine", async () => {
@@ -193,8 +238,10 @@ describe("InstancesPage", () => {
     expect(await within(dev).findByRole("alert")).toHaveTextContent(
       /^connect\.mode tunnel arrives in v0\.4$/,
     );
-    expect(within(dev).getByRole("button", { name: "Run check" })).toBeEnabled();
-    expect(within(dev).queryByText("Some checks failed")).toBeNull();
+    expect(within(dev).getByRole("button", { name: "Run check" })).not.toHaveAttribute(
+      "aria-disabled",
+    );
+    expect(within(dev).queryByText(/Some checks failed/)).toBeNull();
   });
 
   it("starts every check from a clean slate", async () => {
@@ -213,12 +260,13 @@ describe("InstancesPage", () => {
     first.send("step", { step: "aws", label: "AWS credentials", status: "failed" });
     first.send("done", { ok: false });
     first.close();
-    await within(dev).findByText("Some checks failed");
+    await within(dev).findByText(/^Some checks failed/, { selector: ".banner" });
 
     await userEvent.click(within(dev).getByRole("button", { name: "Run check" }));
     await within(dev).findByRole("button", { name: "Checking…" });
     expect(within(dev).queryByText("first notice")).toBeNull();
-    expect(within(dev).queryByText("Some checks failed")).toBeNull();
+    expect(within(dev).queryByText(/Some checks failed/)).toBeNull();
+    expect(announced(dev)).toHaveTextContent(/^Checking…$/);
     expect(within(dev).queryByRole("listitem")).toBeNull();
     second.close();
   });
