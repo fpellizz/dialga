@@ -81,6 +81,92 @@ async function answer(page: Page, path: string, body: string, contentType = "app
   );
 }
 
+const JOB_ID = "20261016T080000Z-e2e00001";
+const FILE = "/tmp/e2e-exports/sales_20261016-080000.bak";
+
+const JOB_PLAN = {
+  kind: "export",
+  target: "e2e-fake",
+  instance: "e2e-fake-instance",
+  protected: false,
+  ready: true,
+  digest: "a".repeat(32),
+  items: [
+    {
+      database: "sales",
+      file: FILE,
+      key: KEY,
+      ready: true,
+      checks: PREVIEW.checks,
+      actions: [
+        {
+          id: "backup",
+          title: "Back up sales",
+          statement: "exec msdb.dbo.rds_backup_database @source_db_name = N'sales';",
+        },
+      ],
+    },
+  ],
+  preview: "Dry run: export job on e2e-fake",
+};
+
+/** The snapshot of the job: running (the backup task at 40%) or succeeded. */
+const jobSnapshot = (state: "running" | "succeeded") => ({
+  id: JOB_ID,
+  kind: "export",
+  target: "e2e-fake",
+  state,
+  items: [
+    {
+      name: "sales",
+      state,
+      step: state === "running" ? "wait" : "download",
+      percent: state === "running" ? 40 : 100,
+      steps: [
+        { id: "backup", title: "Back up sales", status: "succeeded" },
+        {
+          id: "wait",
+          title: "Wait for the backup task",
+          status: state === "running" ? "running" : "succeeded",
+        },
+        {
+          id: "download",
+          title: "Download the backup",
+          status: state === "running" ? "pending" : "succeeded",
+          detail: state === "running" ? undefined : "10.0 MiB, SHA256 verified",
+        },
+      ],
+      task: {
+        id: 31,
+        type: "BACKUP_DB",
+        lifecycle: state === "running" ? "IN_PROGRESS" : "SUCCESS",
+        percent: state === "running" ? 40 : 100,
+      },
+    },
+  ],
+});
+
+/**
+ * The job route of the engine: the dry run answers the plan, the start 201
+ * with the first snapshot (the bodies sent are collected). The list of jobs
+ * and everything else go on to the real engine.
+ */
+async function serveJobs(page: Page, sent: Record<string, unknown>[]) {
+  await page.route("**/api/v1/jobs", async (route) => {
+    if (route.request().method() !== "POST") {
+      return route.fallback();
+    }
+    const body = route.request().postDataJSON() as Record<string, unknown>;
+    sent.push(body);
+    return route.fulfill({
+      status: body.dryRun ? 200 : 201,
+      contentType: "application/json",
+      headers: { "Access-Control-Allow-Origin": DEV_ORIGIN },
+      body: JSON.stringify(body.dryRun ? JOB_PLAN : jobSnapshot("running")),
+    });
+  });
+}
+
 test.beforeEach(async ({ page }) => {
   await removeConfig();
   await writeConfig(FAKE_TARGET);
@@ -91,7 +177,18 @@ test.beforeEach(async ({ page }) => {
   );
 });
 
-test("exports a database from the Databases page to S3 and a local folder", async ({ page }) => {
+test("exports with plan calls when the engine has no job route", async ({ page }) => {
+  // An older engine: its mux answers 405 to POST /api/v1/jobs.
+  await page.route("**/api/v1/jobs", (route) =>
+    route.request().method() === "POST"
+      ? route.fulfill({
+          status: 405,
+          contentType: "text/plain",
+          headers: { "Access-Control-Allow-Origin": DEV_ORIGIN },
+          body: "Method Not Allowed\n",
+        })
+      : route.fallback(),
+  );
   await answer(page, "/api/v1/targets/e2e-fake/plans/export", JSON.stringify(PREVIEW));
   await answer(
     page,
@@ -195,4 +292,96 @@ test("shows the engine refusal of the preview with what to do", async ({ page })
   await page.getByRole("button", { name: "Go back to Databases" }).focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "Step 1 of 6: Databases" })).toBeFocused();
+});
+
+/** Steps 1 to 4: sales selected, a download folder, then the preview. */
+async function toPreview(page: Page) {
+  await page.goto("/#export/e2e-fake?db=sales");
+  await page.getByRole("button", { name: "Next" }).click();
+  await page.getByRole("checkbox", { name: /Download each backup/ }).check();
+  await page.getByRole("textbox", { name: "Folder" }).fill("/tmp/e2e-exports");
+  await page.getByRole("button", { name: "Next" }).click();
+  await page.getByRole("button", { name: "Next" }).click();
+  await expect(page.getByRole("heading", { name: "Step 4 of 6: Preview" })).toBeVisible();
+}
+
+test("runs the export as one engine job and follows it to the result", async ({ page }) => {
+  const sent: Record<string, unknown>[] = [];
+  await serveJobs(page, sent);
+  // Two snapshots: running at the first read, succeeded once the stream ended.
+  let reads = 0;
+  await page.route(`**/api/v1/jobs/${JOB_ID}`, (route) =>
+    route.request().method() === "OPTIONS"
+      ? route.continue()
+      : route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          headers: { "Access-Control-Allow-Origin": DEV_ORIGIN },
+          body: JSON.stringify(jobSnapshot(reads++ === 0 ? "running" : "succeeded")),
+        }),
+  );
+  await answer(
+    page,
+    `/api/v1/jobs/${JOB_ID}/events`,
+    sse([
+      ["step.started", { step: "wait" }],
+      ["job.succeeded", {}],
+    ]),
+    "text/event-stream",
+  );
+
+  await toPreview(page);
+  const preview = page.getByRole("region", { name: "Step 4 of 6: Preview" });
+  await expect(preview.getByText(`s3://e2e-fake-bucket/${KEY}`, { exact: true })).toBeVisible();
+  await expect(preview.getByText(FILE)).toBeVisible();
+  await page.getByRole("button", { name: "Run export" }).click();
+
+  const result = page.getByRole("region", { name: "Step 6 of 6: Result" });
+  await expect(result.getByText("Exported: 1 · failed: 0 · not completed: 0")).toBeVisible();
+  await expect(result.getByText(`s3://e2e-fake-bucket/${KEY}`)).toBeVisible();
+  await expect(result.getByText(FILE)).toBeVisible();
+
+  // The dry run, then the start with the key and file the preview resolved, and its digest.
+  expect(sent).toHaveLength(2);
+  expect(sent[0]).toMatchObject({ kind: "export", target: "e2e-fake", dryRun: true });
+  expect(sent[1]).toMatchObject({
+    kind: "export",
+    target: "e2e-fake",
+    digest: JOB_PLAN.digest,
+    items: [{ database: "sales", key: KEY, destination: FILE }],
+  });
+});
+
+test("stops following an export job and finds it in Activity", async ({ page }) => {
+  await serveJobs(page, []);
+  await page.route(`**/api/v1/jobs/${JOB_ID}`, (route) =>
+    route.request().method() === "OPTIONS"
+      ? route.continue()
+      : route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          headers: { "Access-Control-Allow-Origin": DEV_ORIGIN },
+          body: JSON.stringify(jobSnapshot("running")),
+        }),
+  );
+  // The stream stays open: the job is still running.
+  await page.route(`**/api/v1/jobs/${JOB_ID}/events`, (route) =>
+    route.request().method() === "OPTIONS" ? route.continue() : new Promise<void>(() => {}),
+  );
+
+  await toPreview(page);
+  await page.getByRole("button", { name: "Run export" }).click();
+  await expect(page.getByRole("progressbar", { name: "BACKUP_DB sales" })).toHaveAttribute(
+    "aria-valuenow",
+    "40",
+  );
+  await page.getByRole("button", { name: "Stop following" }).click();
+
+  const result = page.getByRole("region", { name: "Step 6 of 6: Result" });
+  await expect(
+    result.getByText("Stopped following: the export goes on in the engine."),
+  ).toBeVisible();
+  await result.getByRole("link", { name: "Follow it in Activity" }).click();
+  await expect(page).toHaveURL(/#activity$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Activity" })).toBeVisible();
 });
