@@ -5,21 +5,26 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 )
 
 // Session runs the native operations and their read-only checks on a SQL
 // session. It reads tasks like Tasks, so it is a TaskReader too.
-type Session struct{ DB *sql.DB }
+type Session struct {
+	DB *sql.DB
+	// Log receives how StartTask found the task (default slog.Default()).
+	Log *slog.Logger
+}
 
 // List returns the tasks matching f, newest first.
 func (s Session) List(ctx context.Context, f TaskFilter) ([]Task, error) {
-	return Tasks(s).List(ctx, f)
+	return Tasks{DB: s.DB}.List(ctx, f)
 }
 
 // Get returns one task, or ErrTaskNotFound.
-func (s Session) Get(ctx context.Context, id int) (Task, error) { return Tasks(s).Get(ctx, id) }
+func (s Session) Get(ctx context.Context, id int) (Task, error) { return Tasks{DB: s.DB}.Get(ctx, id) }
 
 // DatabaseState returns state_desc of db (ONLINE, RESTORING...), or "" when
 // the instance has no database with that name.
@@ -66,12 +71,24 @@ func (s Session) StartTask(ctx context.Context, stmt, db string) (Task, error) {
 	if err != nil {
 		return Task{}, err
 	}
-	if id == 0 {
+	log := s.Log
+	if log == nil {
+		log = slog.Default()
+	}
+	// Which way found it is worth knowing on a real instance: the answer of
+	// the procedure is the expected one, the newest task the fallback.
+	if id != 0 {
+		log.Info("native task found in the answer of the procedure", "task", id, "database", db)
+	} else {
 		if err := s.DB.QueryRowContext(ctx, `SELECT ISNULL(MAX(task_id), 0)
 			FROM msdb.dbo.rds_fn_task_status(NULL, 0)
 			WHERE task_id > @before AND database_name = @db`,
 			sql.Named("before", before), sql.Named("db", db)).Scan(&id); err != nil {
 			return Task{}, err
+		}
+		if id != 0 {
+			log.Info("native task found as the newest one of the database (no task_id in the answer)",
+				"task", id, "database", db, "after", before)
 		}
 	}
 	if id == 0 {
