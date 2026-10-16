@@ -1,19 +1,22 @@
 import { Trash2 } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { errorText, listTargets, removeTarget, type TargetSummary } from "./api";
+import { listTargets, removeTarget, type TargetSummary } from "./api";
 import type { EngineInfo } from "./engine";
+import { ErrorBanner, HintText } from "./Feedback";
 import { useI18n } from "./i18n";
 
 /** The configured targets, each with Remove (retype the name to confirm). */
 export function TargetsCard({ engine }: { engine: EngineInfo | null }) {
   const { t } = useI18n();
   const [targets, setTargets] = useState<TargetSummary[] | null>(null);
-  const [error, setError] = useState("");
+  /** The configuration file does not parse (shown with the config hint). */
+  const [configError, setConfigError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [confirming, setConfirming] = useState("");
   const [typed, setTyped] = useState("");
   const [removing, setRemoving] = useState(false);
-  const [removeError, setRemoveError] = useState("");
+  const [removeError, setRemoveError] = useState<unknown>(null);
   const [removed, setRemoved] = useState("");
   const headingRef = useRef<HTMLHeadingElement>(null);
 
@@ -24,9 +27,10 @@ export function TargetsCard({ engine }: { engine: EngineInfo | null }) {
     try {
       const list = await listTargets(engine);
       setTargets(list.targets);
-      setError(list.error ?? "");
+      setConfigError(list.error ?? "");
+      setError(null);
     } catch (e) {
-      setError(errorText(e));
+      setError(e);
     }
   }, [engine]);
 
@@ -37,7 +41,7 @@ export function TargetsCard({ engine }: { engine: EngineInfo | null }) {
   function ask(name: string) {
     setConfirming(name);
     setTyped("");
-    setRemoveError("");
+    setRemoveError(null);
     setRemoved("");
   }
 
@@ -50,11 +54,11 @@ export function TargetsCard({ engine }: { engine: EngineInfo | null }) {
 
   async function confirm(event: FormEvent) {
     event.preventDefault();
-    if (!engine || typed !== confirming) {
+    if (!engine || typed !== confirming || removing) {
       return;
     }
     setRemoving(true);
-    setRemoveError("");
+    setRemoveError(null);
     try {
       await removeTarget(engine, confirming);
       setRemoved(confirming);
@@ -62,7 +66,7 @@ export function TargetsCard({ engine }: { engine: EngineInfo | null }) {
       await load();
       headingRef.current?.focus();
     } catch (e) {
-      setRemoveError(errorText(e));
+      setRemoveError(e);
     } finally {
       setRemoving(false);
     }
@@ -76,18 +80,23 @@ export function TargetsCard({ engine }: { engine: EngineInfo | null }) {
         </h2>
         <p className="hint">{t("settings.targetsLead")}</p>
       </div>
-      {removed && (
-        <div className="banner banner-ok" role="status">
-          {t("targets.removed", { name: removed })}
-        </div>
-      )}
-      {error && (
+      {/* Always there, so the confirmation is read when it appears. */}
+      <div role="status">
+        {removed && (
+          <div className="banner banner-ok">{t("targets.removed", { name: removed })}</div>
+        )}
+      </div>
+      {error !== null && <ErrorBanner error={error} />}
+      {configError && (
         <div className="banner banner-fail" role="alert">
-          <pre className="error-pre">{error}</pre>
+          <pre className="error-pre">{configError}</pre>
+          <HintText hint={{ key: "hint.config" }} />
         </div>
       )}
-      {targets === null && !error && <div className="skeleton skeleton-row" aria-hidden="true" />}
-      {targets?.length === 0 && !error && <p className="muted">{t("settings.noTargets")}</p>}
+      {targets === null && error === null && (
+        <div className="skeleton skeleton-row" aria-hidden="true" />
+      )}
+      {targets?.length === 0 && !configError && <p className="muted">{t("settings.noTargets")}</p>}
       {targets && targets.length > 0 && (
         <ul className="item-list">
           {targets.map((target) => (
@@ -141,11 +150,7 @@ export function TargetsCard({ engine }: { engine: EngineInfo | null }) {
                       aria-describedby={`remove-${target.name}-hint`}
                     />
                   </div>
-                  {removeError && (
-                    <div className="banner banner-fail" role="alert">
-                      <span className="banner-text">{removeError}</span>
-                    </div>
-                  )}
+                  {removeError !== null && <ErrorBanner error={removeError} />}
                   <div className="actions">
                     <button type="button" className="btn btn-outline" onClick={cancel}>
                       {t("add.cancel")}
@@ -153,7 +158,8 @@ export function TargetsCard({ engine }: { engine: EngineInfo | null }) {
                     <button
                       type="submit"
                       className="btn btn-destructive"
-                      disabled={typed !== target.name || removing}
+                      disabled={typed !== target.name}
+                      aria-disabled={removing || undefined}
                     >
                       <Trash2 size={16} aria-hidden="true" />
                       {t("targets.confirmRemove")}

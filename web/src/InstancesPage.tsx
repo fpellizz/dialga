@@ -83,7 +83,13 @@ export function InstancesPage({
         </div>
         <div className="head-actions">
           {list && list.targets.length > 0 && (
-            <button type="button" className="btn btn-outline" onClick={openAdd} disabled={!engine}>
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={openAdd}
+              disabled={!engine}
+              aria-haspopup="dialog"
+            >
               <Plus size={16} aria-hidden="true" />
               {t("instances.add")}
             </button>
@@ -137,6 +143,7 @@ export function InstancesPage({
             className="btn btn-primary empty-action"
             onClick={openAdd}
             disabled={!engine}
+            aria-haspopup="dialog"
           >
             <Plus size={16} aria-hidden="true" />
             {t("instances.add")}

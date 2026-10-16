@@ -1,7 +1,8 @@
 import { CircleCheck, RefreshCw, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { errorText, getPrerequisites, type InstallHint, type Prerequisite } from "./api";
+import { getPrerequisites, type InstallHint, type Prerequisite } from "./api";
 import type { EngineInfo } from "./engine";
+import { ErrorBanner } from "./Feedback";
 import { useI18n } from "./i18n";
 
 /** Distro names: the same in every UI language. */
@@ -14,7 +15,7 @@ const DISTROS: Record<InstallHint["distro"], string> = {
 export function PrerequisitesCard({ engine }: { engine: EngineInfo | null }) {
   const { t } = useI18n();
   const [items, setItems] = useState<Prerequisite[] | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
 
   const load = useCallback(async () => {
@@ -24,9 +25,9 @@ export function PrerequisitesCard({ engine }: { engine: EngineInfo | null }) {
     setLoading(true);
     try {
       setItems(await getPrerequisites(engine));
-      setError("");
+      setError(null);
     } catch (e) {
-      setError(errorText(e));
+      setError(e);
     } finally {
       setLoading(false);
     }
@@ -37,7 +38,11 @@ export function PrerequisitesCard({ engine }: { engine: EngineInfo | null }) {
   }, [load]);
 
   return (
-    <section className="card settings" aria-labelledby="settings-prereqs" aria-busy={loading}>
+    <section
+      className="card settings"
+      aria-labelledby="settings-prereqs"
+      aria-busy={loading || (items === null && error === null)}
+    >
       <div className="card-head">
         <div>
           <h2 id="settings-prereqs">{t("settings.prereqs")}</h2>
@@ -46,19 +51,16 @@ export function PrerequisitesCard({ engine }: { engine: EngineInfo | null }) {
         <button
           type="button"
           className="btn btn-outline btn-sm"
-          onClick={load}
-          disabled={!engine || loading}
+          onClick={() => !loading && load()}
+          disabled={!engine}
+          aria-disabled={loading || undefined}
         >
           <RefreshCw size={14} className={loading ? "spin" : undefined} aria-hidden="true" />
           {t("settings.recheck")}
         </button>
       </div>
-      {error && (
-        <div className="banner banner-fail" role="alert">
-          <span className="banner-text">{error}</span>
-        </div>
-      )}
-      {items === null && !error && (
+      {error !== null && <ErrorBanner error={error} />}
+      {items === null && error === null && (
         <div aria-hidden="true">
           <div className="skeleton skeleton-row" />
           <div className="skeleton skeleton-row" />
