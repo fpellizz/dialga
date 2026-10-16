@@ -4,7 +4,8 @@ import type { MessageKey } from "./i18n";
 export type ConnectMode = TargetInput["connectMode"];
 export type PasswordKind = "prompt" | "env";
 
-export const CONNECT_MODES: ConnectMode[] = ["external", "direct", "tunnel"];
+/** The integrated tunnel first: the default, and what the user guide recommends. */
+export const CONNECT_MODES: ConnectMode[] = ["tunnel", "external", "direct"];
 export const DEFAULT_REGION = "us-east-1";
 /** The dev-mssql port of open-dloop-tunnels.sh. */
 export const DEFAULT_LOCAL_PORT = 11433;
@@ -71,7 +72,9 @@ export function emptyForm(): TargetForm {
     sqlUser: "",
     passwordKind: "prompt",
     envVar: "",
-    connectMode: "external",
+    // Dialga opens the SSM tunnel itself: no script, no port to choose.
+    connectMode: "tunnel",
+    // Only used if the user picks an already open tunnel (external).
     localPort: String(DEFAULT_LOCAL_PORT),
     name: "",
     protected: false,
