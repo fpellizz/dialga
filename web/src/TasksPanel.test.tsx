@@ -124,6 +124,22 @@ describe("TasksPanel", () => {
     expect(signal?.aborted).toBe(true);
   });
 
+  it("drops the answer for the previous target", async () => {
+    const fetch = mockFetch({
+      [TASKS]: () => new Promise<Response>(() => {}),
+      "GET /api/v1/targets/prod-sql/tasks": () => json({ tasks: [BACKUP_FAILED] }),
+    });
+    const { rerender } = renderI18n(<TasksPanel engine={ENGINE} target="dev-sql" />);
+    await waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+
+    rerender(<TasksPanel engine={ENGINE} target="prod-sql" />);
+    expect(await screen.findByText("hr")).toBeInTheDocument();
+    expect(fetch.mock.calls[0][1]?.signal?.aborted).toBe(true);
+    // The aborted request must not reset the state of the one that replaced it.
+    expect(panel()).toHaveAttribute("aria-busy", "false");
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
   describe("polling", () => {
     beforeEach(() => {
       // Fake timers that also follow the real clock, so findBy/waitFor still work.
