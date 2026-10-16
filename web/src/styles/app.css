@@ -124,47 +124,13 @@ body {
   margin-top: auto;
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 0 8px;
-}
-.lang {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin: 0;
-  padding: 0;
-  border: none;
-}
-.lang legend {
-  float: left;
-  margin-right: 8px;
-  font-size: 12px;
-  color: var(--muted-foreground);
-}
-.lang-btn {
-  height: var(--control-h-xs);
-  padding: 0 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-}
-.lang-btn[aria-pressed="true"] {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--primary-foreground);
-}
-.lang-btn:focus-visible {
-  outline: 2px solid var(--ring);
-  outline-offset: 2px;
+  gap: 8px;
 }
 .engine {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  padding: 0 8px;
   font-family: var(--font-mono);
   font-size: 12px;
   color: var(--muted-foreground);
@@ -472,6 +438,67 @@ h2 {
 }
 
 /* Narrow windows: the sidebar becomes a top bar. */
+/* Settings */
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 640px;
+}
+.settings .path {
+  align-self: flex-start;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+.field legend {
+  margin-bottom: 8px;
+  padding: 0;
+  font-weight: 500;
+}
+.segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-self: flex-start;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-md);
+  background: var(--muted);
+}
+.segment {
+  position: relative;
+}
+.segment input {
+  position: absolute;
+  opacity: 0;
+  inset: 0;
+  margin: 0;
+  cursor: pointer;
+}
+.segment span {
+  display: inline-flex;
+  align-items: center;
+  height: var(--control-h-sm);
+  padding: 0 12px;
+  border-radius: var(--radius-sm);
+  color: var(--muted-foreground);
+  font-weight: 500;
+}
+.segment input:checked + span {
+  background: var(--background);
+  color: var(--foreground);
+  box-shadow: var(--shadow-xs);
+}
+.segment input:focus-visible + span {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+
 /* Native tasks of a target */
 .tasks {
   display: flex;

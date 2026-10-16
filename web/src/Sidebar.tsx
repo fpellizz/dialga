@@ -1,7 +1,9 @@
-import { Activity, Download, Server, Upload } from "lucide-react";
+import { Activity, Download, Server, Settings, Upload } from "lucide-react";
 import symbolUrl from "./assets/decisyon-symbol.svg";
 import type { EngineInfo } from "./engine";
-import { type Lang, type MessageKey, useI18n } from "./i18n";
+import { type MessageKey, useI18n } from "./i18n";
+
+export type Page = "instances" | "settings";
 
 const SOON: { icon: typeof Upload; key: MessageKey }[] = [
   { icon: Upload, key: "nav.import" },
@@ -9,16 +11,16 @@ const SOON: { icon: typeof Upload; key: MessageKey }[] = [
   { icon: Activity, key: "nav.activity" },
 ];
 
-const LANGS: Lang[] = ["en", "it"];
-
 export function Sidebar({
+  page,
   engine,
   engineError,
 }: {
+  page: Page;
   engine: EngineInfo | null;
   engineError: string;
 }) {
-  const { t, lang, setLang } = useI18n();
+  const { t } = useI18n();
   let dot = "dot dot-wait";
   let status = t("engine.starting");
   if (engine) {
@@ -28,6 +30,7 @@ export function Sidebar({
     dot = "dot dot-off";
     status = t("engine.unavailable");
   }
+  const current = (p: Page) => (page === p ? "page" : undefined);
 
   return (
     <aside className="sidebar">
@@ -41,7 +44,7 @@ export function Sidebar({
 
       <nav aria-label={t("nav.label")} className="nav">
         <span className="nav-group">{t("nav.operations")}</span>
-        <a href="#instances" className="nav-link" aria-current="page">
+        <a href="#instances" className="nav-link" aria-current={current("instances")}>
           <Server size={16} className="nav-icon" aria-hidden="true" />
           {t("nav.instances")}
         </a>
@@ -55,20 +58,10 @@ export function Sidebar({
       </nav>
 
       <div className="sidebar-footer">
-        <fieldset className="lang">
-          <legend>{t("lang.label")}</legend>
-          {LANGS.map((l) => (
-            <button
-              key={l}
-              type="button"
-              className="lang-btn"
-              aria-pressed={lang === l}
-              onClick={() => setLang(l)}
-            >
-              {l.toUpperCase()}
-            </button>
-          ))}
-        </fieldset>
+        <a href="#settings" className="nav-link" aria-current={current("settings")}>
+          <Settings size={16} className="nav-icon" aria-hidden="true" />
+          {t("nav.settings")}
+        </a>
         <div className="engine" title={engineError || undefined}>
           <span className={dot} />
           {status}
