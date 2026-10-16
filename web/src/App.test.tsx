@@ -10,7 +10,10 @@ import { installMatchMedia } from "./test/media";
 function devEngine() {
   vi.stubEnv("VITE_ENGINE_URL", ENGINE.url);
   vi.stubEnv("VITE_ENGINE_TOKEN", ENGINE.token);
-  return mockFetch({ "GET /api/v1/targets": () => json({ configPath: CONFIG_PATH, targets: [] }) });
+  return mockFetch({
+    "GET /api/v1/targets": () => json({ configPath: CONFIG_PATH, targets: [] }),
+    "GET /api/v1/prerequisites": () => json({ prerequisites: [] }),
+  });
 }
 
 function heading() {

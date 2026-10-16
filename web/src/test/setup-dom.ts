@@ -5,6 +5,17 @@ import { afterEach, beforeEach, vi } from "vitest";
 import { takeUnexpected } from "./http";
 import { installMatchMedia } from "./media";
 
+// jsdom has <dialog> but not showModal() and close(): open and close it like a browser.
+if (!HTMLDialogElement.prototype.showModal) {
+  HTMLDialogElement.prototype.showModal = function showModal(this: HTMLDialogElement) {
+    this.open = true;
+  };
+  HTMLDialogElement.prototype.close = function close(this: HTMLDialogElement) {
+    this.open = false;
+    this.dispatchEvent(new Event("close"));
+  };
+}
+
 beforeEach(() => {
   installMatchMedia(false);
 });
