@@ -10,6 +10,7 @@ import (
 
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/config"
+	"github.com/decisyon/dialga/engine/internal/session"
 )
 
 func (a *app) checkCmd() *cobra.Command {
@@ -62,8 +63,8 @@ Exit status: 0 all checks passed, 2 some check failed, 1 error.`,
 // sqlPassword resolves sql.password; with "prompt" and no DIALGA_SQL_PASSWORD
 // it asks on the terminal.
 func (a *app) sqlPassword(t config.Target) (string, error) {
-	password, err := check.PasswordFromEnv(t, a.getenv)
-	if errors.Is(err, check.ErrPromptNeeded) {
+	password, err := session.PasswordFromEnv(t, a.getenv)
+	if errors.Is(err, session.ErrPromptNeeded) {
 		return a.readPassword(fmt.Sprintf("SQL password for %s on %s: ", t.SQL.User, t.Instance))
 	}
 	return password, err

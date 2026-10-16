@@ -1,7 +1,8 @@
-import { Database, LoaderCircle, Play, RefreshCw, TriangleAlert } from "lucide-react";
+import { Database, History, LoaderCircle, Play, RefreshCw, TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
   checkTarget,
+  errorText,
   listTargets,
   type StepEvent,
   type TargetList,
@@ -10,6 +11,7 @@ import {
 import type { EngineInfo } from "./engine";
 import { useI18n } from "./i18n";
 import { StepList } from "./StepList";
+import { TasksPanel } from "./TasksPanel";
 
 interface CheckState {
   running: boolean;
@@ -38,7 +40,7 @@ export function InstancesPage({
       return;
     }
     setLoadError("");
-    listTargets(engine).then(setList, (e: unknown) => setLoadError(String(e)));
+    listTargets(engine).then(setList, (e: unknown) => setLoadError(errorText(e)));
   }, [engine]);
 
   useEffect(load, [load]);
@@ -96,6 +98,7 @@ export function InstancesPage({
 function TargetCard({ engine, target }: { engine: EngineInfo; target: TargetSummary }) {
   const { t } = useI18n();
   const [state, setState] = useState<CheckState>(IDLE);
+  const [showTasks, setShowTasks] = useState(false);
 
   let connection = t("connect.tunnel");
   if (target.connectMode === "external") {
@@ -118,11 +121,12 @@ function TargetCard({ engine, target }: { engine: EngineInfo; target: TargetSumm
       const passed = await checkTarget(engine, target.name, onStep, onNotice);
       setState((s) => ({ ...s, running: false, passed }));
     } catch (e) {
-      setState((s) => ({ ...s, running: false, error: String(e) }));
+      setState((s) => ({ ...s, running: false, error: errorText(e) }));
     }
   }
 
   const titleId = `target-${target.name}`;
+  const tasksId = `target-${target.name}-tasks`;
   return (
     <section className="card target" aria-labelledby={titleId}>
       <div className="target-head">
@@ -152,6 +156,16 @@ function TargetCard({ engine, target }: { engine: EngineInfo; target: TargetSumm
       </dl>
 
       <div className="actions">
+        <button
+          type="button"
+          className="btn btn-outline"
+          onClick={() => setShowTasks((v) => !v)}
+          aria-expanded={showTasks}
+          aria-controls={tasksId}
+        >
+          <History size={16} aria-hidden="true" />
+          {showTasks ? t("tasks.hide") : t("tasks.show")}
+        </button>
         <button type="button" className="btn btn-primary" onClick={run} disabled={state.running}>
           {state.running ? (
             <LoaderCircle size={16} className="spin" aria-hidden="true" />
@@ -179,6 +193,7 @@ function TargetCard({ engine, target }: { engine: EngineInfo; target: TargetSumm
         </div>
       )}
       {state.steps.length > 0 && <StepList steps={state.steps} />}
+      <div id={tasksId}>{showTasks && <TasksPanel engine={engine} target={target.name} />}</div>
     </section>
   );
 }

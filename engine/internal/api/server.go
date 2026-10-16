@@ -28,11 +28,15 @@ import (
 	"net/http"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/config"
+	"github.com/decisyon/dialga/engine/internal/mssql"
+	"github.com/decisyon/dialga/engine/internal/session"
+	"github.com/decisyon/dialga/engine/internal/validate"
 )
 
 // DefaultOrigins are the webview origins of the Tauri shell: Linux/macOS
@@ -50,7 +54,10 @@ type Options struct {
 	Getenv func(string) string
 	// RunCheck runs a check (default check.Run; tests replace it).
 	RunCheck func(context.Context, check.Request, string, check.Emitter) bool
-	Log      *slog.Logger
+	// OpenTasks opens a session to read the native tasks of a target
+	// (default session.OpenTasks; tests replace it).
+	OpenTasks func(context.Context, config.Target, string) (mssql.TaskReader, func(), error)
+	Log       *slog.Logger
 }
 
 // Server is the HTTP API of the engine.
@@ -81,6 +88,11 @@ type TargetList struct {
 	Targets    []TargetSummary `json:"targets"`
 }
 
+// TaskList is the answer of GET /api/v1/targets/{name}/tasks.
+type TaskList struct {
+	Tasks []mssql.Task `json:"tasks"`
+}
+
 // New builds a server; Token must be at least 32 characters.
 func New(opts Options) (*Server, error) {
 	if len(opts.Token) < 32 {
@@ -95,10 +107,14 @@ func New(opts Options) (*Server, error) {
 	if opts.RunCheck == nil {
 		opts.RunCheck = check.Run
 	}
+	if opts.OpenTasks == nil {
+		opts.OpenTasks = session.OpenTasks
+	}
 	s := &Server{opts: opts, mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /api/v1/health", s.health)
 	s.mux.HandleFunc("GET /api/v1/targets", s.listTargets)
 	s.mux.HandleFunc("POST /api/v1/targets/{name}/checks", s.checkTarget)
+	s.mux.HandleFunc("GET /api/v1/targets/{name}/tasks", s.listTasks)
 	return s, nil
 }
 
@@ -238,7 +254,7 @@ func (s *Server) checkTarget(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 	// Without a password the SQL steps are skipped; say why up front.
-	password, perr := check.PasswordFromEnv(t, s.opts.Getenv)
+	password, perr := session.PasswordFromEnv(t, s.opts.Getenv)
 	if perr != nil {
 		send("notice", map[string]string{"message": "SQL login will be skipped: " + perr.Error()})
 	}
@@ -246,4 +262,59 @@ func (s *Server) checkTarget(w http.ResponseWriter, r *http.Request) {
 	passed := s.opts.RunCheck(r.Context(), req, password, func(e check.Event) { send("step", e) })
 	send("done", map[string]bool{"ok": passed})
 	s.opts.Log.Info("check finished", "target", name, "ok", passed)
+}
+
+// listTasks answers the native backup/restore tasks of a target, newest
+// first (?db= filters by database, ?limit= caps the rows, 1-100). Each call
+// opens its own SQL session: the GUI polls it while tasks are running.
+func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
+	f := mssql.TaskFilter{Database: r.URL.Query().Get("db")}
+	if f.Database != "" {
+		if err := validate.DBName(f.Database); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+	}
+	if v := r.URL.Query().Get("limit"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 || n > 100 {
+			http.Error(w, "limit must be between 1 and 100", http.StatusBadRequest)
+			return
+		}
+		f.Limit = n
+	}
+	cfg, err := config.Load(s.opts.ConfigPath)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
+	}
+	name, t, err := cfg.Target(r.PathValue("name"))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	if t.Connect.Mode == config.ModeTunnel {
+		http.Error(w, config.ErrTunnelNotYet.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	password, err := session.PasswordFromEnv(t, s.opts.Getenv)
+	if err != nil {
+		http.Error(w, "SQL password: "+err.Error(), http.StatusUnprocessableEntity)
+		return
+	}
+	tasks, closeTasks, err := s.opts.OpenTasks(r.Context(), t, password)
+	if err != nil {
+		if r.Context().Err() == nil { // not a client that went away
+			s.opts.Log.Warn("tasks: session failed", "target", name, "err", err)
+		}
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	defer closeTasks()
+	list, err := tasks.List(r.Context(), f)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, TaskList{Tasks: list})
 }

@@ -31,6 +31,42 @@ export interface TargetList {
   targets: TargetSummary[];
 }
 
+export type Lifecycle =
+  | "CREATED"
+  | "IN_PROGRESS"
+  | "SUCCESS"
+  | "ERROR"
+  | "CANCEL_REQUESTED"
+  | "CANCELLED";
+
+/** A native backup/restore task (msdb.dbo.rds_fn_task_status). */
+export interface Task {
+  id: number;
+  type: string;
+  database: string;
+  percent: number;
+  lifecycle: Lifecycle;
+  info?: string;
+  /** Server wall-clock time without a zone: 2006-01-02T15:04:05. */
+  createdAt?: string;
+  updatedAt?: string;
+  s3Object?: string;
+}
+
+/** The task has not reached a final state yet. */
+export function isActive(task: Task): boolean {
+  return (
+    task.lifecycle === "CREATED" ||
+    task.lifecycle === "IN_PROGRESS" ||
+    task.lifecycle === "CANCEL_REQUESTED"
+  );
+}
+
+/** The message of a failed call, without the "Error: " prefix of String(error). */
+export function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function authHeaders(engine: EngineInfo): HeadersInit {
   return { Authorization: `Bearer ${engine.token}` };
 }
@@ -45,6 +81,22 @@ export async function listTargets(engine: EngineInfo): Promise<TargetList> {
     throw await failure(response);
   }
   return (await response.json()) as TargetList;
+}
+
+/** The native tasks of a configured target, newest first. */
+export async function listTasks(
+  engine: EngineInfo,
+  name: string,
+  signal?: AbortSignal,
+): Promise<Task[]> {
+  const response = await fetch(`${engine.url}/api/v1/targets/${encodeURIComponent(name)}/tasks`, {
+    headers: authHeaders(engine),
+    signal,
+  });
+  if (!response.ok) {
+    throw await failure(response);
+  }
+  return ((await response.json()) as { tasks: Task[] }).tasks;
 }
 
 /**

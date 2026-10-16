@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { errorText } from "./api";
 import { type EngineInfo, getEngineInfo } from "./engine";
 import { InstancesPage } from "./InstancesPage";
 import { I18nProvider } from "./i18n";
@@ -9,7 +10,7 @@ export function App() {
   const [engineError, setEngineError] = useState("");
 
   useEffect(() => {
-    getEngineInfo().then(setEngine, (e: unknown) => setEngineError(String(e)));
+    getEngineInfo().then(setEngine, (e: unknown) => setEngineError(errorText(e)));
   }, []);
 
   return (

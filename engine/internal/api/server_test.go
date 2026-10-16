@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/decisyon/dialga/engine/internal/check"
+	"github.com/decisyon/dialga/engine/internal/config"
+	"github.com/decisyon/dialga/engine/internal/mssql"
 )
 
 // testToken is built, not written as a literal, so secret scanners do not
@@ -181,6 +184,91 @@ func TestCheckTargetErrors(t *testing.T) {
 	h, _ = newTestServer(t, nil, nil)
 	if rec := do(h, http.MethodPost, "/api/v1/targets/dev-sql/checks"); rec.Code != http.StatusConflict {
 		t.Fatalf("missing config: status %d", rec.Code)
+	}
+}
+
+// fakeTasks records the session and filter and serves a fixed list.
+type fakeTasks struct {
+	password string
+	filter   mssql.TaskFilter
+	openErr  error
+}
+
+func (f *fakeTasks) open(_ context.Context, _ config.Target, password string) (mssql.TaskReader, func(), error) {
+	f.password = password
+	if f.openErr != nil {
+		return nil, nil, f.openErr
+	}
+	return f, func() {}, nil
+}
+
+func (f *fakeTasks) List(_ context.Context, filter mssql.TaskFilter) ([]mssql.Task, error) {
+	f.filter = filter
+	return []mssql.Task{{ID: 4, Type: "RESTORE_DB", Database: "sales", Lifecycle: mssql.InProgress, Percent: 30}}, nil
+}
+
+func (f *fakeTasks) Get(context.Context, int) (mssql.Task, error) { return mssql.Task{}, nil }
+
+func newTasksServer(t *testing.T, configDoc *string, env map[string]string, fake *fakeTasks) http.Handler {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if configDoc != nil {
+		if err := os.WriteFile(path, []byte(*configDoc), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s, err := New(Options{
+		Token: testToken, AllowedOrigins: DefaultOrigins, ConfigPath: path,
+		Getenv: func(k string) string { return env[k] }, OpenTasks: fake.open,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s.Handler()
+}
+
+func TestListTasks(t *testing.T) {
+	doc := testConfig
+	fake := &fakeTasks{}
+	h := newTasksServer(t, &doc, map[string]string{"TEST_SQL_PASSWORD": "s3cret"}, fake)
+	rec := do(h, http.MethodGet, "/api/v1/targets/dev-sql/tasks?db=sales&limit=5")
+	var list TaskList
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &list) != nil {
+		t.Fatalf("status %d, body %s", rec.Code, rec.Body)
+	}
+	if len(list.Tasks) != 1 || list.Tasks[0].Lifecycle != mssql.InProgress || fake.password != "s3cret" ||
+		fake.filter != (mssql.TaskFilter{Database: "sales", Limit: 5}) {
+		t.Fatalf("list %+v, password %q, filter %+v", list, fake.password, fake.filter)
+	}
+}
+
+func TestListTasksErrors(t *testing.T) {
+	doc := testConfig
+	env := map[string]string{"TEST_SQL_PASSWORD": "s3cret"}
+	tunnel := strings.Replace(testConfig, "mode: external", "mode: tunnel", 1)
+	tests := []struct {
+		name string
+		doc  *string
+		env  map[string]string
+		fake *fakeTasks
+		path string
+		want int
+	}{
+		{"unknown target", &doc, env, &fakeTasks{}, "/api/v1/targets/nope/tasks", http.StatusNotFound},
+		{"bad database", &doc, env, &fakeTasks{}, "/api/v1/targets/dev-sql/tasks?db=x%27drop", http.StatusBadRequest},
+		{"bad limit", &doc, env, &fakeTasks{}, "/api/v1/targets/dev-sql/tasks?limit=500", http.StatusBadRequest},
+		{"no password", &doc, nil, &fakeTasks{}, "/api/v1/targets/dev-sql/tasks", http.StatusUnprocessableEntity},
+		{"tunnel mode", &tunnel, env, &fakeTasks{}, "/api/v1/targets/dev-sql/tasks", http.StatusUnprocessableEntity},
+		{"session fails", &doc, env, &fakeTasks{openErr: errors.New("nothing listening")}, "/api/v1/targets/dev-sql/tasks", http.StatusBadGateway},
+		{"missing config", nil, env, &fakeTasks{}, "/api/v1/targets/dev-sql/tasks", http.StatusConflict},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTasksServer(t, tc.doc, tc.env, tc.fake)
+			if rec := do(h, http.MethodGet, tc.path); rec.Code != tc.want {
+				t.Fatalf("status %d, want %d (body %s)", rec.Code, tc.want, rec.Body)
+			}
+		})
 	}
 }
 
