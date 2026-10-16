@@ -37,6 +37,8 @@ export interface PlanResult {
   changed: boolean;
   /** The task the dialog was following when it closed: it keeps running. */
   running?: Task;
+  /** The job of the operation it was following when it closed, in Activity. */
+  jobId?: string;
 }
 
 /**
@@ -85,7 +87,14 @@ export function PlanDialog({
   const [executeError, setExecuteError] = useState<unknown>(null);
   const [changed, setChanged] = useState(false);
   const [typed, setTyped] = useState("");
-  const { run, announcement, execute: start, abort, reset } = usePlanRun(engine, target, operation);
+  const {
+    run,
+    announcement,
+    execute: start,
+    abort,
+    cancel,
+    reset,
+  } = usePlanRun(engine, target, operation);
   const previewAbort = useRef<AbortController | null>(null);
   const ids = useId();
 
@@ -179,6 +188,7 @@ export function PlanDialog({
     onClose({
       changed: run !== null,
       running: following && run?.task && isActive(run.task) ? run.task : undefined,
+      jobId: following ? run?.jobId : undefined,
     });
   }
 
@@ -247,9 +257,21 @@ export function PlanDialog({
     );
   } else if (run) {
     footer = (
-      <button type="button" className="btn btn-outline" onClick={close}>
-        {t("plan.close")}
-      </button>
+      <>
+        {run.jobId && operation !== "cancel" && (
+          <button
+            type="button"
+            className="btn btn-outline"
+            aria-disabled={run.cancelling}
+            onClick={() => !run.cancelling && void cancel()}
+          >
+            {t("plan.cancelOperation")}
+          </button>
+        )}
+        <button type="button" className="btn btn-outline" onClick={close}>
+          {t("plan.close")}
+        </button>
+      </>
     );
   } else {
     footer = (
@@ -428,7 +450,7 @@ export function PlanDialog({
             onSubmit={() => void execute()}
           />
           {executeError !== null && (
-            <ErrorBanner error={executeError} fallback={planHint(executeError)} />
+            <ErrorBanner error={executeError} fallback={planHint(executeError)} recorded />
           )}
         </>
       )}

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   applyEvent,
   cancelJob,
+  filterCounts,
   followJob,
   formatClock,
   formatDateTime,
@@ -13,7 +14,10 @@ import {
   lastSeq,
   listJobs,
   logText,
+  matchesFilter,
+  recordedRefusal,
   resumeNeeds,
+  shownState,
   sortJobs,
 } from "./jobs";
 import { ENGINE, json, mockFetch, requestsTo, sseStream, text } from "./test/http";
@@ -264,5 +268,30 @@ describe("jobs API", () => {
     expect(requestsTo(fetch, `GET /api/v1/jobs/${JOB_ID}/events`)[0].headers).toEqual({
       Authorization: `Bearer ${ENGINE.token}`,
     });
+  });
+});
+
+describe("filters and refusals", () => {
+  const base = summary(runningJob());
+  const list = [
+    base,
+    { ...base, id: "f", state: "failed" as const },
+    { ...base, id: "r", state: "failed" as const, refusal: { status: 412, reason: "x" } },
+    { ...base, id: "s", state: "succeeded" as const },
+  ];
+
+  it("counts a refused job as Refused, not as Failed", () => {
+    expect(filterCounts(list)).toEqual({ all: 4, running: 1, failed: 1, refused: 1 });
+    expect(list.filter((j) => matchesFilter(j, "refused")).map((j) => j.id)).toEqual(["r"]);
+    expect(shownState(list[2])).toBe("refused");
+    expect(shownState(list[1])).toBe("failed");
+  });
+
+  it("knows the refusals the engine records", () => {
+    expect(recordedRefusal({ status: 422 })).toBe(true);
+    expect(recordedRefusal({ status: 428 })).toBe(true);
+    expect(recordedRefusal({ status: 404 })).toBe(false);
+    expect(recordedRefusal(new Error("x"))).toBe(false);
+    expect(recordedRefusal(null)).toBe(false);
   });
 });

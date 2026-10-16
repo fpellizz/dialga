@@ -197,7 +197,7 @@ export function ImportPreview({
         </div>
       )}
       {state.error !== null && <ErrorBanner error={state.error} />}
-      {startError !== null && <ErrorBanner error={startError} />}
+      {startError !== null && <ErrorBanner error={startError} recorded />}
 
       {plan && (
         <section className="plan" aria-labelledby="import-upload-title">

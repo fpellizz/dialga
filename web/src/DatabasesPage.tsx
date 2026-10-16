@@ -84,7 +84,11 @@ export function DatabasesPage({
   // The databases ticked for "Export selected" (online ones only).
   const [selected, setSelected] = useState<string[]>([]);
   // A task the plan dialog was following when it closed: it keeps running.
-  const [running, setRunning] = useState<{ id: number; target: string } | null>(null);
+  const [running, setRunning] = useState<{
+    id?: number;
+    jobId?: string;
+    target: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!engine) {
@@ -153,8 +157,8 @@ export function DatabasesPage({
 
   const closePlan = (result: PlanResult) => {
     setDialog(null);
-    if (result.running) {
-      setRunning({ id: result.running.id, target });
+    if (result.running || result.jobId) {
+      setRunning({ id: result.running?.id, jobId: result.jobId, target });
     }
     if (result.changed) {
       setReload((n) => n + 1);
@@ -222,8 +226,19 @@ export function DatabasesPage({
       {running && (
         <div className="banner banner-warn" role="status">
           <span className="banner-text">
-            {t("databases.taskRunning", { id: running.id, target: running.target })}{" "}
-            <a href="#instances">{t("databases.taskRunningLink")}</a>
+            {running.jobId ? (
+              <>
+                {t("databases.jobRunning", { target: running.target })}{" "}
+                <a href={`#activity/${encodeURIComponent(running.jobId)}`}>
+                  {t("plan.openActivity")}
+                </a>
+              </>
+            ) : (
+              <>
+                {t("databases.taskRunning", { id: running.id ?? 0, target: running.target })}{" "}
+                <a href="#instances">{t("databases.taskRunningLink")}</a>
+              </>
+            )}
           </span>
           <button
             type="button"

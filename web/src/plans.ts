@@ -98,6 +98,8 @@ export interface PlanPreview {
 
 export interface PlanDone {
   ok: boolean;
+  /** The job of the operation in Activity. */
+  jobId?: string;
   error?: string;
   task?: Task;
   /** A replace: the text naming the old database it kept, or the S3 key of the safety backup. */
@@ -181,6 +183,8 @@ export interface ExecuteHandlers {
   onStep: (event: StepEvent) => void;
   /** The followed task changed. */
   onTask: (task: Task) => void;
+  /** The operation runs as this job (first event): it goes on if the client leaves. */
+  onJob?: (id: string) => void;
 }
 
 /**
@@ -209,7 +213,9 @@ export async function executePlan(
   const result: { done?: PlanDone } = {};
   await readEventStream(response.body, (message) => {
     const data = JSON.parse(message.data);
-    if (message.event === "notice") {
+    if (message.event === "job") {
+      handlers.onJob?.((data as { id: string }).id);
+    } else if (message.event === "notice") {
       handlers.onNotice((data as { message: string }).message);
     } else if (message.event === "step") {
       handlers.onStep(data as StepEvent);

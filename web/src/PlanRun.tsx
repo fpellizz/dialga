@@ -1,9 +1,10 @@
 import { TriangleAlert } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, isActive, type StepEvent, type Task } from "./api";
+import { ApiError, errorText, isActive, type StepEvent, type Task } from "./api";
 import type { EngineInfo } from "./engine";
 import { ErrorBanner } from "./Feedback";
 import { type Translate, useI18n } from "./i18n";
+import { cancelJob } from "./jobs";
 import { stepLabel } from "./PlanPreview";
 import {
   type ExecuteRequest,
@@ -25,6 +26,11 @@ export interface PlanRunState {
   steps: StepEvent[];
   notices: string[];
   task?: Task;
+  /** The job of the operation in Activity, known from its first event. */
+  jobId?: string;
+  /** Cancel was asked through the job: the run ends when the engine stops it. */
+  cancelling?: boolean;
+  cancelError?: string;
   done?: PlanDone;
   /** The stream broke: the task may still run. */
   error?: unknown;
@@ -60,7 +66,8 @@ export function doneText(
  * running anything (412: the plan changed, 422: confirmation or password):
  * the run is cleared and the preview is what to show again. announcement is
  * the text of a polite live region: the lifecycle changes and the outcome,
- * never every percent. Unmounting stops following the task, not the task.
+ * never every percent. Unmounting stops following the task, not the task: the
+ * operation is a job of the engine and goes on; cancel stops it through the job.
  */
 export function usePlanRun(engine: EngineInfo, target: string, operation: Operation) {
   const { t } = useI18n();
@@ -89,6 +96,7 @@ export function usePlanRun(engine: EngineInfo, target: string, operation: Operat
           operation,
           body,
           {
+            onJob: (jobId) => setRun((r) => r && { ...r, jobId }),
             onNotice: (message) => setRun((r) => r && { ...r, notices: [...r.notices, message] }),
             onStep: (event) => setRun((r) => r && { ...r, steps: upsertStep(r.steps, event) }),
             onTask: (task) => {
@@ -109,7 +117,13 @@ export function usePlanRun(engine: EngineInfo, target: string, operation: Operat
         if (!controller.signal.aborted) {
           setRun(
             (r) =>
-              r && { ...r, status: done.ok ? "done" : "failed", done, task: done.task ?? r.task },
+              r && {
+                ...r,
+                status: done.ok ? "done" : "failed",
+                done,
+                task: done.task ?? r.task,
+                jobId: done.jobId ?? r.jobId,
+              },
           );
           if (done.ok) {
             setAnnouncement(doneText(t, operation, preview.request, done));
@@ -137,11 +151,24 @@ export function usePlanRun(engine: EngineInfo, target: string, operation: Operat
 
   /** Stops following: the engine finishes the statement and the task runs on. */
   const abort = useCallback(() => inFlight.current?.abort(), []);
+  /** Asks the engine to cancel the operation, through its job: following goes on. */
+  const cancel = useCallback(async () => {
+    const jobId = run?.jobId;
+    if (!jobId || run?.cancelling) {
+      return;
+    }
+    setRun((r) => r && { ...r, cancelling: true, cancelError: undefined });
+    try {
+      await cancelJob(engine, jobId);
+    } catch (e) {
+      setRun((r) => r && { ...r, cancelling: false, cancelError: errorText(e) });
+    }
+  }, [engine, run?.jobId, run?.cancelling]);
   const reset = useCallback(() => {
     inFlight.current?.abort();
     setRun(null);
   }, []);
-  return { run, announcement, execute, abort, reset };
+  return { run, announcement, execute, abort, cancel, reset };
 }
 
 /**
@@ -174,8 +201,24 @@ export function PlanRunView({
       ))}
       <StepList steps={run.steps} label={(s) => stepLabel(t, s, request, strategy)} />
       {run.task && <TaskProgress task={run.task} />}
-      {run.status === "running" && run.task && isActive(run.task) && (
+      {run.status === "running" && run.jobId && <p className="hint">{t("plan.keepsRunning")}</p>}
+      {run.status === "running" && !run.jobId && run.task && isActive(run.task) && (
         <p className="hint">{t("plan.runningHint", { id: run.task.id, target })}</p>
+      )}
+      {run.status === "running" && run.cancelling && (
+        <p className="hint" role="status">
+          {t("plan.cancelling")}
+        </p>
+      )}
+      {run.cancelError && (
+        <div className="banner banner-fail" role="alert">
+          <span className="banner-text">{run.cancelError}</span>
+        </div>
+      )}
+      {run.jobId && (
+        <p className="hint">
+          <a href={`#activity/${encodeURIComponent(run.jobId)}`}>{t("plan.openActivity")}</a>
+        </p>
       )}
       {run.status === "done" && run.done && (
         <div className="banner banner-ok">

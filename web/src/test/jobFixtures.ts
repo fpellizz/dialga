@@ -14,6 +14,7 @@ export function runningJob(): Job {
   return {
     id: JOB_ID,
     kind: "import",
+    origin: "app",
     target: "dev-sql",
     instance: "my-sqlserver",
     maxTasks: 2,
@@ -130,6 +131,9 @@ export function summary(job: Job, extra: Partial<JobSummary> = {}): JobSummary {
   return {
     id: job.id,
     kind: job.kind,
+    operation: job.operation,
+    origin: job.origin,
+    refusal: job.refusal,
     target: job.target,
     instance: job.instance,
     state: job.state,

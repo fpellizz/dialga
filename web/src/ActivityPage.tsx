@@ -7,6 +7,7 @@ import { type Translate, useI18n } from "./i18n";
 import {
   applyEvent,
   cancelJob,
+  filterCounts,
   followJob,
   formatClock,
   formatDateTime,
@@ -15,21 +16,29 @@ import {
   HttpError,
   isFinalEvent,
   isJobActive,
+  JOB_FILTERS,
   type Job,
+  type JobFilter,
   type JobItem,
+  type JobOperation,
+  type JobRefusal,
+  type JobShownState,
   type JobState,
   type JobStepStatus,
   type JobSummary,
   lastSeq,
   logText,
+  matchesFilter,
   resumeJob,
   resumeNeeds,
+  shownState,
   sortJobs,
 } from "./jobs";
 import { PasswordNeededBanner } from "./PasswordProvider";
 import type { JobList } from "./useJobs";
 
-const STATE_BADGE: Record<JobState, string> = {
+const STATE_BADGE: Record<JobShownState, string> = {
+  refused: "badge-warning",
   queued: "badge-skipped",
   running: "badge-running",
   succeeded: "badge-ok",
@@ -67,10 +76,74 @@ function useJobIdFromHash(): string {
   return id;
 }
 
-function jobTitle(t: Translate, job: { kind: string; target: string }): string {
-  const kind =
-    job.kind === "import" || job.kind === "export" ? t(`activity.kind.${job.kind}`) : job.kind;
+const OPERATION_LABEL = {
+  restore: "activity.op.restore",
+  export: "activity.op.export",
+  drop: "activity.op.drop",
+  finish: "activity.op.finish",
+  cancel: "activity.op.cancel",
+  post: "activity.op.post",
+} as const;
+
+/** Import, Export, or the operation of a single job: Restore, Drop, Cancel task... */
+function jobTitle(
+  t: Translate,
+  job: { kind: string; operation?: JobOperation; target: string },
+): string {
+  let kind: string = job.kind;
+  if (job.kind === "operation" && job.operation) {
+    kind = t(OPERATION_LABEL[job.operation]);
+  } else if (job.kind === "import" || job.kind === "export") {
+    kind = t(`activity.kind.${job.kind}`);
+  }
   return t("activity.jobTitle", { kind, target: job.target });
+}
+
+const FILTER_KEY = "dialga.activity.filter";
+
+/** The chip of the list, kept for the session (sessionStorage may be blocked). */
+function useJobFilter(): [JobFilter, (filter: JobFilter) => void] {
+  const [filter, setFilter] = useState<JobFilter>(() => {
+    try {
+      const saved = sessionStorage.getItem(FILTER_KEY);
+      return JOB_FILTERS.find((f) => f === saved) ?? "all";
+    } catch {
+      return "all";
+    }
+  });
+  const choose = (next: JobFilter) => {
+    setFilter(next);
+    try {
+      sessionStorage.setItem(FILTER_KEY, next);
+    } catch {
+      // The chip is just not remembered.
+    }
+  };
+  return [filter, choose];
+}
+
+const REFUSAL_LABEL: Record<
+  number,
+  "activity.refusal.412" | "activity.refusal.422" | "activity.refusal.428" | "activity.refusal.502"
+> = {
+  412: "activity.refusal.412",
+  422: "activity.refusal.422",
+  428: "activity.refusal.428",
+  502: "activity.refusal.502",
+};
+
+/** "HTTP 412 · Precondition failed": the status of a refusal, short. */
+function refusalStatus(t: Translate, refusal: JobRefusal): string {
+  const code = t("activity.refusal.status", { status: refusal.status });
+  const key = REFUSAL_LABEL[refusal.status];
+  return key ? `${code} · ${t(key)}` : code;
+}
+
+function OriginBadge({ origin }: { origin: string }) {
+  const { t } = useI18n();
+  return origin === "cli" ? (
+    <span className="badge badge-skipped">{t("activity.origin.cli")}</span>
+  ) : null;
 }
 
 function sleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -136,7 +209,10 @@ function useEndAnnouncement(list: JobSummary[] | null, t: Translate): string {
       setText(
         ended
           .map((j) =>
-            t("activity.announce", { title: jobTitle(t, j), state: t(`jobState.${j.state}`) }),
+            t("activity.announce", {
+              title: jobTitle(t, j),
+              state: t(`jobState.${shownState(j)}`),
+            }),
           )
           .join(" "),
       );
@@ -147,11 +223,14 @@ function useEndAnnouncement(list: JobSummary[] | null, t: Translate): string {
 
 function JobListView({ engineError, jobs }: { engineError: string; jobs: JobList }) {
   const { t } = useI18n();
-  const list = jobs.jobs ? sortJobs(jobs.jobs) : null;
+  const all = jobs.jobs ? sortJobs(jobs.jobs) : null;
   const announcement = useEndAnnouncement(jobs.jobs, t);
+  const [filter, setFilter] = useJobFilter();
+  const list = all?.filter((j) => matchesFilter(j, filter)) ?? null;
   const active = list?.filter((j) => isJobActive(j.state)) ?? [];
   const history = list?.filter((j) => !isJobActive(j.state)) ?? [];
-  const error = engineError || (list ? "" : jobs.error);
+  const counts = filterCounts(all ?? []);
+  const error = engineError || (all ? "" : jobs.error);
   return (
     <div className="page">
       <header className="page-head">
@@ -183,12 +262,41 @@ function JobListView({ engineError, jobs }: { engineError: string; jobs: JobList
           <div className="skeleton skeleton-row" />
         </div>
       )}
-      {list?.length === 0 && (
+      {all && all.length > 0 && (
+        <fieldset className="field job-filter">
+          <legend className="sr-only">{t("activity.filter.label")}</legend>
+          <div className="segmented">
+            {JOB_FILTERS.map((f) => (
+              <label key={f} className="segment">
+                <input
+                  type="radio"
+                  name="job-filter"
+                  value={f}
+                  checked={filter === f}
+                  onChange={() => setFilter(f)}
+                />
+                <span>
+                  {t("activity.filter.count", {
+                    label: t(`activity.filter.${f}`),
+                    count: counts[f],
+                  })}
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+      )}
+      {all?.length === 0 && (
         <section className="empty" role="status">
           <Activity size={20} aria-hidden="true" />
           <h2>{t("activity.empty.title")}</h2>
           <p>{t("activity.empty.hint")}</p>
         </section>
+      )}
+      {all && all.length > 0 && list?.length === 0 && (
+        <p className="muted" role="status">
+          {t("activity.filter.none")}
+        </p>
       )}
       {active.length > 0 && (
         <section className="job-section" aria-labelledby="jobs-running">
@@ -202,11 +310,18 @@ function JobListView({ engineError, jobs }: { engineError: string; jobs: JobList
           <JobRows list={history} />
         </section>
       )}
+      {all && <p className="hint">{t("activity.previewsNote")}</p>}
       <div className="sr-only" role="status">
         {announcement}
       </div>
     </div>
   );
+}
+
+/** The databases of a job, the first three. */
+function names(databases: string[]): string {
+  const shown = databases.slice(0, 3).join(", ");
+  return databases.length > 3 ? `${shown}, +${databases.length - 3}` : shown;
 }
 
 function JobRows({ list }: { list: JobSummary[] }) {
@@ -221,14 +336,24 @@ function JobRows({ list }: { list: JobSummary[] }) {
             <a className="job-row" href={`#activity/${encodeURIComponent(job.id)}`}>
               <div className="job-row-head">
                 <span className="job-title">{jobTitle(t, job)}</span>
-                <span className={`badge ${STATE_BADGE[job.state]}`}>
-                  {t(`jobState.${job.state}`)}
+                <OriginBadge origin={job.origin} />
+                <span className={`badge ${STATE_BADGE[shownState(job)]}`}>
+                  {t(`jobState.${shownState(job)}`)}
                 </span>
               </div>
+              {job.refusal && (
+                <div className="job-meta">
+                  <span className="tone-warning">{job.refusal.reason}</span>
+                  <span className="muted">{refusalStatus(t, job.refusal)}</span>
+                </div>
+              )}
               <div className="job-meta muted">
-                <span>
-                  {count === 1 ? t("activity.databasesOne") : t("activity.databases", { count })}
-                </span>
+                {count > 0 && (
+                  <span>
+                    {count === 1 ? t("activity.databasesOne") : t("activity.databases", { count })}
+                  </span>
+                )}
+                {count > 0 && <span className="mono">{names(job.databases)}</span>}
                 {job.failed > 0 && (
                   <span className="tone-destructive">
                     {t("activity.failedCount", { count: job.failed })}
@@ -525,7 +650,10 @@ function JobDetail({
           <h1 ref={heading} tabIndex={-1}>
             {title}
           </h1>
-          <span className={`badge ${STATE_BADGE[job.state]}`}>{t(`jobState.${job.state}`)}</span>
+          <OriginBadge origin={job.origin} />
+          <span className={`badge ${STATE_BADGE[shownState(job)]}`}>
+            {t(`jobState.${shownState(job)}`)}
+          </span>
         </div>
         {job.state === "interrupted" && !resuming && (
           <div className="toolbar">
@@ -561,6 +689,8 @@ function JobDetail({
             <dd>{formatDateTime(job.endedAt)}</dd>
           </>
         )}
+        <dt>{t("activity.fact.origin")}</dt>
+        <dd>{t(`activity.origin.${job.origin === "cli" ? "cli" : "app"}`)}</dd>
         <dt>{t("activity.fact.id")}</dt>
         <dd className="mono">{job.id}</dd>
       </dl>
@@ -595,15 +725,18 @@ function JobDetail({
         />
       )}
       {job.state === "interrupted" && <ResumeNeedsPanel job={job} />}
+      {job.refusal && <RefusalPanel refusal={job.refusal} />}
 
-      <section className="card" aria-labelledby="job-items">
-        <h2 id="job-items">{t("activity.items")}</h2>
-        <ul className="job-items">
-          {job.items.map((item) => (
-            <ItemCard key={item.name} item={item} />
-          ))}
-        </ul>
-      </section>
+      {job.items.length > 0 && (
+        <section className="card" aria-labelledby="job-items">
+          <h2 id="job-items">{t("activity.items")}</h2>
+          <ul className="job-items">
+            {job.items.map((item) => (
+              <ItemCard key={item.name} item={item} />
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section className="card" aria-labelledby="job-log">
         <div className="card-head">
@@ -655,6 +788,34 @@ function JobDetail({
         {announcement}
       </div>
     </div>
+  );
+}
+
+/** A Run the engine refused: why, the status, the checks that failed. */
+function RefusalPanel({ refusal }: { refusal: JobRefusal }) {
+  const { t } = useI18n();
+  const failed = refusal.checks?.filter((c) => c.status === "failed") ?? [];
+  return (
+    <section className="banner banner-warn job-warn" aria-labelledby="refusal-title">
+      <strong id="refusal-title">{t("activity.refusal.title")}</strong>
+      <p className="banner-text">{refusal.reason}</p>
+      <p className="banner-hint">
+        {refusalStatus(t, refusal)}. {t("activity.refusal.hint")}
+      </p>
+      {failed.length > 0 && (
+        <>
+          <h3 id="refusal-checks">{t("activity.refusal.checks")}</h3>
+          <ul aria-labelledby="refusal-checks">
+            {failed.map((c) => (
+              <li key={c.step}>
+                <span>{c.label}</span>
+                {c.detail && <span className="muted"> · {c.detail}</span>}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </section>
   );
 }
 
