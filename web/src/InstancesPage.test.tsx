@@ -3,12 +3,20 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { TargetList } from "./api";
 import { InstancesPage } from "./InstancesPage";
-import { CONFIG_PATH, DEV, LAB, PROD, renderI18n } from "./test/fixtures";
+import { CONFIG_PATH, DEV, LAB, overview, PROD, renderI18n } from "./test/fixtures";
 import { ENGINE, json, mockFetch, requestsTo, sseStream, text } from "./test/http";
 
 const TARGETS = "GET /api/v1/targets";
 const CHECK = "POST /api/v1/targets/dev-sql/checks";
 const TASKS = "GET /api/v1/targets/dev-sql/tasks";
+
+/** Every card loads its overview strip (OverviewStrip.test.tsx covers it). */
+const OVERVIEWS = Object.fromEntries(
+  [DEV, LAB, PROD].map((t) => [
+    `GET /api/v1/targets/${t.name}/overview`,
+    () => json(overview(t.name)),
+  ]),
+);
 
 function list(body: Partial<TargetList>) {
   return () => json({ configPath: CONFIG_PATH, targets: [], ...body });
@@ -66,7 +74,7 @@ describe("InstancesPage", () => {
   });
 
   it("shows one card per target with its facts", async () => {
-    mockFetch({ [TARGETS]: list({ targets: [DEV, LAB, PROD] }) });
+    mockFetch({ [TARGETS]: list({ targets: [DEV, LAB, PROD] }), ...OVERVIEWS });
     renderI18n(<InstancesPage engine={ENGINE} engineError="" />);
 
     const dev = await screen.findByRole("region", { name: "dev-sql" });
@@ -76,6 +84,8 @@ describe("InstancesPage", () => {
     expect(fact(dev, "Bucket")).toHaveTextContent("my-sqlserver-backups");
     expect(fact(dev, "Connection")).toHaveTextContent("Open tunnel on port 11433");
     expect(within(dev).queryByText("Protected")).toBeNull();
+    // The overview strip of the card, from GET /overview.
+    expect(await within(dev).findByText("SQL Server 2017 Standard")).toBeInTheDocument();
 
     expect(fact(card("lab-sql"), "Connection")).toHaveTextContent("Integrated tunnel");
     const prod = card("prod-sql");
@@ -87,13 +97,23 @@ describe("InstancesPage", () => {
     const fetch = mockFetch({
       [TARGETS]: (_req, call) =>
         json({ configPath: CONFIG_PATH, targets: call === 0 ? [DEV] : [DEV, PROD] }),
+      ...OVERVIEWS,
     });
     renderI18n(<InstancesPage engine={ENGINE} engineError="" />);
-    await screen.findByRole("region", { name: "dev-sql" });
+    const dev = await screen.findByRole("region", { name: "dev-sql" });
+    expect(await within(dev).findByText("Available")).toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    // The page button; every overview strip has its own Refresh too.
+    await userEvent.click(
+      within(screen.getByRole("banner")).getByRole("button", { name: "Refresh" }),
+    );
     expect(await screen.findByRole("region", { name: "prod-sql" })).toBeInTheDocument();
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(requestsTo(fetch, TARGETS)).toHaveLength(2);
+    // The card that stays keeps its strip; only the new one asks for its overview.
+    await waitFor(() =>
+      expect(requestsTo(fetch, "GET /api/v1/targets/prod-sql/overview")).toHaveLength(1),
+    );
+    expect(requestsTo(fetch, "GET /api/v1/targets/dev-sql/overview")).toHaveLength(1);
   });
 
   it("streams a check: notice, steps and a verdict with warnings", async () => {
@@ -101,6 +121,7 @@ describe("InstancesPage", () => {
     const fetch = mockFetch({
       [TARGETS]: list({ targets: [DEV] }),
       [CHECK]: () => stream.response,
+      ...OVERVIEWS,
     });
     renderI18n(<InstancesPage engine={ENGINE} engineError="" />);
     const dev = await screen.findByRole("region", { name: "dev-sql" });
@@ -144,7 +165,11 @@ describe("InstancesPage", () => {
     [false, "failed", "Some checks failed", "banner-fail"],
   ] as const)("shows the verdict ok=%s", async (ok, status, verdict, tone) => {
     const stream = sseStream();
-    mockFetch({ [TARGETS]: list({ targets: [DEV] }), [CHECK]: () => stream.response });
+    mockFetch({
+      [TARGETS]: list({ targets: [DEV] }),
+      [CHECK]: () => stream.response,
+      ...OVERVIEWS,
+    });
     renderI18n(<InstancesPage engine={ENGINE} engineError="" />);
     const dev = await screen.findByRole("region", { name: "dev-sql" });
     await userEvent.click(within(dev).getByRole("button", { name: "Run check" }));
@@ -159,6 +184,7 @@ describe("InstancesPage", () => {
     mockFetch({
       [TARGETS]: list({ targets: [DEV] }),
       [CHECK]: () => text("connect.mode tunnel arrives in v0.4\n", 422),
+      ...OVERVIEWS,
     });
     renderI18n(<InstancesPage engine={ENGINE} engineError="" />);
     const dev = await screen.findByRole("region", { name: "dev-sql" });
@@ -177,6 +203,7 @@ describe("InstancesPage", () => {
     mockFetch({
       [TARGETS]: list({ targets: [DEV] }),
       [CHECK]: (_req, call) => (call === 0 ? first.response : second.response),
+      ...OVERVIEWS,
     });
     renderI18n(<InstancesPage engine={ENGINE} engineError="" />);
     const dev = await screen.findByRole("region", { name: "dev-sql" });
@@ -200,6 +227,7 @@ describe("InstancesPage", () => {
     const fetch = mockFetch({
       [TARGETS]: list({ targets: [DEV] }),
       [TASKS]: () => json({ tasks: [] }),
+      ...OVERVIEWS,
     });
     renderI18n(<InstancesPage engine={ENGINE} engineError="" />);
     const dev = await screen.findByRole("region", { name: "dev-sql" });
