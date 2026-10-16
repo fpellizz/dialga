@@ -98,7 +98,7 @@ func (s Sessions) OpenWithAWS(ctx context.Context, t config.Target, password str
 		}
 		addr, tun = lease.Addr, releaser(lease.Release)
 	default:
-		tn, err := tunnel.Open(ctx, cfg, TunnelTarget(t, inst, t.Connect.LocalPort), tunnel.Options{})
+		tn, err := tunnel.Open(ctx, cfg, PrivateTunnelTarget(t, inst), tunnel.Options{})
 		if err != nil {
 			return nil, aws.Config{}, fmt.Errorf("integrated tunnel: %w", err)
 		}
@@ -127,6 +127,13 @@ func OpenTunnel(ctx context.Context, t config.Target, localPort int, onState fun
 		return nil, err
 	}
 	return tunnel.Open(ctx, cfg, TunnelTarget(t, inst, localPort), tunnel.Options{OnState: onState})
+}
+
+// PrivateTunnelTarget is the forwarding of a tunnel opened for one session:
+// always on a free port, because connect.local_port belongs to the shared
+// tunnel of the app and to "dialga tunnel", which may be holding it.
+func PrivateTunnelTarget(t config.Target, inst awsx.Instance) tunnel.Target {
+	return TunnelTarget(t, inst, 0)
 }
 
 // TunnelTarget is the forwarding to the endpoint of inst for target t.

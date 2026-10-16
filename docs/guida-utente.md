@@ -168,7 +168,7 @@ targets:
 | `sql.user` | Sì | — | Login SQL Server |
 | `sql.password` | No | `prompt` | **Da dove** arriva la password (§4.3), mai la password |
 | `connect.mode` | No | `external` | `external`, `direct` o `tunnel` (§4.4) |
-| `connect.local_port` | Con `external` | — | Porta locale del tunnel; con `tunnel`, `0` o assente = una porta libera |
+| `connect.local_port` | Con `external` | — | Porta locale del tunnel. Con `tunnel`: porta del tunnel condiviso dell'app e di `dialga tunnel` (`0` o assente = una porta libera); i comandi singoli aprono sempre il loro tunnel su una porta libera |
 | `connect.bridge_tag` | No | `ssm-bridge` | Tag `Name` dell'istanza bridge (modalità `tunnel`) |
 
 La lettura è **stretta**: una chiave sconosciuta (un refuso) è un errore, mai un default silenzioso. Un solo target non valido rende non valido tutto il file, per ogni comando: `dialga config validate` dice quale e perché.
@@ -617,6 +617,7 @@ I messaggi sono quelli che stampano la CLI e l'app (in inglese).
 | `N running instances tagged Name=<tag> in <vpc> (…): keep one, or set connect.bridge_tag` | Più bridge con lo stesso tag | Tenerne uno, o dare al bridge giusto un tag univoco |
 | `no instance tagged Name=<tag> in <vpc>, the VPC of the RDS instance (only in …)` | Il bridge è in un altro VPC | Serve un bridge nel VPC dell'istanza RDS |
 | `127.0.0.1:N is in use (another tunnel?): choose another local port` | La porta locale è occupata | Un'altra porta (`--port`, `connect.local_port`), oppure `0` per una libera |
+| Sessione SSM ancora `Active` (es. in `aws ssm describe-sessions --state Active`) dopo un `kill -9` o un crash di `dialga` | Con SIGKILL il processo non può chiudere il tunnel; la sessione resta fino al timeout di inattività | `aws ssm terminate-session --session-id <id>` (solo le tue sessioni). Ctrl-C, SIGTERM, SIGHUP e una pipe chiusa (`| head`) chiudono invece la sessione da soli |
 | `ssm StartSession on i-…: … AccessDeniedException` | Mancano i permessi SSM | Statement `TunnelStartSession` e `TunnelTerminateOwnSession` della policy |
 | `the tunnel did not answer on 127.0.0.1:N within 30s` | La sessione SSM si apre ma non inoltra (rete del bridge, security group verso l'istanza) | Riprova; se persiste, l'amministratore controlla il bridge e il security group dell'istanza RDS |
 

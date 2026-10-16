@@ -38,8 +38,10 @@ targets:
       # direct:   the RDS endpoint itself (inside the VPC)
       # tunnel:   Dialga opens the SSM tunnel itself, through the running
       #           instance tagged Name=<bridge_tag> in the VPC of the RDS
-      #           instance; needs session-manager-plugin. local_port 0 or
-      #           absent: a free port. `dialga tunnel` keeps one open.
+      #           instance; needs session-manager-plugin. local_port is the
+      #           port of the shared tunnel of the app and of `dialga tunnel`
+      #           (0 or absent: a free port); one-off commands always open
+      #           their own tunnel on a free port.
       mode: external
       local_port: 11433
       # Name tag of the bridge instance (tunnel mode; default ssm-bridge).

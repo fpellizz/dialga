@@ -36,6 +36,14 @@ func TestPasswordFromEnv(t *testing.T) {
 	}
 }
 
+func TestPrivateTunnelTargetTakesAFreePort(t *testing.T) {
+	tgt := config.Target{Region: "us-east-1", AWSProfile: "sales",
+		Connect: config.Connect{Mode: config.ModeTunnel, LocalPort: 41433}}
+	if got := PrivateTunnelTarget(tgt, awsx.Instance{Endpoint: "db.example.rds.amazonaws.com", Port: 1433}); got.LocalPort != 0 {
+		t.Fatalf("private tunnel on port %d, want a free one (0)", got.LocalPort)
+	}
+}
+
 func TestTunnelTarget(t *testing.T) {
 	tgt := config.Target{Region: "us-east-1", AWSProfile: "sales",
 		Connect: config.Connect{Mode: config.ModeTunnel, LocalPort: 41433, BridgeTag: "my-bridge"}}

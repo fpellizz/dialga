@@ -273,9 +273,11 @@ func lendTunnel(ctx context.Context, cfg aws.Config, req Request, inst awsx.Inst
 	if req.Lender != nil {
 		return req.Lender.Lend(ctx)
 	}
+	// A private tunnel takes a free port: connect.local_port belongs to the
+	// shared tunnel of the app and to "dialga tunnel", which may hold it.
 	tun, err := tunnel.Open(ctx, cfg, tunnel.Target{
 		Region: req.Region, Profile: req.Profile, VPC: inst.VPC, Host: inst.Endpoint, Port: inst.Port,
-		LocalPort: req.LocalPort, BridgeTag: req.BridgeTag,
+		BridgeTag: req.BridgeTag,
 	}, tunnel.Options{})
 	if err != nil {
 		return tunnel.Lease{}, err
