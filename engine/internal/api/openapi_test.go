@@ -131,6 +131,7 @@ func TestOpenAPISchemasMatchTheGoTypes(t *testing.T) {
 		"TransferProgress": {jobs.TransferProgress{}},
 		"TaskProgress":     {jobs.TaskStatus{}},
 		"MultipartUpload":  {jobs.UploadState{}},
+		"ResumeRequest":    {ResumeRequest{}},
 	}
 	schemas := loadSpec(t).Components.Schemas
 	for name, schema := range schemas {

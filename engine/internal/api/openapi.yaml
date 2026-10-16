@@ -584,6 +584,61 @@ paths:
           content:
             text/plain:
               schema: { type: string }
+  /api/v1/jobs/{id}/resume:
+    post:
+      summary: Resume an interrupted job
+      description: |
+        Runs an interrupted job again, under the same id, on its target as
+        configured now: the databases that ended and the steps that
+        succeeded are kept, the others are rebuilt from the journal (an
+        upload continues its multipart upload, a native task already queued
+        is followed, not queued again). The answer comes once the job is
+        queued; follow it with /events (a job.resumed event, then the rest).
+      parameters:
+        - $ref: "#/components/parameters/JobID"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ResumeRequest" }
+      responses:
+        "202":
+          description: Resumed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "400":
+          description: The body is not a ResumeRequest.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownJob" }
+        "409":
+          description: The job is not interrupted, or the configuration file is missing or invalid.
+          content:
+            text/plain:
+              schema: { type: string }
+        "422":
+          description: |
+            Not resumable now: the target left the configuration or points at
+            another instance, the confirmation is missing or wrong (protected
+            target), no SQL password in the engine environment, or a step
+            cannot be rebuilt.
+          content:
+            text/plain:
+              schema: { type: string }
+        "501":
+          description: This engine has no import/export pipeline to rebuild the steps with.
+          content:
+            text/plain:
+              schema: { type: string }
+        "502":
+          description: AWS or SQL Server did not answer while preparing the steps.
+          content:
+            text/plain:
+              schema: { type: string }
 components:
   securitySchemes:
     bearer:
@@ -1221,3 +1276,7 @@ components:
         size: { type: integer }
         partSize: { type: integer }
         partsDone: { type: array, items: { type: integer } }
+    ResumeRequest:
+      type: object
+      properties:
+        confirm: { type: string, description: The target name retyped; needed when the target is protected. }

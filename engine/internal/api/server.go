@@ -80,6 +80,10 @@ type Options struct {
 	// Jobs runs the import/export jobs (default: a manager in memory only;
 	// "dialga serve" passes the one with the journal).
 	Jobs *jobs.Manager
+	// JobEnv builds what resumed steps run with (the pipeline's
+	// environment, handed to the step factories). Nil: POST
+	// /api/v1/jobs/{id}/resume answers 501.
+	JobEnv func(ctx context.Context, name string, t config.Target, password string) (any, error)
 }
 
 // Server is the HTTP API of the engine.
