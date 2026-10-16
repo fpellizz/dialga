@@ -459,7 +459,7 @@ func (a *app) target(name string) (string, config.Target, error) {
 // openTarget opens the target for the operations, asking for the SQL
 // password on the terminal when the configuration says so.
 func (a *app) openTarget(ctx context.Context, name string, t config.Target) (*ops.Session, func(), error) {
-	password, err := a.sqlPassword(t)
+	password, err := a.sqlPassword(name, t)
 	if err != nil {
 		return nil, nil, fmt.Errorf("SQL password: %w", err)
 	}

@@ -37,8 +37,10 @@ const devOrigin = "http://localhost:1420"
 // the running ones are interrupted and written there before it exits.
 //
 // The targets come from configPath, read on every request. SQL passwords
-// follow each target's sql.password (env:VAR, or DIALGA_SQL_PASSWORD for
-// "prompt"): the engine inherits them from the desktop app's environment.
+// follow each target's sql.password: env:VAR and DIALGA_SQL_PASSWORD (for
+// "prompt") come from the desktop app's environment, keyring from the system
+// keyring, secretsmanager:<arn> from AWS; a password typed in the app is kept
+// in the engine's memory (PUT /api/v1/targets/{name}/password).
 //
 // Environment:
 //

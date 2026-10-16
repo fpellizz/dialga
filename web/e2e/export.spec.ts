@@ -280,13 +280,13 @@ test("exports with plan calls when the engine has no job route", async ({ page }
 });
 
 test("shows the engine refusal of the preview with what to do", async ({ page }) => {
-  // The previews go to the real engine: no SQL password for e2e-fake (422).
+  // The previews go to the real engine: no SQL password for e2e-fake (428).
   await page.goto("/#export/e2e-fake?db=sales");
   await page.getByRole("button", { name: "Next" }).click();
   await page.getByRole("button", { name: "Next" }).click();
   await page.getByRole("button", { name: "Next" }).click();
   const preview = page.getByRole("region", { name: "Step 4 of 6: Preview" });
-  await expect(preview.getByRole("alert")).toContainText("SQL password:");
+  await expect(preview.getByRole("alert")).toContainText("The SQL password for e2e-fake is needed");
   await expect(page.getByRole("button", { name: "Run export" })).toBeDisabled();
   // Back to the databases from the stepper, by keyboard.
   await page.getByRole("button", { name: "Go back to Databases" }).focus();

@@ -4,6 +4,7 @@ import { isActive, listTasks, type Task } from "./api";
 import type { EngineInfo } from "./engine";
 import { ErrorBanner } from "./Feedback";
 import { useI18n } from "./i18n";
+import { usePassword } from "./PasswordProvider";
 import { PlanDialog } from "./PlanDialog";
 import { LIFECYCLE_BADGE, shortTime } from "./TaskProgress";
 
@@ -13,6 +14,7 @@ const POLL_MS = 30_000;
 /** The recent native backup/restore tasks of a target. */
 export function TasksPanel({ engine, target }: { engine: EngineInfo; target: string }) {
   const { t } = useI18n();
+  const { epoch } = usePassword();
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
@@ -20,6 +22,7 @@ export function TasksPanel({ engine, target }: { engine: EngineInfo; target: str
   // The task whose cancel plan is open.
   const [cancelling, setCancelling] = useState<number | null>(null);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: epoch is the refresh trigger.
   const load = useCallback(async () => {
     if (inFlight.current) {
       return;
@@ -44,7 +47,7 @@ export function TasksPanel({ engine, target }: { engine: EngineInfo; target: str
         setLoading(false);
       }
     }
-  }, [engine, target]);
+  }, [engine, target, epoch]);
 
   useEffect(() => {
     load();

@@ -1,4 +1,4 @@
-import type { Lifecycle } from "./api";
+import { failure as apiFailure, type Lifecycle } from "./api";
 import type { EngineInfo } from "./engine";
 import { createSseParser } from "./sse";
 
@@ -140,7 +140,11 @@ function headers(engine: EngineInfo, extra?: Record<string, string>): HeadersIni
   return { Authorization: `Bearer ${engine.token}`, ...extra };
 }
 
-async function failure(response: Response): Promise<HttpError> {
+async function failure(response: Response): Promise<Error> {
+  // 428: the SQL password is needed, with the target; the dialog asks for it.
+  if (response.status === 428) {
+    return apiFailure(response);
+  }
   const text = (await response.text()).trim();
   return new HttpError(text || `HTTP ${response.status}`, response.status);
 }

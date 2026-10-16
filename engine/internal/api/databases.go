@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"math"
 	"net/http"
 	"sync"
@@ -29,7 +30,7 @@ type DatabaseList struct {
 // What the SQL part of an overview did.
 const (
 	overviewSQLOK      = "ok"
-	overviewSQLSkipped = "skipped" // no SQL password in the engine environment
+	overviewSQLSkipped = "skipped" // no SQL password available yet
 	overviewSQLFailed  = "failed"  // the session or the query failed
 )
 
@@ -91,9 +92,8 @@ func (s *Server) listDatabases(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	password, err := session.PasswordFromEnv(t, s.opts.Getenv)
-	if err != nil {
-		http.Error(w, "SQL password: "+err.Error(), http.StatusUnprocessableEntity)
+	password, ok := s.sqlPassword(r.Context(), w, name, t)
+	if !ok {
 		return
 	}
 	dbs, closeDBs, err := s.opts.OpenDatabases(r.Context(), t, password)
@@ -154,8 +154,11 @@ func (s *Server) targetOverview(w http.ResponseWriter, r *http.Request) {
 
 // overviewSQL fills the SQL fields of an overview.
 func (s *Server) overviewSQL(ctx context.Context, name string, t config.Target) Overview {
-	password, err := session.PasswordFromEnv(t, s.opts.Getenv)
-	if err != nil {
+	password, err := s.opts.Passwords.Resolve(ctx, name, t)
+	switch {
+	case errors.Is(err, session.ErrNeeded):
+		return Overview{SQL: overviewSQLSkipped, SQLDetail: "SQL password needed for target " + name}
+	case err != nil:
 		return Overview{SQL: overviewSQLSkipped, SQLDetail: "SQL password: " + err.Error()}
 	}
 	ctx, cancel := context.WithTimeout(ctx, overviewSQLTimeout)

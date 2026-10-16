@@ -58,16 +58,14 @@ func ValidRegion(r string) bool { return regionPattern.MatchString(r) }
 // ValidBucket reports whether b can name an S3 bucket in the file.
 func ValidBucket(b string) bool { return bucketPattern.MatchString(b) }
 
-// SupportedPasswordSource accepts the password references this build can
-// resolve, the only ones a new target gets: "prompt" (or empty) and env:VAR.
-// keyring and secretsmanager: are planned.
+// SupportedPasswordSource accepts the references a new target can get:
+// "prompt" (or empty), env:VAR, keyring and secretsmanager:<arn>.
 func SupportedPasswordSource(ref string) error {
-	src, err := SQL{Password: ref}.PasswordSource()
-	if ref == "" || (err == nil && (src.Kind == PasswordPrompt || src.Kind == PasswordEnv)) {
+	if _, err := (SQL{Password: ref}).PasswordSource(); ref == "" || err == nil {
 		return nil
 	}
 	// The value is not repeated: it could be a password typed in the wrong field.
-	return errors.New("the SQL password source must be prompt or env:VAR, never the password itself")
+	return errors.New("the SQL password source must be prompt, env:VAR, keyring or secretsmanager:<secret ARN>, never the password itself")
 }
 
 // Check applies the defaults to t and validates it under name, with the

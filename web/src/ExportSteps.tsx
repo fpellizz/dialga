@@ -30,6 +30,7 @@ import {
 } from "./exportPlan";
 import { type ExportItemRun, type ItemState, tally } from "./exportRun";
 import { ErrorBanner } from "./Feedback";
+import { sqlSessionHint } from "./hints";
 import { type Lang, messages, type Translate, useI18n } from "./i18n";
 import { stepLabel as planStepLabel } from "./PlanPreview";
 import { StepList } from "./StepList";
@@ -115,7 +116,12 @@ export function DatabasesStep({
           </a>
         </section>
       )}
-      {error !== null && <ErrorBanner error={error} fallback={{ key: "databases.errorHint" }} />}
+      {error !== null && (
+        <ErrorBanner
+          error={error}
+          fallback={sqlSessionHint(targets?.targets.find((x) => x.name === target)?.connectMode)}
+        />
+      )}
       {target && error === null && !list && (
         <div aria-hidden="true">
           <div className="skeleton skeleton-row" />

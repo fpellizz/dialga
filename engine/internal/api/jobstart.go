@@ -12,7 +12,6 @@ import (
 	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/ops"
 	"github.com/decisyon/dialga/engine/internal/pipeline"
-	"github.com/decisyon/dialga/engine/internal/session"
 	"github.com/decisyon/dialga/engine/internal/transfer"
 )
 
@@ -119,9 +118,8 @@ func (s *Server) startJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	password, err := session.PasswordFromEnv(t, s.opts.Getenv)
-	if err != nil {
-		http.Error(w, "SQL password: "+err.Error(), http.StatusUnprocessableEntity)
+	password, ok := s.sqlPassword(r.Context(), w, name, t)
+	if !ok {
 		return
 	}
 	env, err := s.pipelineEnv(r.Context(), name, t, password)

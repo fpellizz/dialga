@@ -1,6 +1,7 @@
-import { errorText } from "./api";
+import { errorText, passwordNeeded } from "./api";
 import { errorHint, type Hint } from "./hints";
 import { useI18n } from "./i18n";
+import { PasswordNeededBanner } from "./PasswordProvider";
 
 /** What to do, under a message; nothing without a hint. */
 export function HintText({ hint, className = "banner-hint" }: { hint?: Hint; className?: string }) {
@@ -21,6 +22,10 @@ export function ErrorBanner({
   fallback?: Hint;
   preformatted?: boolean;
 }) {
+  const needed = passwordNeeded(error);
+  if (needed) {
+    return <PasswordNeededBanner target={needed} />;
+  }
   return (
     <div className="banner banner-fail" role="alert">
       {preformatted ? (

@@ -1,6 +1,6 @@
 import { Activity, ArrowLeft, Ban, ClipboardCopy, Play, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { errorText, listTargets } from "./api";
+import { errorText, listTargets, passwordNeeded } from "./api";
 import { formatBytes } from "./databases";
 import type { EngineInfo } from "./engine";
 import { type Translate, useI18n } from "./i18n";
@@ -26,6 +26,7 @@ import {
   resumeNeeds,
   sortJobs,
 } from "./jobs";
+import { PasswordNeededBanner } from "./PasswordProvider";
 import type { JobList } from "./useJobs";
 
 const STATE_BADGE: Record<JobState, string> = {
@@ -748,7 +749,10 @@ function ResumeConfirm({
           />
         </div>
       )}
-      {error && (
+      {error && passwordNeeded(error) && (
+        <PasswordNeededBanner target={passwordNeeded(error) ?? target} />
+      )}
+      {error && !passwordNeeded(error) && (
         <div className="banner banner-fail" role="alert">
           <span className="banner-text">{error}</span>
         </div>

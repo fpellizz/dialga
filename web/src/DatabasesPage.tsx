@@ -32,7 +32,9 @@ import {
 import type { EngineInfo } from "./engine";
 import { exportable, exportHref } from "./exportPlan";
 import { ErrorBanner, HintText } from "./Feedback";
+import { sqlSessionHint } from "./hints";
 import { type MessageKey, useI18n } from "./i18n";
+import { usePassword } from "./PasswordProvider";
 import { PlanDialog, type PlanResult } from "./PlanDialog";
 import type { Operation } from "./plans";
 import { ReportDialog } from "./ReportDialog";
@@ -68,6 +70,7 @@ export function DatabasesPage({
   engineError: string;
 }) {
   const { t } = useI18n();
+  const { epoch } = usePassword();
   const [targets, setTargets] = useState<TargetList | null>(null);
   const [targetsError, setTargetsError] = useState<unknown>(null);
   const [target, setTarget] = useState("");
@@ -131,7 +134,7 @@ export function DatabasesPage({
       },
     );
     return () => controller.abort();
-  }, [engine, target, reload]);
+  }, [engine, target, reload, epoch]);
 
   const list = loaded?.target === target ? loaded.list : null;
   // Busy from the first render of a target, like its card: the request starts in an effect.
@@ -252,7 +255,12 @@ export function DatabasesPage({
           </a>
         </section>
       )}
-      {error !== null && <ErrorBanner error={error} fallback={{ key: "databases.errorHint" }} />}
+      {error !== null && (
+        <ErrorBanner
+          error={error}
+          fallback={sqlSessionHint(targets?.targets.find((x) => x.name === target)?.connectMode)}
+        />
+      )}
 
       {target && error === null && (
         <section

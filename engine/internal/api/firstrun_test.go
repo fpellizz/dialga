@@ -132,7 +132,7 @@ func TestSaveTargetFirstRunThenReplace(t *testing.T) {
 		summary.Name != "prod-sql" || summary.LocalPort != 11434 || !summary.Protected {
 		t.Fatalf("add: status %d, body %s", rec.Code, rec.Body)
 	}
-	if strings.Contains(rec.Body.String(), "PROD_SQL_PASSWORD") {
+	if strings.Contains(rec.Body.String(), "env:PROD_SQL_PASSWORD") {
 		t.Fatal("the password reference came back")
 	}
 	cfg, err := config.Load(path)
@@ -177,9 +177,9 @@ func TestSaveTargetRejects(t *testing.T) {
 		{"a password field", nil, strings.Replace(newTargetBody, `"protected":true}`, `"protected":true,"password":"x"}`, 1),
 			http.StatusBadRequest, "unknown field"},
 		{"a password as source", nil, strings.Replace(newTargetBody, "env:PROD_SQL_PASSWORD", "hunter2", 1),
-			http.StatusBadRequest, "prompt or env:VAR"},
-		{"keyring not yet", nil, strings.Replace(newTargetBody, "env:PROD_SQL_PASSWORD", "keyring", 1),
-			http.StatusBadRequest, "prompt or env:VAR"},
+			http.StatusBadRequest, "prompt, env:VAR, keyring or secretsmanager"},
+		{"bad secret ARN", nil, strings.Replace(newTargetBody, "env:PROD_SQL_PASSWORD", "secretsmanager:nope", 1),
+			http.StatusBadRequest, "prompt, env:VAR, keyring or secretsmanager"},
 		{"bad fields", nil, strings.NewReplacer(`"prod-sql"`, `"Prod"`, `"localPort":11434,`, "").Replace(newTargetBody),
 			http.StatusBadRequest, "local_port"},
 		{"invalid file on disk", &broken, newTargetBody, http.StatusConflict, "fix it first"},

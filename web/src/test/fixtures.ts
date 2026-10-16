@@ -1,5 +1,5 @@
 import { render } from "@testing-library/react";
-import type { ReactElement } from "react";
+import { createElement, type ReactElement, type ReactNode } from "react";
 import type {
   Database,
   DiscoveredInstance,
@@ -9,6 +9,8 @@ import type {
   Task,
 } from "../api";
 import { I18nProvider, type Lang } from "../i18n";
+import { PasswordProvider } from "../PasswordProvider";
+import { ENGINE } from "./http";
 
 /** Where the engine says the configuration lives (placeholder path). */
 export const CONFIG_PATH = "/home/user/.config/dialga/config.yaml";
@@ -157,4 +159,19 @@ export function discovered(
 export function renderI18n(ui: ReactElement, lang: Lang = "en", strict = false) {
   localStorage.setItem("dialga.lang", lang);
   return render(ui, { wrapper: I18nProvider, reactStrictMode: strict });
+}
+
+/** I18nProvider with the SQL password dialog of the app inside. */
+function WithPassword({ children }: { children: ReactNode }) {
+  return createElement(
+    I18nProvider,
+    null,
+    createElement(PasswordProvider, { engine: ENGINE, children }),
+  );
+}
+
+/** Like renderI18n (English), with the SQL password dialog of the app around the page. */
+export function renderWithPassword(ui: ReactElement) {
+  localStorage.setItem("dialga.lang", "en");
+  return render(ui, { wrapper: WithPassword });
 }

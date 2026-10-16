@@ -8,11 +8,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { isActive, type Task } from "./api";
+import { isActive, passwordNeeded, type Task } from "./api";
 import type { EngineInfo } from "./engine";
 import { ErrorBanner } from "./Feedback";
 import { useI18n } from "./i18n";
 import { Modal } from "./Modal";
+import { usePassword } from "./PasswordProvider";
 import { PlanPreviewView } from "./PlanPreview";
 import { PlanAnnouncer, PlanRunView, usePlanRun } from "./PlanRun";
 import {
@@ -124,6 +125,20 @@ export function PlanDialog({
     }
     return () => previewAbort.current?.abort();
   }, []);
+
+  // The SQL password was saved while the preview waited for it: preview again.
+  const { epoch } = usePassword();
+  const seenEpoch = useRef(epoch);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: epoch is the trigger.
+  useEffect(() => {
+    if (epoch === seenEpoch.current) {
+      return;
+    }
+    seenEpoch.current = epoch;
+    if (passwordNeeded(previewError)) {
+      void doPreview(params);
+    }
+  }, [epoch]);
 
   const stale = preview !== null && previewed !== null && !sameRequest(params, previewed);
   const runnable = preview !== null && !loading && canExecute(preview, typed, stale);

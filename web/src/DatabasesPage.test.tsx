@@ -226,8 +226,8 @@ describe("DatabasesPage", () => {
     [
       422,
       "SQL password: sql.password is prompt: set DIALGA_SQL_PASSWORD",
-      // No hint of its own: what the list needs.
-      "The list is read with a SQL session: the engine needs the SQL password and a reachable instance (open tunnel).",
+      // No hint of its own: what the list needs, by how the target connects (DEV: its own tunnel).
+      "The list is read with a SQL session: the engine needs the SQL password and the tunnel you opened on the port of the target (open it, then retry).",
     ],
     [
       502,

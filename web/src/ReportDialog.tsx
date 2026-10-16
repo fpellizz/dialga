@@ -5,6 +5,7 @@ import type { EngineInfo } from "./engine";
 import { ErrorBanner } from "./Feedback";
 import { useI18n } from "./i18n";
 import { Modal } from "./Modal";
+import { usePassword } from "./PasswordProvider";
 import { type DatabaseReport, getDatabaseReport, planHint, planStepKey } from "./plans";
 import { StepList } from "./StepList";
 
@@ -28,17 +29,20 @@ export function ReportDialog({
   onClose: () => void;
 }) {
   const { t, lang } = useI18n();
+  const { epoch } = usePassword();
   const [report, setReport] = useState<DatabaseReport | null>(null);
   const [error, setError] = useState<unknown>(null);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: epoch is the refresh trigger.
   useEffect(() => {
     const controller = new AbortController();
+    setError(null);
     getDatabaseReport(engine, target, database, controller.signal).then(
       (r) => !controller.signal.aborted && setReport(r),
       (e: unknown) => !controller.signal.aborted && setError(e),
     );
     return () => controller.abort();
-  }, [engine, target, database]);
+  }, [epoch, engine, target, database]);
 
   const d = report?.database;
   return (

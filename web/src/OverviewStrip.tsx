@@ -1,6 +1,6 @@
 import { RefreshCw } from "lucide-react";
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
-import { errorText, getOverview, type Overview } from "./api";
+import { errorText, getOverview, type Overview, passwordNeeded } from "./api";
 import {
   databasesHref,
   engineLabel,
@@ -13,6 +13,7 @@ import type { EngineInfo } from "./engine";
 import { HintText } from "./Feedback";
 import { errorHint, hintFor } from "./hints";
 import { useI18n } from "./i18n";
+import { PasswordNeededBanner, usePassword } from "./PasswordProvider";
 
 /** True once the element has been on screen: off-screen cards cost no AWS calls. */
 function useSeen(ref: RefObject<HTMLElement | null>): boolean {
@@ -40,6 +41,7 @@ function useSeen(ref: RefObject<HTMLElement | null>): boolean {
 /** A compact state of a target's instance inside its card, loaded when the card shows. */
 export function OverviewStrip({ engine, target }: { engine: EngineInfo; target: string }) {
   const { t } = useI18n();
+  const { epoch } = usePassword();
   const ref = useRef<HTMLDivElement>(null);
   const seen = useSeen(ref);
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -70,7 +72,7 @@ export function OverviewStrip({ engine, target }: { engine: EngineInfo; target: 
       },
     );
     return () => controller.abort();
-  }, [engine, target, seen, reload]);
+  }, [engine, target, seen, reload, epoch]);
 
   const refresh = (
     <button
@@ -94,7 +96,10 @@ export function OverviewStrip({ engine, target }: { engine: EngineInfo; target: 
           <div className="skeleton skeleton-line" />
         </div>
       )}
-      {error !== null && (
+      {error !== null && passwordNeeded(error) && (
+        <PasswordNeededBanner target={passwordNeeded(error) ?? target} />
+      )}
+      {error !== null && !passwordNeeded(error) && (
         <div className="overview-row">
           <span className="overview-error">
             <span className="tone-destructive">{errorText(error)}</span>
@@ -201,6 +206,9 @@ function OverviewBody({
             <dd className={o.activeTasks ? "tone-info" : undefined}>{o.activeTasks ?? 0}</dd>
           </div>
         </dl>
+      ) : passwordNeeded(o.sqlDetail) ? (
+        // The engine answers 200 with the SQL part skipped, not 428.
+        <PasswordNeededBanner target={passwordNeeded(o.sqlDetail) ?? target} />
       ) : (
         <details className="overview-sql">
           <summary className={o.sql === "failed" ? "tone-warning" : undefined}>

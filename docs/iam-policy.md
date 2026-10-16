@@ -32,7 +32,7 @@ oggetti per ciascuno.
 | `TunnelFindBridge` | `ec2:DescribeInstances` | Modalità tunnel: trovare il bridge SSM. Nessun permesso a livello di risorsa: `*` |
 | `TunnelStartSession` | `ssm:StartSession` | Modalità tunnel: port forwarding attraverso il bridge, solo con il documento `AWS-StartPortForwardingSessionToRemoteHost` (nessuna shell) |
 | `TunnelTerminateOwnSession` | `ssm:TerminateSession` | Modalità tunnel: chiudere solo le sessioni dell'utente stesso |
-| `OptionalSqlPasswordFromSecretsManager` | `secretsmanager:GetSecretValue` | Solo con `sql.password: secretsmanager:<ARN>` (previsto). Altrimenti va tolto |
+| `OptionalSqlPasswordFromSecretsManager` | `secretsmanager:GetSecretValue` | Solo con `sql.password: secretsmanager:<ARN>`, sul solo ARN di quel segreto (il suffisso `-*` copre i sei caratteri casuali). Altrimenti va tolto |
 
 ## Cosa la policy non copre
 
@@ -44,6 +44,10 @@ oggetti per ciascuno.
   Server.
 - **SQL Server**: il login viene dalla configurazione del target
   (`sql.user` e il riferimento alla password), non da IAM.
+- **KMS per il segreto**: se il segreto di Secrets Manager è cifrato con una
+  chiave gestita dal cliente (non `aws/secretsmanager`), serve anche
+  `kms:Decrypt` su quella chiave. Con la chiave `aws/secretsmanager` basta
+  `secretsmanager:GetSecretValue`.
 - **KMS**: con SSE-KMS sul bucket, aggiungi `kms:GenerateDataKey` e
   `kms:Decrypt` su quella chiave, per l'utente e per il ruolo dell'opzione.
 - **Ambito del tunnel**: `ssm:StartSession` è consentito su tutte le istanze

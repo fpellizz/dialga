@@ -38,6 +38,11 @@ const RULES: { test: RegExp; hint: (m: RegExpMatchArray) => Hint }[] = [
     test: /environment variable (\w+) is empty/,
     hint: (m) => ({ key: "hint.envVar", vars: { name: m[1] ?? "" } }),
   },
+  {
+    // 422 of a password the engine reads itself (env:, secretsmanager:): nothing to type here.
+    test: /^SQL password: (secret |system keyring)/,
+    hint: () => ({ key: "hint.passwordSource" }),
+  },
   { test: /login failed/i, hint: () => ({ key: "hint.sqlLogin" }) },
   { test: /x509|certificate/i, hint: () => ({ key: "hint.tls" }) },
   {
@@ -96,4 +101,35 @@ export function stepHint(step: StepEvent): Hint | undefined {
     return { key: "hint.option" };
   }
   return undefined;
+}
+
+/** The hint under a failed SQL session, by how the engine reaches the instance. */
+export function sqlSessionHint(connectMode?: "external" | "direct" | "tunnel"): Hint {
+  switch (connectMode) {
+    case "tunnel":
+      return { key: "databases.errorHint.tunnel" };
+    case "external":
+      return { key: "databases.errorHint.external" };
+    case "direct":
+      return { key: "databases.errorHint.direct" };
+    default:
+      return { key: "databases.errorHint" };
+  }
+}
+
+/** The hint under a refused password: by HTTP status, as the message is SQL Server's or the engine's. */
+export function passwordHint(error: unknown): Hint | undefined {
+  switch (error instanceof ApiError ? error.status : undefined) {
+    case 422:
+      return { key: "password.hint.login" };
+    case 409:
+      return { key: "password.hint.source" };
+    case 501:
+      return { key: "password.hint.keyring" };
+    case 502:
+      // AWS or the tunnel: the password was not even tried.
+      return errorHint(error) ?? { key: "password.hint.connection" };
+    default:
+      return errorHint(error);
+  }
 }

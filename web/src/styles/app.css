@@ -1881,3 +1881,27 @@ a.btn {
 .row-select input {
   accent-color: var(--primary);
 }
+
+/* SQL password dialog */
+.input-group {
+  display: flex;
+  gap: 8px;
+}
+.input-group .input {
+  flex: 1;
+  min-width: 0;
+}
+.btn-icon {
+  padding: 0;
+  width: var(--control-h);
+  justify-content: center;
+}
+.btn-icon[aria-pressed="true"] {
+  background: var(--muted);
+}
+.password-state {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
