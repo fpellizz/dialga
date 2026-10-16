@@ -11,6 +11,7 @@ import (
 
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/core"
+	"github.com/decisyon/dialga/engine/internal/inspect"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 )
 
@@ -89,6 +90,14 @@ func TestOpenAPISchemasMatchTheGoTypes(t *testing.T) {
 		"Database":      {mssql.Database{}},
 		"DatabaseList":  {DatabaseList{}},
 		"Overview":      {Overview{}},
+		// inspect
+		"InspectRequest": {InspectRequest{}},
+		"InspectResult":  {inspect.Result{}},
+		"InspectTarget":  {inspect.Target{}},
+		"InspectBackup":  {inspect.Backup{}},
+		"InspectHeader":  {inspect.Header{}},
+		"InspectFile":    {inspect.DatabaseFile{}},
+		"InspectFinding": {inspect.Finding{}},
 	}
 	schemas := loadSpec(t).Components.Schemas
 	for name, schema := range schemas {

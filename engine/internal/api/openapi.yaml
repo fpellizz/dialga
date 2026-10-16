@@ -141,6 +141,39 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/DatabaseList" }
+  /api/v1/inspect:
+    post:
+      summary: Read .bak files locally and judge them against a target
+      description: |
+        Starts a throwaway SQL Server in a local container (podman, or docker)
+        with the files mounted read-only, runs RESTORE LABELONLY, HEADERONLY and
+        FILELISTONLY, then removes the container. Several files are several
+        backups, or the stripes of one: they are grouped by media set. With a
+        target, every backup is judged against its engine and the restored
+        files against its free storage (AWS is only read; no SQL password).
+
+        Streams Server-Sent Events: "step" (StepEvent) every time a step starts
+        or ends (target, runtime, image, container, ready, media, header, files,
+        verdict, space, cleanup; no target, verdict and space without a
+        target), then "result" (InspectResult), or "notice" (Notice) with the
+        error when the inspection stops, then one "done" (Done: ok when the
+        outcome is restorable, or read without a target).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InspectRequest" }
+      responses:
+        "200":
+          description: The event stream.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "400":
+          description: Invalid body, a path not absolute, a file missing or not readable, an invalid image.
+          content:
+            text/plain:
+              schema: { type: string }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/UnknownTarget" }
@@ -340,3 +373,112 @@ components:
         sqlDetail: { type: string, description: Why the SQL part is skipped or failed. }
         userDatabases: { type: integer, description: Present when sql is ok. }
         activeTasks: { type: integer, description: Native tasks queued, running or being cancelled; present when sql is ok. }
+    InspectRequest:
+      type: object
+      required: [paths]
+      properties:
+        paths:
+          type: array
+          minItems: 1
+          maxItems: 64
+          description: Absolute paths of local .bak files (backups, or the stripes of one).
+          items: { type: string }
+        target: { type: string, description: Target to judge the backups against; omitted reads the headers only. }
+        image: { type: string, description: "SQL Server image that reads the backups (default mcr.microsoft.com/mssql/server:2022-latest). Never pulled implicitly." }
+    InspectResult:
+      type: object
+      description: Data of the "result" event of an inspection.
+      required: [outcome, runtime, image, server, backups, requiredBytes]
+      properties:
+        outcome:
+          type: string
+          enum: [restorable, not-restorable, read, error]
+          description: error when some file could not be read; read without a target.
+        runtime: { type: string, examples: [podman 5.8.4] }
+        image: { type: string }
+        server: { type: string, description: Version of the throwaway SQL Server that read the files. }
+        target: { $ref: "#/components/schemas/InspectTarget" }
+        backups:
+          type: array
+          description: In the order of their first file.
+          items: { $ref: "#/components/schemas/InspectBackup" }
+        requiredBytes: { type: integer, description: What all the restored databases take (sum of their files, not of the .bak files). }
+        space: { $ref: "#/components/schemas/InspectFinding" }
+    InspectTarget:
+      type: object
+      required: [name, instance, engine, engineVersion, major]
+      properties:
+        name: { type: string }
+        instance: { type: string }
+        engine: { type: string, examples: [sqlserver-se] }
+        engineVersion: { type: string, examples: [14.00.3540.1.v1] }
+        major: { type: integer, description: "SQL Server major version: 14 = SQL Server 2017." }
+        freeBytes: { type: integer, description: Free storage from CloudWatch; omitted when unknown. }
+    InspectBackup:
+      type: object
+      description: One backup, a .bak file or the stripes of one backup.
+      required: [files, outcome, requiredBytes, backupSets]
+      properties:
+        files:
+          type: array
+          description: The paths, in stripe order.
+          items: { type: string }
+        outcome: { type: string, enum: [restorable, not-restorable, read, error] }
+        error: { type: string, description: Why the backup could not be read. }
+        header: { $ref: "#/components/schemas/InspectHeader" }
+        databaseFiles:
+          type: array
+          items: { $ref: "#/components/schemas/InspectFile" }
+        requiredBytes: { type: integer, description: Sum of the database files. }
+        backupSets: { type: integer, description: Backup sets in the media; RDS restores the first. }
+        findings:
+          type: array
+          description: The rules of the verdict (with a target only).
+          items: { $ref: "#/components/schemas/InspectFinding" }
+        remedy: { type: string, description: What to do when the backup is not restorable or unreadable. }
+    InspectHeader:
+      type: object
+      description: The first backup set of RESTORE HEADERONLY.
+      required: [databaseName, serverName, backupType, version, major, product, compatibilityLevel, collation,
+        recoveryModel, compressed, checksums, copyOnly, backupSize, compressedSize, startedAt, finishedAt]
+      properties:
+        databaseName: { type: string }
+        serverName: { type: string }
+        backupType:
+          type: string
+          enum: [full, differential, log, file, file differential, partial, partial differential]
+        version: { type: string, description: Source SQL Server version, major.minor.build. }
+        major: { type: integer }
+        product: { type: string, examples: [SQL Server 2017] }
+        compatibilityLevel: { type: integer }
+        collation: { type: string }
+        recoveryModel: { type: string, enum: [FULL, BULK-LOGGED, SIMPLE] }
+        compressed: { type: boolean }
+        checksums: { type: boolean }
+        copyOnly: { type: boolean }
+        encryption: { type: string, description: Backup encryption algorithm; omitted when the backup is not encrypted. }
+        backupSize: { type: integer }
+        compressedSize: { type: integer }
+        startedAt: { type: string, description: "Source server's wall clock, without a zone: 2006-01-02T15:04:05." }
+        finishedAt: { type: string }
+    InspectFile:
+      type: object
+      description: A database file in the backup (RESTORE FILELISTONLY).
+      required: [logicalName, physicalName, type, sizeBytes, tde]
+      properties:
+        logicalName: { type: string }
+        physicalName: { type: string }
+        type: { type: string, enum: [D, L, S, F], description: "D data, L log, S FILESTREAM or In-Memory OLTP, F full-text catalog." }
+        fileGroup: { type: string }
+        sizeBytes: { type: integer }
+        tde: { type: boolean, description: Encrypted with Transparent Data Encryption. }
+    InspectFinding:
+      type: object
+      required: [check, status, message]
+      properties:
+        check: { type: string, enum: [version, type, encryption, tde, filestream, sets, space] }
+        status:
+          type: string
+          enum: [ok, warning, failed]
+          description: warning is worth reading but does not block the restore.
+        message: { type: string }

@@ -63,6 +63,9 @@ type Options struct {
 	// and session.DescribeTarget; tests replace them).
 	OpenDatabases  func(context.Context, config.Target, string) (mssql.DatabaseReader, func(), error)
 	DescribeTarget func(context.Context, config.Target) (session.InstanceInfo, error)
+
+	// RunInspect inspects .bak files (nil: inspect.Run; tests replace it).
+	RunInspect InspectFunc
 }
 
 // Server is the HTTP API of the engine.
