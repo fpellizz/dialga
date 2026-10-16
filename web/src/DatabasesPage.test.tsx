@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { Database } from "./api";
@@ -42,9 +42,15 @@ function names() {
   return screen.getAllByRole("rowheader").map((cell) => cell.querySelector(".mono")?.textContent);
 }
 
+/** The page Refresh: its name says which databases (the visible text is just "Refresh"). */
 function pageRefresh() {
-  return within(screen.getByRole("banner")).getByRole("button", { name: "Refresh" });
+  return within(screen.getByRole("banner")).getByRole("button", {
+    name: /^Refresh the databases of /,
+  });
 }
+
+const ENGINE_HINT =
+  "Restart Dialga. If it happens again, start it from a terminal to read the engine log.";
 
 describe("DatabasesPage", () => {
   beforeEach(() => {
@@ -56,16 +62,20 @@ describe("DatabasesPage", () => {
 
   it("shows a skeleton, then the databases of the first target", async () => {
     const answer = deferred<Response>();
-    mockFetch({ [TARGETS]: targets(DEV, PROD), [DEV_DBS]: () => answer.promise });
+    const fetch = mockFetch({ [TARGETS]: targets(DEV, PROD), [DEV_DBS]: () => answer.promise });
     const { container } = page();
 
     const card = await screen.findByRole("region", { name: "User databases on dev-sql" });
     expect(selector().value).toBe("dev-sql");
-    // The card shows one render before its request starts (loading is set in an effect).
-    await waitFor(() => expect(card).toHaveAttribute("aria-busy", "true"));
+    // Busy from its first render, before the request starts.
+    expect(card).toHaveAttribute("aria-busy", "true");
     expect(container.querySelectorAll(".skeleton")).toHaveLength(3);
     expect(screen.getByRole("searchbox", { name: "Filter" })).toBeDisabled();
-    expect(pageRefresh()).toBeDisabled();
+    expect(pageRefresh()).toHaveAccessibleName("Refresh the databases of dev-sql");
+    // Busy, not disabled: it keeps the focus and ignores clicks.
+    expect(pageRefresh()).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(pageRefresh());
+    expect(requestsTo(fetch, DEV_DBS)).toHaveLength(1);
 
     answer.resolve(json({ databases: [SALES, HR, ARCHIVE] }));
     expect(await screen.findByRole("table", { name: "User databases on dev-sql" })).toBeVisible();
@@ -73,7 +83,7 @@ describe("DatabasesPage", () => {
     expect(container.querySelector(".skeleton")).toBeNull();
     expect(names()).toEqual(["archive", "hr", "sales"]);
     expect(screen.getByText("3 databases")).toBeInTheDocument();
-    expect(pageRefresh()).toBeEnabled();
+    expect(pageRefresh()).not.toHaveAttribute("aria-disabled");
   });
 
   it("shows state, size, compatibility, recovery, owner and access of each database", async () => {
@@ -93,7 +103,11 @@ describe("DatabasesPage", () => {
     const hr = within(row("hr"));
     expect(hr.getByText("130").parentElement).toHaveTextContent("130 · 2016");
     expect(hr.getByText("SIMPLE")).toBeInTheDocument();
-    expect(hr.getByText("—")).toHaveAttribute("title", "No login has the owner SID");
+    // A screen reader reads the reason, not the dash.
+    const noOwner = hr.getByText("No login has the owner SID");
+    expect(noOwner).toHaveClass("sr-only");
+    expect(noOwner.parentElement).toHaveAttribute("title", "No login has the owner SID");
+    expect(hr.getByText("—")).toHaveAttribute("aria-hidden", "true");
 
     const archive = within(row("archive"));
     expect(archive.getByText("Offline")).toHaveClass("badge-skipped");
@@ -209,9 +223,18 @@ describe("DatabasesPage", () => {
   });
 
   it.each([
-    [422, "SQL password: sql.password is prompt: set DIALGA_SQL_PASSWORD"],
-    [502, "failed to get shared config profile, dev"],
-  ])("shows the engine's %i with what the list needs, then retries", async (status, message) => {
+    [
+      422,
+      "SQL password: sql.password is prompt: set DIALGA_SQL_PASSWORD",
+      // No hint of its own: what the list needs.
+      "The list is read with a SQL session: the engine needs the SQL password and a reachable instance (open tunnel).",
+    ],
+    [
+      502,
+      "failed to get shared config profile, dev",
+      "Create the profile dev in ~/.aws/config (aws configure sso), or fix aws_profile in the configuration.",
+    ],
+  ])("shows the engine's %i with what to do, then retries", async (status, message, hint) => {
     const fetch = mockFetch({
       [TARGETS]: targets(DEV),
       [DEV_DBS]: (_req, call) =>
@@ -220,9 +243,7 @@ describe("DatabasesPage", () => {
     page();
     const banner = await screen.findByRole("alert");
     expect(banner.querySelector(".banner-text")).toHaveTextContent(new RegExp(`^${message}$`));
-    expect(banner).toHaveTextContent(
-      "The list is read with a SQL session: the engine needs the SQL password and a reachable instance (open tunnel).",
-    );
+    expect(banner.querySelector(".banner-hint")).toHaveTextContent(hint);
     expect(screen.queryByRole("region", { name: "User databases on dev-sql" })).toBeNull();
 
     await userEvent.click(pageRefresh());
@@ -272,6 +293,9 @@ describe("DatabasesPage", () => {
     const banner = await screen.findByRole("alert");
     expect(within(banner).getByText("The configuration file has errors")).toBeVisible();
     expect(banner.querySelector("pre")).toHaveTextContent("invalid YAML: line 2");
+    expect(banner).toHaveTextContent(
+      "Fix the configuration file (its path is in Settings), then refresh.",
+    );
     expect(screen.queryByText("No instances configured")).toBeNull();
   });
 
@@ -279,14 +303,16 @@ describe("DatabasesPage", () => {
     mockFetch({ [TARGETS]: () => text("unauthorized\n", 401) });
     page();
     const banner = await screen.findByRole("alert");
-    expect(banner.querySelector("pre")).toHaveTextContent(/^unauthorized$/);
+    expect(banner.querySelector(".banner-text")).toHaveTextContent(/^unauthorized$/);
+    // 401: the session token is not the engine's, as after a restart.
+    expect(banner.querySelector(".banner-hint")).toHaveTextContent(ENGINE_HINT);
     expect(within(banner).queryByText("The configuration file has errors")).toBeNull();
   });
 
   it("waits for the engine without asking anything", () => {
     const fetch = mockFetch({});
     renderI18n(<DatabasesPage engine={null} engineError="The engine did not start" />);
-    expect(screen.getByRole("alert")).toHaveTextContent("The engine did not start");
+    expect(screen.getByRole("alert")).toHaveTextContent(`The engine did not start${ENGINE_HINT}`);
     expect(screen.queryByRole("combobox")).toBeNull();
     expect(fetch).not.toHaveBeenCalled();
   });
