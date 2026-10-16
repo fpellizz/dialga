@@ -86,7 +86,7 @@ func (s *Server) resumeJob(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, jobs.ErrNotFound):
 		http.Error(w, err.Error(), http.StatusNotFound)
 		return
-	case errors.Is(err, jobs.ErrNotInterrupted):
+	case errors.Is(err, jobs.ErrNotInterrupted), errors.Is(err, jobs.ErrLocked):
 		http.Error(w, err.Error(), http.StatusConflict)
 		return
 	case errors.Is(err, jobs.ErrNotResumable):

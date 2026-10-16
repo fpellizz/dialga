@@ -73,6 +73,9 @@ func (s *Server) cancelJob(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, jobs.ErrEnded):
 		http.Error(w, fmt.Sprintf("%v (%s)", err, sum.State), http.StatusConflict)
 		return
+	case errors.Is(err, jobs.ErrForeign):
+		http.Error(w, err.Error(), http.StatusConflict)
+		return
 	case err != nil:
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

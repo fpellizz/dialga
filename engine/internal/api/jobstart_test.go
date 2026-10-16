@@ -226,6 +226,24 @@ func TestStartJobErrors(t *testing.T) {
 			if rec.Code != tc.want || js.s3.Calls("CreateMultipartUpload") != 0 {
 				t.Fatalf("status %d, want %d (body %s)", rec.Code, tc.want, rec.Body)
 			}
+			// What was refused is in Activity, as a failed job; the other
+			// answers leave nothing.
+			recorded := js.jobs.List()
+			switch tc.want {
+			case http.StatusPreconditionFailed, http.StatusUnprocessableEntity, http.StatusBadGateway:
+				if len(recorded) != 1 || recorded[0].State != jobs.Failed || recorded[0].Refusal == nil ||
+					recorded[0].Refusal.Status != tc.want || recorded[0].Refusal.Reason == "" || recorded[0].Origin != jobs.OriginApp ||
+					recorded[0].Kind != jobs.Import || len(recorded[0].Databases) != 1 || recorded[0].Databases[0] != "sales" {
+					t.Fatalf("refusal not recorded: %+v", recorded)
+				}
+				if tc.want == http.StatusPreconditionFailed && tc.name == "pre-flight fails" && len(recorded[0].Refusal.Checks) == 0 {
+					t.Fatalf("the failing checks are missing: %+v", recorded[0].Refusal)
+				}
+			case http.StatusBadRequest, http.StatusNotFound, http.StatusConflict:
+				if len(recorded) != 0 {
+					t.Fatalf("a bad request left a job: %+v", recorded)
+				}
+			}
 			if tc.want == http.StatusPreconditionFailed {
 				var refused JobRefused
 				if json.Unmarshal(rec.Body.Bytes(), &refused) != nil || refused.Reason == "" || len(refused.Plan.Items) != 1 {
