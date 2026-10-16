@@ -12,6 +12,7 @@ import (
 
 	"github.com/decisyon/dialga/engine/internal/core"
 	"github.com/decisyon/dialga/engine/internal/mssql"
+	"github.com/decisyon/dialga/engine/internal/transfer"
 )
 
 // probe counts what runs at once and logs the order of starts and ends.
@@ -682,5 +683,15 @@ func TestLimiterCancelWhileWaiting(t *testing.T) {
 	rel2()
 	if p := l.pools["k"]; p.inUse != 0 || len(p.waiting) != 0 {
 		t.Fatalf("pool %+v", p)
+	}
+}
+
+func TestInterruptedKeepsUploads(t *testing.T) {
+	// An engine stop is a pause for the transfers: the parts stay in S3.
+	if !errors.Is(ErrInterrupted, transfer.ErrPaused) || !errors.Is(ErrInterrupted, ErrInterrupted) {
+		t.Fatal("ErrInterrupted does not match transfer.ErrPaused")
+	}
+	if errors.Is(ErrCancelled, transfer.ErrPaused) {
+		t.Fatal("a cancel must abort the uploads")
 	}
 }
