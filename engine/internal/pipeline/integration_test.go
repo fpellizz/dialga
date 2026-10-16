@@ -25,13 +25,13 @@ import (
 	_ "github.com/microsoft/go-mssqldb"
 	"github.com/testcontainers/testcontainers-go"
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
-	"github.com/testcontainers/testcontainers-go/modules/minio"
 	tcmssql "github.com/testcontainers/testcontainers-go/modules/mssql"
 
 	"github.com/decisyon/dialga/engine/internal/awsx"
 	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/ops"
+	"github.com/decisyon/dialga/engine/internal/transfer/transfertest"
 )
 
 // The integration test runs import and export jobs end to end: the uploads
@@ -40,10 +40,7 @@ import (
 // queues tasks: playRDS does what RDS would, reading the bucket for a
 // restore and writing it for a backup, then flips the task to SUCCESS.
 
-const (
-	itBucket   = "it-backups"
-	minioImage = "quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z"
-)
+const itBucket = "it-backups"
 
 var mssqlImage = "mcr.microsoft.com/mssql/server:2022-latest" // override with DIALGA_MSSQL_IMAGE
 
@@ -157,7 +154,7 @@ func startSQLServer(t *testing.T) instance {
 func startMinIO(t *testing.T) *s3.Client {
 	t.Helper()
 	ctx := context.Background()
-	ctr, err := minio.Run(ctx, minioImage)
+	ctr, err := transfertest.RunMinIO(ctx)
 	testcontainers.CleanupContainer(t, ctr)
 	if err != nil {
 		t.Fatal(err)
