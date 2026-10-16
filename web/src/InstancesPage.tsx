@@ -55,7 +55,14 @@ export function InstancesPage({
           <h1>{t("instances.title")}</h1>
           <p className="lead">{t("instances.lead")}</p>
         </div>
-        <button type="button" className="btn btn-outline" onClick={load} disabled={!engine}>
+        {/* The name starts with the visible text, so voice control finds it (WCAG 2.5.3). */}
+        <button
+          type="button"
+          className="btn btn-outline"
+          onClick={load}
+          disabled={!engine}
+          aria-label={t("instances.refreshList")}
+        >
           <RefreshCw size={16} aria-hidden="true" />
           {t("instances.refresh")}
         </button>

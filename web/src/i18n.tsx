@@ -135,8 +135,10 @@ const en = {
   "app.skip": "Skip to content",
   "check.steps": "Check steps",
   "check.counts": "Failed: {failed} · warnings: {warnings}",
-  "overview.refresh": "Refresh the overview",
-  "tasks.refresh": "Refresh the tasks",
+  "overview.refresh": "Refresh the overview of {target}",
+  "tasks.refresh": "Refresh the tasks of {target}",
+  "instances.refreshList": "Refresh the instances",
+  "databases.refresh": "Refresh the databases of {target}",
   "hint.engine":
     "Restart Dialga. If it happens again, start it from a terminal to read the engine log.",
   "hint.config": "Fix the configuration file (its path is in Settings), then refresh.",
@@ -306,8 +308,10 @@ const it: Record<MessageKey, string> = {
   "app.skip": "Vai al contenuto",
   "check.steps": "Passi del check",
   "check.counts": "Falliti: {failed} · avvisi: {warnings}",
-  "overview.refresh": "Aggiorna il riepilogo",
-  "tasks.refresh": "Aggiorna i task",
+  "overview.refresh": "Aggiorna il riepilogo di {target}",
+  "tasks.refresh": "Aggiorna i task di {target}",
+  "instances.refreshList": "Aggiorna le istanze",
+  "databases.refresh": "Aggiorna i database di {target}",
   "hint.engine":
     "Riavvia Dialga. Se succede ancora, avvialo da un terminale per leggere il log dell'engine.",
   "hint.config":

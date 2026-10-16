@@ -154,6 +154,7 @@ export function DatabasesPage({
               onClick={() => !loading && setReload((n) => n + 1)}
               aria-disabled={loading || undefined}
               disabled={!target}
+              aria-label={t("databases.refresh", { target })}
             >
               <RefreshCw size={16} className={loading ? "spin" : undefined} aria-hidden="true" />
               {t("instances.refresh")}
@@ -186,7 +187,7 @@ export function DatabasesPage({
         <section
           className="card db-card"
           aria-label={t("databases.caption", { target })}
-          aria-busy={loading}
+          aria-busy={loading || !list}
         >
           <div className="db-toolbar">
             <label className="field-inline db-filter">

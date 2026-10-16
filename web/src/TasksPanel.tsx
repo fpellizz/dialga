@@ -75,7 +75,11 @@ export function TasksPanel({ engine, target }: { engine: EngineInfo; target: str
 
   const titleId = `tasks-${target}`;
   return (
-    <section className="tasks" aria-labelledby={titleId} aria-busy={loading}>
+    <section
+      className="tasks"
+      aria-labelledby={titleId}
+      aria-busy={loading || (tasks === null && error === null)}
+    >
       <div className="tasks-head">
         <h3 id={titleId}>{t("tasks.title")}</h3>
         <button
@@ -83,8 +87,8 @@ export function TasksPanel({ engine, target }: { engine: EngineInfo; target: str
           className="btn btn-ghost btn-sm"
           onClick={load}
           aria-disabled={loading || undefined}
-          aria-label={t("tasks.refresh")}
-          title={t("tasks.refresh")}
+          aria-label={t("tasks.refresh", { target })}
+          title={t("tasks.refresh", { target })}
         >
           <RefreshCw size={14} className={loading ? "spin" : undefined} aria-hidden="true" />
         </button>
