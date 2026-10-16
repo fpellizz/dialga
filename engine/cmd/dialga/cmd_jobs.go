@@ -48,7 +48,7 @@ Journal: $XDG_STATE_HOME/dialga/jobs, or ~/.local/state/dialga/jobs (Linux);
 		},
 	}
 	cmd.PersistentFlags().StringVar(&dir, "dir", "", "journal directory (default: the engine's)")
-	cmd.AddCommand(a.jobsShowCmd(&dir))
+	cmd.AddCommand(a.jobsShowCmd(&dir), a.jobsResumeCmd(&dir))
 	return cmd
 }
 

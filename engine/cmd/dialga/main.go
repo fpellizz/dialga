@@ -18,6 +18,7 @@ import (
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/config"
 	"github.com/decisyon/dialga/engine/internal/discover"
+	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/ops"
 	"github.com/decisyon/dialga/engine/internal/session"
@@ -59,6 +60,11 @@ type app struct {
 	readConfirm func(prompt string) (string, error)
 	// discover answers config init and doctor (nil: discover.System).
 	discover discover.Service
+	// jobEnv builds what resumed steps run with (jobs resume; nil: the
+	// import/export pipeline is not in this build); jobRegistry has their
+	// factories (nil: jobs.DefaultRegistry).
+	jobEnv      func(ctx context.Context, name string, t config.Target, password string) (any, error)
+	jobRegistry *jobs.Registry
 }
 
 func main() {
