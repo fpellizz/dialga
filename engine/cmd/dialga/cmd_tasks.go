@@ -85,12 +85,21 @@ Exit status: 0 SUCCESS, 3 ERROR or CANCELLED, 1 error.`,
 				return err
 			}
 			defer closeTasks()
+			// An unknown id is an answer, not something to follow: look it up first.
+			first, err := tasks.Get(cmd.Context(), id)
+			if errors.Is(err, mssql.ErrTaskNotFound) {
+				return fmt.Errorf("task %d not found on %s (RDS keeps 36 days of history)", id, name)
+			}
+			reader := tasks
+			if err == nil {
+				reader = &readFirst{TaskReader: tasks, task: &first}
+			} // other errors: Wait retries them
 			out, errOut := cmd.OutOrStdout(), cmd.ErrOrStderr()
 			text := a.output != "json"
 			if text {
 				_, _ = fmt.Fprintf(out, "Following task %d on %s every %s (Ctrl-C stops the wait, not the task).\n", id, name, interval)
 			}
-			task, err := mssql.Wait(cmd.Context(), tasks, id, mssql.WaitOptions{
+			task, err := mssql.Wait(cmd.Context(), reader, id, mssql.WaitOptions{
 				Interval: interval,
 				OnChange: func(t mssql.Task) {
 					if text {
@@ -125,6 +134,21 @@ Exit status: 0 SUCCESS, 3 ERROR or CANCELLED, 1 error.`,
 	cmd.Flags().DurationVar(&interval, "interval", 30*time.Second,
 		"time between two reads (RDS updates the status about every 2 minutes)")
 	return cmd
+}
+
+// readFirst hands Wait the task already read, then reads on: the lookup
+// before "Following…" costs no extra query.
+type readFirst struct {
+	mssql.TaskReader
+	task *mssql.Task
+}
+
+func (r *readFirst) Get(ctx context.Context, id int) (mssql.Task, error) {
+	if t := r.task; t != nil && t.ID == id {
+		r.task = nil
+		return *t, nil
+	}
+	return r.TaskReader.Get(ctx, id)
 }
 
 // targetTasks opens a session on the target to read its native tasks (with

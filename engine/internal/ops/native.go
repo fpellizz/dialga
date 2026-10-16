@@ -88,6 +88,16 @@ func (s *Session) checkSource(ctx context.Context, p *Prepared, key string, bare
 		switch {
 		case len(files) == 0:
 			p.fail(step, label, "no object matches "+where(key)+" (upload the files first)")
+		case len(files) == 1:
+			// One object: restored by its exact key, not as a striped backup.
+			one := files[0]
+			size, err := s.Bucket.Size(ctx, one)
+			if err != nil {
+				p.ok(step, label, fmt.Sprintf("%s, the only object matching %s", where(one), key))
+				return one, 0
+			}
+			p.ok(step, label, fmt.Sprintf("%s (%s), the only object matching %s", where(one), humanBytes(size), key))
+			return one, size
 		case len(files) > maxBackupFiles:
 			p.fail(step, label, fmt.Sprintf("RDS restores at most %d files per backup: %s matches %d", maxBackupFiles, where(key), len(files)))
 		default:

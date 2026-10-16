@@ -60,7 +60,8 @@ type TaskReader interface {
 // Tasks reads the native tasks through a SQL session.
 type Tasks struct{ DB *sql.DB }
 
-// The duration column is spelled differently across the AWS docs: not read.
+// The duration column is not read: the AWS docs spell it in several ways
+// (on RDS it is "duration(mins)", as in testdata/mock-rds.sql).
 const taskColumns = `task_id, task_type, database_name, [% complete], lifecycle,
 	task_info, created_at, last_updated, S3_object_arn`
 

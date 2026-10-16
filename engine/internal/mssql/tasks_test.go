@@ -139,3 +139,11 @@ func TestOpenWithClosesTheResourceWithThePool(t *testing.T) {
 		t.Fatalf("db.Close() = %v, resource closed %d times", err, c.n)
 	}
 }
+
+// The engine never names the duration column: its spelling differs between
+// the docs and RDS ("duration(mins)"), and a wrong one fails the query.
+func TestTaskColumnsSkipDuration(t *testing.T) {
+	if strings.Contains(strings.ToLower(taskColumns), "duration") {
+		t.Fatalf("taskColumns reads the duration column: %s", taskColumns)
+	}
+}

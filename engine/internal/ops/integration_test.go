@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -197,7 +198,8 @@ func oneLineSQL(s string) string {
 func goldenSession(bucket fakeBucket) *Session {
 	t := testTarget
 	t.Bucket = "golden-bucket"
-	return &Session{Name: "it", Target: t, SQL: mssql.Session{DB: god}, Bucket: bucket,
+	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
+	return &Session{Name: "it", Target: t, SQL: mssql.Session{DB: god, Log: quiet}, Bucket: bucket,
 		Now: func() time.Time { return time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC) }}
 }
 
@@ -401,7 +403,8 @@ func TestIntegrationExportDefaultKeyNow(t *testing.T) {
 
 func TestIntegrationStartTaskReadsTheAnswer(t *testing.T) {
 	ctx := context.Background()
-	admin := mssql.Session{DB: sa}
+	var logged strings.Builder
+	admin := mssql.Session{DB: sa, Log: slog.New(slog.NewTextHandler(&logged, nil))}
 	// An answer with a task_id column: that task, even if it is not the newest.
 	var oldest int
 	if err := sa.QueryRow(`SELECT MIN(task_id) FROM msdb.dbo.mock_tasks`).Scan(&oldest); err != nil {
@@ -411,11 +414,18 @@ func TestIntegrationStartTaskReadsTheAnswer(t *testing.T) {
 	if err != nil || task.ID != oldest {
 		t.Fatalf("task %+v, err %v (want %d)", task, err, oldest)
 	}
+	// The first real --apply tells which way found the id.
+	if want := fmt.Sprintf(`level=INFO msg="native task found in the answer of the procedure" task=%d`, oldest); !strings.Contains(logged.String(), want) {
+		t.Fatalf("log %q lacks %q", logged.String(), want)
+	}
 	// No answer: the newest task of the database after the statement.
 	task, err = admin.StartTask(ctx, `INSERT msdb.dbo.mock_tasks(task_type, database_name, pct, lifecycle, last_updated, created_at)
 		VALUES ('RESTORE_DB', 'fallback_db', 0, 'CREATED', GETDATE(), GETDATE())`, "fallback_db")
 	if err != nil || task.Database != "fallback_db" || task.Lifecycle != mssql.Created {
 		t.Fatalf("fallback task %+v, err %v", task, err)
+	}
+	if !strings.Contains(logged.String(), `msg="native task found as the newest one of the database (no task_id in the answer)" task=`+fmt.Sprint(task.ID)+" database=fallback_db") {
+		t.Fatalf("log %q lacks the fallback", logged.String())
 	}
 	// Neither: an error that says where to look.
 	if _, err := admin.StartTask(ctx, `SELECT 1 AS n`, "ghost_db"); err == nil || !strings.Contains(err.Error(), "dialga status --db ghost_db") {

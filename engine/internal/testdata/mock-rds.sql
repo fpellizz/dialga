@@ -9,7 +9,7 @@ CREATE TABLE dbo.mock_tasks(
   created_at datetime, S3_object_arn nvarchar(1000));
 GO
 CREATE FUNCTION dbo.rds_fn_task_status(@db sysname, @id int) RETURNS TABLE AS RETURN
-  SELECT task_id, task_type, database_name, pct AS [% complete], 0 AS [duration (mins)],
+  SELECT task_id, task_type, database_name, pct AS [% complete], 0 AS [duration(mins)],
          lifecycle, task_info, last_updated, created_at, S3_object_arn,
          0 AS overwrite_S3_backup_file, CAST(NULL AS varchar(10)) AS KMS_master_key_arn,
          CAST(NULL AS varchar(10)) AS filepath, 0 AS overwrite_file, CAST(NULL AS varchar(10)) AS task_metadata
