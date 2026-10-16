@@ -1342,6 +1342,9 @@ components:
         differential: { type: boolean }
         noRecovery: { type: boolean }
         taskId: { type: integer, minimum: 1 }
+        replace: { type: string, enum: ["", auto, swap, drop], description: 'Restore onto a database that exists (RDS refuses it natively). "" (default) refuses; swap restores beside it and swaps the names, keeping the old database; drop backs it up to S3, drops it and restores; auto picks swap when two copies fit in the free storage, else drop with the backup. Needs the retyped database name.' }
+        backupFirst: { type: boolean, description: 'Drop only - back the current database up to S3 first (default true; always true when auto picks drop).' }
+        stamp: { type: string, pattern: "^[0-9]{14}$", description: 'yyyymmddhhmmss (UTC) that dates the names of a replace; the preview request carries the one chosen, send it back.' }
     ExecuteRequest:
       type: object
       description: The parameters of the preview (send back its request), plus how to run it.
@@ -1351,6 +1354,9 @@ components:
         differential: { type: boolean }
         noRecovery: { type: boolean }
         taskId: { type: integer, minimum: 1 }
+        replace: { type: string, enum: ["", auto, swap, drop], description: 'Restore onto a database that exists (RDS refuses it natively). "" (default) refuses; swap restores beside it and swaps the names, keeping the old database; drop backs it up to S3, drops it and restores; auto picks swap when two copies fit in the free storage, else drop with the backup. Needs the retyped database name.' }
+        backupFirst: { type: boolean, description: 'Drop only - back the current database up to S3 first (default true; always true when auto picks drop).' }
+        stamp: { type: string, pattern: "^[0-9]{14}$", description: 'yyyymmddhhmmss (UTC) that dates the names of a replace; the preview request carries the one chosen, send it back.' }
         confirm: { type: string, description: The confirmation of the preview, retyped by the user. }
         digest: { type: string, description: The digest of the preview; when set, a different plan is refused (412). }
         noWait: { type: boolean, description: Return once the native task is started instead of following it. }
@@ -1368,6 +1374,23 @@ components:
         digest: { type: string, description: Identifies the plan (same statements on the same target). }
         preview: { type: string, description: The dry-run text, as the CLI prints it. }
         request: { $ref: "#/components/schemas/PlanRequest" }
+        replace: { $ref: "#/components/schemas/Replacement" }
+    Replacement:
+      type: object
+      description: |
+        How a restore replaces the database it finds (also a pre-flight check
+        with step "replace": the reason of the strategy). The renames use
+        rdsadmin.dbo.rds_modify_db_name (TODO: confermare su mssql-dev).
+      required: [strategy, reason, backupFirst, stamp, result]
+      properties:
+        strategy: { type: string, enum: [swap, drop], description: auto resolved. }
+        reason: { type: string, description: 'For example "swap: two copies (2 × 42.0 GiB) fit in 97.2 GiB free".' }
+        backupFirst: { type: boolean, description: A drop backs the database up to S3 before. }
+        stamp: { type: string }
+        temp: { type: string, description: Swap - where the backup is restored, <db>_dialga_new_<stamp>. }
+        old: { type: string, description: Swap - where the current database is kept, <db>_old_<stamp>. }
+        backupKey: { type: string, description: Drop with backup - the S3 key of the safety backup, <export prefix>/<db>_before_replace_<stamp>.bak. }
+        result: { type: string, description: What the user keeps once done (the old database or the backup). }
     PlanDone:
       type: object
       required: [ok]
@@ -1375,6 +1398,7 @@ components:
         ok: { type: boolean, description: Every action ran and the followed task ended in SUCCESS. }
         error: { type: string }
         task: { $ref: "#/components/schemas/Task" }
+        result: { type: string, description: What a replace kept - the old database or the safety backup. }
     DatabaseInfo:
       type: object
       required: [name, state, recoveryModel, compatibilityLevel, userAccess, readOnly]
@@ -1817,6 +1841,7 @@ components:
         dryRun: { type: boolean, description: Answer the plan and start nothing. }
         confirm: { type: string, description: The confirmation text of the plan, when it asks for one. }
         digest: { type: string, description: The digest of the preview; a different plan is refused (412). }
+        stamp: { type: string, pattern: "^[0-9]{14}$", description: "Import - dates the names of a replace; send back plan.stamp of the preview." }
     JobRequestItem:
       type: object
       description: |
@@ -1833,6 +1858,8 @@ components:
         differential: { type: boolean, description: Import - a differential backup, onto the database left RESTORING. }
         noRecovery: { type: boolean, description: Import - leave the database RESTORING (no post-restore report). }
         overwrite: { type: boolean, description: Replace the object in S3 (import) or the local file (export). }
+        replace: { type: string, enum: ["", auto, swap, drop], description: 'Import - restore onto a database that exists (see PlanRequest). "" refuses it.' }
+        backupFirst: { type: boolean, description: Import - drop only, back the current database up to S3 first (default true). }
     JobPlan:
       type: object
       description: A job after its pre-flight checks; nothing was changed.
@@ -1845,6 +1872,7 @@ components:
         ready: { type: boolean, description: Every database passed its checks (or skipFailing and one at least did). }
         confirmation: { type: string, description: The text to retype in confirm. }
         digest: { type: string }
+        stamp: { type: string, description: 'Dates the names of a replace; send it back in the request to start the names previewed.' }
         warnings: { type: array, items: { type: string } }
         items:
           type: array

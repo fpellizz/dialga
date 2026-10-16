@@ -49,6 +49,15 @@ func (s Session) ActiveTasks(ctx context.Context, db string) (int, error) {
 	return n, err
 }
 
+// ActiveSessions counts the sessions, other than this one, that work in db.
+func (s Session) ActiveSessions(ctx context.Context, db string) (int, error) {
+	var n int
+	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM sys.dm_exec_sessions
+		WHERE database_id = DB_ID(@db) AND session_id <> @@SPID AND is_user_process = 1`,
+		sql.Named("db", db)).Scan(&n)
+	return n, err
+}
+
 // Exec runs a statement that answers nothing to read (finish, drop, cancel).
 func (s Session) Exec(ctx context.Context, stmt string) error {
 	_, err := s.DB.ExecContext(ctx, stmt)

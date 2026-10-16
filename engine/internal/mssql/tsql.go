@@ -62,3 +62,20 @@ func DropDatabase(db string) string {
 func CancelTask(id int) string {
 	return "exec msdb.dbo.rds_cancel_task @task_id = " + strconv.Itoa(id) + ";"
 }
+
+// SetSingleUser closes the database to every session but one, rolling back
+// what the others are doing: the state RDS wants before a rename.
+func SetSingleUser(db string) string {
+	return "ALTER DATABASE " + quoteIdent(db) + " SET SINGLE_USER WITH ROLLBACK IMMEDIATE;"
+}
+
+// SetMultiUser opens the database to every session again.
+func SetMultiUser(db string) string {
+	return "ALTER DATABASE " + quoteIdent(db) + " SET MULTI_USER;"
+}
+
+// RenameDatabase renames a database the RDS way (the database must be in
+// SINGLE_USER mode). TODO: confermare su mssql-dev.
+func RenameDatabase(from, to string) string {
+	return "EXEC rdsadmin.dbo.rds_modify_db_name " + Str(from) + ", " + Str(to) + ";"
+}
