@@ -90,8 +90,8 @@ type Options struct {
 	// transfer.Open; tests replace it).
 	OpenS3 func(context.Context, config.Target) (transfer.Client, error)
 	// JobEnv builds what resumed steps run with (the pipeline's
-	// environment, handed to the step factories). Nil: POST
-	// /api/v1/jobs/{id}/resume answers 501.
+	// environment, handed to the step factories). Default: the pipeline's
+	// own, like the jobs this engine starts.
 	JobEnv func(ctx context.Context, name string, t config.Target, password string) (any, error)
 }
 
@@ -183,6 +183,11 @@ func New(opts Options) (*Server, error) {
 		opts.Jobs = jobs.New(jobs.Options{Log: opts.Log})
 	}
 	s := &Server{opts: opts, mux: http.NewServeMux()}
+	if s.opts.JobEnv == nil {
+		s.opts.JobEnv = func(ctx context.Context, name string, t config.Target, password string) (any, error) {
+			return s.pipelineEnv(ctx, name, t, password)
+		}
+	}
 	for _, rt := range s.routes() {
 		s.mux.HandleFunc(rt.method+" "+rt.path, rt.handler)
 	}

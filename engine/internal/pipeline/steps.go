@@ -19,27 +19,6 @@ import (
 // The steps are built from parameters that can be written as JSON, so a
 // resumed job can build them again from its journal.
 
-// ItemState carries the native task of an item from the step that starts it
-// to the one that follows it. A resumed job seeds it from the item's task.
-type ItemState struct {
-	mu   sync.Mutex
-	task int
-}
-
-// SetTask records the native task of the item.
-func (s *ItemState) SetTask(id int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.task = id
-}
-
-// Task is the native task of the item, 0 before it starts one.
-func (s *ItemState) Task() int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.task
-}
-
 func taskStatus(t mssql.Task) jobs.TaskStatus {
 	return jobs.TaskStatus{ID: t.ID, Type: t.Type, Lifecycle: t.Lifecycle, Percent: t.Percent}
 }
@@ -59,26 +38,47 @@ type UploadFile struct {
 	// Overwrite: the plan saw an object at the key and the user asked to
 	// replace it.
 	Overwrite bool `json:"overwrite"`
+	// Done: the file was uploaded (the step checkpoints it), so a resume
+	// skips it.
+	Done bool `json:"done,omitempty"`
 }
 
 // Step uploads the files one after the other, with one transfer slot. The
 // job's cause decides what an interrupted upload leaves: a cancel aborts
 // the multipart upload, an engine stop (jobs.ErrInterrupted, a
 // transfer.ErrPaused) keeps its parts for a resume, recorded on the item.
-func (p UploadParams) Step(env Env, title string) jobs.Step {
-	return jobs.NewStep("upload", title, jobs.ResourceTransfer, func(ctx context.Context, r jobs.Reporter) (string, error) {
+func (p UploadParams) Step(env Env, title string) jobs.Step { return p.step(env, title, nil) }
+
+// step is Step, or, with from (the multipart upload the journal kept), the
+// resume of it: the file of that upload goes on from the parts S3 has, and
+// the files marked Done are skipped.
+func (p UploadParams) step(env Env, title string, from *jobs.UploadState) jobs.Step {
+	run := func(ctx context.Context, r jobs.Reporter) (string, error) {
 		var total, done int64
 		for _, f := range p.Files {
 			total += f.Size
 		}
+		files := slices.Clone(p.Files)
 		var lines []string
-		for _, f := range p.Files {
+		for i, f := range files {
+			if f.Done {
+				done += f.Size
+				lines = append(lines, filepath.Base(f.Path)+" was uploaded before the interrupt")
+				continue
+			}
 			base := done
 			up := transfer.Upload{Path: f.Path, Bucket: p.Bucket, Key: f.Key, Overwrite: f.Overwrite, Size: f.Size, ModTime: f.ModTime}
-			res, err := up.Run(ctx, env.S3, transfer.Options{
+			opts := transfer.Options{
 				OnProgress: func(pr transfer.Progress) { r.Transfer(jobs.Upload, base+pr.Done, total) },
 				Journal:    &uploadJournal{r: r},
-			})
+			}
+			var res transfer.Result
+			var err error
+			if from != nil && from.UploadID != "" && from.Bucket == p.Bucket && from.Key == f.Key {
+				res, err = up.Resume(ctx, env.S3, from.UploadID, opts)
+			} else {
+				res, err = up.Run(ctx, env.S3, opts)
+			}
 			if err != nil {
 				if len(p.Files) > 1 {
 					err = fmt.Errorf("%s: %w", filepath.Base(f.Path), err)
@@ -87,12 +87,17 @@ func (p UploadParams) Step(env Env, title string) jobs.Step {
 			}
 			done += f.Size
 			lines = append(lines, res.Summary())
+			files[i].Done = true
+			if err := r.Checkpoint(UploadParams{Bucket: p.Bucket, Files: files}); err != nil {
+				return "", err
+			}
 		}
 		if len(lines) == 1 {
 			return lines[0], nil
 		}
 		return fmt.Sprintf("%d files, %s: %s", len(lines), transfer.FormatBytes(total), strings.Join(lines, "; ")), nil
-	})
+	}
+	return jobs.WithKind(jobs.NewStep("upload", title, jobs.ResourceTransfer, run), KindUpload, p)
 }
 
 // uploadJournal records the multipart upload on the item, for a resume.
@@ -126,9 +131,9 @@ type TaskParams struct {
 	Database  string `json:"database"`
 }
 
-// Step runs the statement and records the task on the item and in state.
-func (p TaskParams) Step(env Env, id, title string, state *ItemState) jobs.Step {
-	return jobs.NewStep(id, title, jobs.ResourceRDSTask, func(ctx context.Context, r jobs.Reporter) (string, error) {
+// Step runs the statement and records the task on the item.
+func (p TaskParams) Step(env Env, id, title string) jobs.Step {
+	return jobs.WithKind(jobs.NewStep(id, title, jobs.ResourceRDSTask, func(ctx context.Context, r jobs.Reporter) (string, error) {
 		sess, closeOps, err := env.OpenOps(ctx)
 		if err != nil {
 			return "", err
@@ -138,10 +143,9 @@ func (p TaskParams) Step(env Env, id, title string, state *ItemState) jobs.Step 
 		if err != nil {
 			return "", err
 		}
-		state.SetTask(task.ID)
 		r.Task(taskStatus(task))
 		return fmt.Sprintf("task %d created", task.ID), nil
-	})
+	}), KindTask, p)
 }
 
 // TaskError is a native task that ended in ERROR or CANCELLED.
@@ -168,10 +172,11 @@ type WaitParams struct {
 	Result string `json:"result,omitempty"`
 }
 
-// Step follows the task in state until it ends.
-func (p WaitParams) Step(env Env, state *ItemState) jobs.Step {
-	return jobs.NewStep("wait", "Wait for the "+p.What+" task", jobs.ResourceRDSTask, func(ctx context.Context, r jobs.Reporter) (string, error) {
-		id := state.Task()
+// Step follows the last native task of the item until it ends: the one its
+// restore or export queued, in a resumed job too.
+func (p WaitParams) Step(env Env) jobs.Step {
+	return jobs.WithKind(jobs.NewStep("wait", "Wait for the "+p.What+" task", jobs.ResourceRDSTask, func(ctx context.Context, r jobs.Reporter) (string, error) {
+		id := r.LastTaskID()
 		if id == 0 {
 			return "", errors.New("no native task to follow")
 		}
@@ -195,7 +200,7 @@ func (p WaitParams) Step(env Env, state *ItemState) jobs.Step {
 			r.Result(p.Result)
 		}
 		return fmt.Sprintf("task %d completed", id), nil
-	})
+	}), KindWait, p)
 }
 
 // PostParams name the database of the post-restore report.
@@ -207,7 +212,7 @@ type PostParams struct {
 // enter it) fails the step, the warnings are logged on the item.
 func (p PostParams) Step(env Env) jobs.Step {
 	db := p.Database
-	return jobs.NewStep("post", "Post-restore report of "+db+" (read-only)", jobs.NoResource, func(ctx context.Context, r jobs.Reporter) (string, error) {
+	return jobs.WithKind(jobs.NewStep("post", "Post-restore report of "+db+" (read-only)", jobs.NoResource, func(ctx context.Context, r jobs.Reporter) (string, error) {
 		sess, closeOps, err := env.OpenOps(ctx)
 		if err != nil {
 			return "", err
@@ -237,7 +242,7 @@ func (p PostParams) Step(env Env) jobs.Step {
 		}
 		r.Result(db + " restored: " + detail)
 		return detail, nil
-	})
+	}), KindPost, p)
 }
 
 // DownloadParams are the backup of an export and where it goes.
@@ -251,7 +256,7 @@ type DownloadParams struct {
 
 // Step downloads the backup.
 func (p DownloadParams) Step(env Env, title string) jobs.Step {
-	return jobs.NewStep("download", title, jobs.ResourceTransfer, func(ctx context.Context, r jobs.Reporter) (string, error) {
+	return jobs.WithKind(jobs.NewStep("download", title, jobs.ResourceTransfer, func(ctx context.Context, r jobs.Reporter) (string, error) {
 		d := transfer.Download{Bucket: p.Bucket, Key: p.Key, Path: p.Path, Overwrite: p.Overwrite}
 		res, err := d.Run(ctx, env.S3, transfer.Options{
 			OnProgress: func(pr transfer.Progress) { r.Transfer(jobs.Download, pr.Done, pr.Total) },
@@ -261,5 +266,5 @@ func (p DownloadParams) Step(env Env, title string) jobs.Step {
 		}
 		r.Result(fmt.Sprintf("%s exported to %s", p.Database, p.Path))
 		return res.Summary(), nil
-	})
+	}), KindDownload, p)
 }

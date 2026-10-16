@@ -13,9 +13,25 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/decisyon/dialga/engine/internal/api"
+	"github.com/decisyon/dialga/engine/internal/config"
 	"github.com/decisyon/dialga/engine/internal/core"
 	"github.com/decisyon/dialga/engine/internal/jobs"
+	"github.com/decisyon/dialga/engine/internal/ops"
+	"github.com/decisyon/dialga/engine/internal/pipeline"
 )
+
+// pipelineJobEnv is how the resumed steps reach the target: the pipeline's
+// environment, built like the one of dialga import.
+func (a *app) pipelineJobEnv(ctx context.Context, name string, t config.Target, password string) (any, error) {
+	client, err := a.openS3(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+	return pipeline.Env{
+		Name: name, Target: t, S3: client, TaskInterval: a.jobInterval,
+		OpenOps: func(ctx context.Context) (*ops.Session, func(), error) { return a.openOps(ctx, name, t, password) },
+	}, nil
+}
 
 func (a *app) jobsResumeCmd(dir *string) *cobra.Command {
 	var confirm string

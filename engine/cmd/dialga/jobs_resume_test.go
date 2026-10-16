@@ -5,12 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/decisyon/dialga/engine/internal/config"
 	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/mssql"
+	"github.com/decisyon/dialga/engine/internal/ops"
+	"github.com/decisyon/dialga/engine/internal/pipeline"
+	"github.com/decisyon/dialga/engine/internal/transfer"
 )
 
 // interruptedImport leaves in a journal an import of sales on dev-sql that
@@ -211,5 +215,58 @@ func TestEventPrinterPrintsEveryTenPercent(t *testing.T) {
 		if strings.Contains(got, not) {
 			t.Errorf("%q printed within the same 10%%:\n%s", not, got)
 		}
+	}
+}
+
+// An import interrupted mid-upload resumes from the multipart upload the
+// first run left, with the pipeline's own steps.
+func TestJobsResumeImportWithThePipeline(t *testing.T) {
+	a, rds, s3 := jobApp(t, testConfig)
+	started := make(chan struct{})
+	var once sync.Once
+	s3.OnUploadPart = func(ctx context.Context, _ int32, _ int) error {
+		once.Do(func() { close(started) })
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	cfg, _, _ := a.loadConfig()
+	name, tgt, _ := cfg.Target("")
+	env := pipeline.Env{Name: name, Target: tgt, S3: transfer.Client(s3), TaskInterval: time.Millisecond,
+		OpenOps: func(ctx context.Context) (*ops.Session, func(), error) { return a.openOps(ctx, name, tgt, "") }}
+	p, err := pipeline.Build(context.Background(), env, pipeline.Request{Kind: jobs.Import,
+		Import: []pipeline.ImportItem{{Files: []string{localFile(t, "sales.bak", "sales backup")}, Database: "sales"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	m, err := jobs.Open(dir, jobs.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := p.Start(m, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := m.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	s3.OnUploadPart = nil
+
+	a.jobEnv, a.jobInterval = a.pipelineJobEnv, time.Millisecond
+	code, out, errOut := run(a, "jobs", "resume", job.ID, "--dir", dir)
+	if code != 0 {
+		t.Fatalf("code %d, stderr %q\n%s", code, errOut, out)
+	}
+	for _, want := range []string{"job.resumed", "task 1 SUCCESS", "job.succeeded", "Job " + job.ID + " succeeded."} {
+		if !strings.Contains(out, want) {
+			t.Errorf("no %q in:\n%s", want, out)
+		}
+	}
+	if s3.Calls("CreateMultipartUpload") != 1 || s3.Calls("ListParts") != 1 || len(rds.tasks) != 1 ||
+		string(s3.Get("dev-sqlserver-backups", "import/sales.bak").Data) != "sales backup" || rds.states["sales"] != "ONLINE" {
+		t.Fatalf("multipart uploads %d, ListParts %d, tasks %d", s3.Calls("CreateMultipartUpload"), s3.Calls("ListParts"), len(rds.tasks))
 	}
 }

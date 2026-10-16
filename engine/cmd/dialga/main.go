@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -63,11 +64,12 @@ type app struct {
 	// discover answers config init and doctor (nil: discover.System).
 	discover discover.Service
 	openS3   func(context.Context, config.Target) (transfer.Client, error)
-	// jobEnv builds what resumed steps run with (jobs resume; nil: the
-	// import/export pipeline is not in this build); jobRegistry has their
-	// factories (nil: jobs.DefaultRegistry).
+	// jobEnv builds what resumed steps run with (jobs resume); jobRegistry
+	// has their factories (nil: jobs.DefaultRegistry); jobInterval is the
+	// time between two reads of a native task (0: the default).
 	jobEnv      func(ctx context.Context, name string, t config.Target, password string) (any, error)
 	jobRegistry *jobs.Registry
+	jobInterval time.Duration
 }
 
 func main() {
@@ -83,6 +85,7 @@ func main() {
 		readConfirm:      readLineFromTerminal,
 		openS3:           transfer.Open,
 	}
+	a.jobEnv = a.pipelineJobEnv
 	os.Exit(a.execute(os.Args[1:], os.Stdout, os.Stderr))
 }
 

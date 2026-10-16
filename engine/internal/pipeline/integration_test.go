@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -177,6 +178,10 @@ func startMinIO(t *testing.T) *s3.Client {
 
 var itARN = regexp.MustCompile(`^arn:aws:s3:::` + itBucket + `/(.+)$`)
 
+// rdsHold has the databases whose tasks playRDS leaves queued (a test that
+// interrupts a job while RDS is still working on it).
+var rdsHold sync.Map
+
 // playRDS runs the queued native tasks of the mock until ctx ends.
 func playRDS(ctx context.Context, t *testing.T, in instance, c *s3.Client) {
 	for {
@@ -203,6 +208,9 @@ func playRDS(ctx context.Context, t *testing.T, in instance, c *s3.Client) {
 		}
 		_ = rows.Close()
 		for _, tk := range todo {
+			if _, held := rdsHold.Load(tk.db); held {
+				continue
+			}
 			lifecycle, info := "SUCCESS", "[mock] done"
 			if err := playTask(ctx, in, c, tk.typ, tk.db, tk.arn); err != nil {
 				lifecycle, info = "ERROR", "[mock] "+err.Error()
