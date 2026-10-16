@@ -145,7 +145,7 @@ L'app desktop rilegge il file a ogni aggiornamento della schermata: non serve ri
 
 #### 4.1.1 Primo avvio: `dialga config init`
 
-Aggiunge un target alla configurazione, in modo guidato: profilo AWS, regione, istanza SQL Server trovata nell'account, bucket S3 (verificato con `HeadBucket`), login SQL, **da dove** arriva la password (mai la password), modalità di connessione e nome del target.
+Aggiunge un target alla configurazione, in modo guidato: profilo AWS, regione, istanza SQL Server trovata nell'account, bucket S3 (scelto dall'elenco dei bucket dell'account nella regione, oppure digitato; verificato con `HeadBucket`), login SQL, **da dove** arriva la password (mai la password), modalità di connessione e nome del target.
 
 ```bash
 dialga config init [--profile P] [--region R] [--instance I] [--bucket B] [--sql-user U] [--password prompt|env:VAR] \
@@ -154,7 +154,7 @@ dialga config init [--profile P] [--region R] [--instance I] [--bucket B] [--sql
 
 - **Su un terminale** chiede ogni valore che le opzioni non danno e, alla fine, una conferma (`-y` salta la conferma).
 - **Senza terminale** i valori arrivano dalle opzioni, almeno `--instance` e `--bucket` (altrimenti: `not a terminal: give at least --instance and --bucket`).
-- Chiamate AWS, tutte in sola lettura: `sts:GetCallerIdentity` (la guardia sull'account), `rds:DescribeDBInstances`, `rds:DescribeOptionGroups`, `s3:HeadBucket`.
+- Chiamate AWS, tutte in sola lettura: `sts:GetCallerIdentity` (la guardia sull'account), `rds:DescribeDBInstances`, `rds:DescribeOptionGroups`, `s3:HeadBucket` e, facoltativa, `s3:ListBuckets` (permesso IAM `s3:ListAllMyBuckets`) per l'elenco dei bucket. Con `--bucket` l'elenco non viene chiesto. Senza il permesso `config init` lo dice e chiede di digitare il nome; l'elenco serve solo a comodità, vedi `docs/iam-policy.md` (`OptionalListBuckets`).
 - Un target con lo stesso nome non viene toccato senza `--replace`.
 - Default: regione del profilo (altrimenti `us-east-1`), profilo `$AWS_PROFILE` (altrimenti `default`), modalità `tunnel` (tunnel SSM integrato; con `--mode external` la porta `--local-port` vale `11433`), nome ricavato dall'identificativo dell'istanza.
 
@@ -764,7 +764,7 @@ Una scheda per ogni target della configurazione. Se il file non esiste, la scher
 
 1. *AWS profile* (*Profilo AWS*, da `~/.aws/config` e `~/.aws/credentials`; senza profili la finestra lo dice) e *Region* (*Regione*), poi *Discover instances* (*Cerca le istanze*): mostra l'account e le istanze SQL Server trovate.
 2. Scegli l'*Instance* (*Istanza*): un'etichetta dice se ha l'opzione di backup nativo (*Native backup option*) o se manca (*No native backup option*: l'import e l'export falliranno finché non viene aggiunta).
-3. Compila *S3 bucket*, *SQL login*, la password (*Ask when needed* oppure *Environment variable*: la password non viene mai salvata, solo dove cercarla), *Connection* (*Open tunnel*, *Direct*, *Integrated tunnel*; con *Open tunnel* anche *Local port*), *Target name* e, per la produzione, *Protected*. *Replace the existing target* sostituisce un target con lo stesso nome.
+3. Compila *S3 bucket* (un campo con elenco: si carica dall'account con il profilo e la regione scelti, si filtra scrivendo e si sceglie con il mouse o con le frecce e Invio; si può sempre digitare un nome che non è nell'elenco, e vale la stessa validazione; se l'utente AWS non ha `s3:ListAllMyBuckets` la finestra lo dice e il campo resta libero, vedi `docs/iam-policy.md`), *SQL login*, la password (*Ask when needed* oppure *Environment variable*: la password non viene mai salvata, solo dove cercarla), *Connection* (*Open tunnel*, *Direct*, *Integrated tunnel*; con *Open tunnel* anche *Local port*), *Target name* e, per la produzione, *Protected*. *Replace the existing target* sostituisce un target con lo stesso nome.
 4. *Save* (*Salva*) scrive il file con le stesse regole di `dialga config init` (§4.1.2) e mostra *Target … saved. Run check to verify it.*
 
 **Intestazione e dati del target**: nome del target, istanza e regione, badge **Protected** se `protected: true`; poi *Account*, *Profile*, *Bucket* e *Connection*:

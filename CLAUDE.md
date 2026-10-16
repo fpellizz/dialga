@@ -238,6 +238,14 @@ Su richiesta dell'utente ("che sto attrezzo veda la luce il prima possibile", me
 - **GUI**: `PasswordProvider` (in `App`) con dialogo e contatore `epoch`: i caricamenti (Databases, wizard Export, overview, task, report, anteprima dei piani, check) si rieseguono da soli dopo il salvataggio; le azioni (esecuzione di un piano, avvio o ripresa di un job) dicono "Password salvata: ripeti l'azione". `ErrorBanner` mostra `PasswordNeededBanner` ("Enter password") al posto del 428. `PasswordDialog`: campo `current-password` con mostra/nascondi, "Remember in the system keyring" solo con `canRemember`; il valore non esce dallo stato del dialogo. `PasswordState` nella card Istanze (origine + "Enter password"/"Forget password"). Il suggerimento sotto gli errori di sessione SQL dipende dalla modalità di connessione (`sqlSessionHint`).
 - **Dipendenze** (approvate da Fabio per questo task): `zalando/go-keyring` v0.2.8 (2026-03-23), `aws-sdk-go-v2/service/secretsmanager` v1.50.1 (2026-09-24); transitive `godbus/dbus/v5` v5.2.2, `danieljoos/wincred` v1.2.3. Policy IAM: statement facoltativo `secretsmanager:GetSecretValue` (+ `kms:Decrypt` con chiave gestita dal cliente).
 
+### Elenco dei bucket (branch `feature/bucket-picker`, 2026-10-16)
+
+- Engine: `discover.Buckets` (`engine/internal/discover/buckets.go`) chiama `ListBuckets` con il filtro `BucketRegion` (solo i bucket della regione del target), paginato, ordinato per nome; `AccessDenied` diventa `discover.ErrBucketListDenied`. Tutti i fake di `discover.Service` devono implementare `Buckets`.
+- API: `GET /api/v1/discovery/buckets?profile=&region=` → `{buckets:[{name, region?, createdAt?}]}`; 403 con testo fisso senza `s3:ListAllMyBuckets` (il web lo riconosce dallo status), 502 per gli altri errori AWS.
+- CLI: `config init`/`add-target` propongono i bucket come scelta numerata + "other (type it)"; con `--bucket` l'elenco non viene chiesto; senza permesso si scrive il nome.
+- Web: `BucketField.tsx` (combobox ARIA 1.2 editabile, nome sempre digitabile), usato da Add instance, l'unico punto dove il bucket si modifica; il ruolo del campo è `combobox`, non più `textbox`.
+- IAM: statement facoltativo `OptionalListBuckets` (`s3:ListAllMyBuckets` su `*`, approvato da Fabio il 2026-10-16) in `docs/iam-policy.{json,md}`: elenca solo i nomi e non si può restringere a singoli bucket.
+
 ## Contratto di layout atteso dalle pipeline
 
 Ogni job **si salta da solo** finché la sua parte non esiste: `exit 0` in Bitbucket, job `layout`/`meta` su GitHub.

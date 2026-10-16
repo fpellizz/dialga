@@ -307,6 +307,7 @@ describe("InstancesPage", () => {
         [TARGETS]: (_req, call) =>
           json({ configPath: CONFIG_PATH, targets: call === 0 ? [] : [DEV] }),
         "GET /api/v1/discovery/profiles": () => json({ profiles: [{ name: "default" }] }),
+        "GET /api/v1/discovery/buckets": () => json({ buckets: [] }),
         "GET /api/v1/discovery/instances": () =>
           json({
             profile: "default",
@@ -333,7 +334,7 @@ describe("InstancesPage", () => {
       await within(dialog).findByRole("combobox", { name: "AWS profile" });
       await userEvent.click(within(dialog).getByRole("button", { name: "Discover instances" }));
       await userEvent.type(
-        await within(dialog).findByRole("textbox", { name: "S3 bucket" }),
+        await within(dialog).findByRole("combobox", { name: "S3 bucket" }),
         DEV.bucket,
       );
       await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));

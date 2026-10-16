@@ -24,6 +24,7 @@ func (s *Server) firstRunRoutes() []route {
 		{http.MethodGet, "/api/v1/prerequisites", s.prerequisites},
 		{http.MethodGet, "/api/v1/discovery/profiles", s.discoveryProfiles},
 		{http.MethodGet, "/api/v1/discovery/instances", s.discoveryInstances},
+		{http.MethodGet, "/api/v1/discovery/buckets", s.discoveryBuckets},
 		{http.MethodPost, "/api/v1/config/targets", s.saveTarget},
 		{http.MethodDelete, "/api/v1/config/targets/{name}", s.removeTarget},
 	}
@@ -40,6 +41,11 @@ type PrerequisiteList struct {
 // ProfileList is the answer of GET /api/v1/discovery/profiles.
 type ProfileList struct {
 	Profiles []discover.Profile `json:"profiles"`
+}
+
+// BucketList is the answer of GET /api/v1/discovery/buckets.
+type BucketList struct {
+	Buckets []discover.Bucket `json:"buckets"`
 }
 
 // TargetInput is the body of POST /api/v1/config/targets: a target as the
@@ -118,6 +124,39 @@ func (s *Server) discoveryInstances(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, list)
+}
+
+// discoveryBuckets lists the S3 buckets of a profile in a region: 403 with
+// a fixed text when the profile lacks s3:ListAllMyBuckets (the GUI then
+// asks for the name), 502 for any other AWS failure.
+func (s *Server) discoveryBuckets(w http.ResponseWriter, r *http.Request) {
+	profile, region := r.URL.Query().Get("profile"), r.URL.Query().Get("region")
+	if !config.ValidProfile(profile) {
+		http.Error(w, fmt.Sprintf("invalid AWS profile %q", profile), http.StatusBadRequest)
+		return
+	}
+	if !config.ValidRegion(region) {
+		http.Error(w, fmt.Sprintf("invalid AWS region %q", region), http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), discoveryTimeout)
+	defer cancel()
+	list, err := s.discovery().Buckets(ctx, profile, region)
+	switch {
+	case errors.Is(err, discover.ErrBucketListDenied):
+		http.Error(w, err.Error(), http.StatusForbidden)
+		return
+	case err != nil:
+		if r.Context().Err() == nil {
+			s.opts.Log.Warn("bucket discovery failed", "profile", profile, "region", region, "err", err)
+		}
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	if list == nil {
+		list = []discover.Bucket{}
+	}
+	writeJSON(w, BucketList{Buckets: list})
 }
 
 // saveTarget adds a target to the configuration file, or replaces it with

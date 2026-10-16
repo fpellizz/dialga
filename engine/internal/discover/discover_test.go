@@ -13,6 +13,9 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/rds"
 	rdstypes "github.com/aws/aws-sdk-go-v2/service/rds/types"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 
 	"github.com/decisyon/dialga/engine/internal/inspect"
 	"github.com/decisyon/dialga/engine/internal/tunnel"
@@ -259,5 +262,52 @@ func TestPrerequisitesRuntimeStates(t *testing.T) {
 				t.Fatalf("runtime %+v", got)
 			}
 		})
+	}
+}
+
+type fakeS3 struct {
+	pages []*s3.ListBucketsOutput
+	err   error
+	calls []s3.ListBucketsInput
+}
+
+func (f *fakeS3) ListBuckets(_ context.Context, in *s3.ListBucketsInput, _ ...func(*s3.Options)) (*s3.ListBucketsOutput, error) {
+	f.calls = append(f.calls, *in)
+	if f.err != nil {
+		return nil, f.err
+	}
+	page := f.pages[len(f.calls)-1]
+	return page, nil
+}
+
+func TestRegionBucketsPaginatesFiltersAndSorts(t *testing.T) {
+	f := &fakeS3{pages: []*s3.ListBucketsOutput{
+		{Buckets: []s3types.Bucket{{Name: aws.String("zeta"), BucketRegion: aws.String("eu-west-1")}}, ContinuationToken: aws.String("next")},
+		{Buckets: []s3types.Bucket{{Name: aws.String("alpha"), BucketRegion: aws.String("eu-west-1")}}},
+	}}
+	got, err := RegionBuckets(context.Background(), f, "eu-west-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Name != "alpha" || got[1].Name != "zeta" || got[0].Region != "eu-west-1" {
+		t.Fatalf("got %+v", got)
+	}
+	if len(f.calls) != 2 || aws.ToString(f.calls[0].BucketRegion) != "eu-west-1" || aws.ToString(f.calls[1].ContinuationToken) != "next" {
+		t.Fatalf("calls %+v", f.calls)
+	}
+}
+
+func TestRegionBucketsAccessDenied(t *testing.T) {
+	denied := &smithy.GenericAPIError{Code: "AccessDenied", Message: "no"}
+	if _, err := RegionBuckets(context.Background(), &fakeS3{err: denied}, "eu-west-1"); !errors.Is(err, ErrBucketListDenied) {
+		t.Fatalf("got %v", err)
+	}
+	boom := errors.New("boom")
+	if _, err := RegionBuckets(context.Background(), &fakeS3{err: boom}, "eu-west-1"); !errors.Is(err, boom) || errors.Is(err, ErrBucketListDenied) {
+		t.Fatalf("got %v", err)
+	}
+	empty, err := RegionBuckets(context.Background(), &fakeS3{pages: []*s3.ListBucketsOutput{{}}}, "eu-west-1")
+	if err != nil || empty == nil || len(empty) != 0 {
+		t.Fatalf("empty: %v %v", empty, err)
 	}
 }

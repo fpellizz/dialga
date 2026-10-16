@@ -124,6 +124,8 @@ func TestOpenAPISchemasMatchTheGoTypes(t *testing.T) {
 		"ProfileList":        {ProfileList{}},
 		"DiscoveredInstance": {discover.Instance{}},
 		"InstanceDiscovery":  {discover.Instances{}},
+		"DiscoveredBucket":   {discover.Bucket{}},
+		"BucketDiscovery":    {BucketList{}},
 		"TargetInput":        {TargetInput{}},
 		// Jobs (jobs.go)
 		"JobList":          {JobList{}},

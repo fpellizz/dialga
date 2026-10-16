@@ -18,6 +18,9 @@ type Service interface {
 	Prerequisites(ctx context.Context) []Prerequisite
 	// CheckBucket runs HeadBucket on bucket with the profile (read-only).
 	CheckBucket(ctx context.Context, profile, region, bucket string) error
+	// Buckets lists the buckets of the profile in the region (ListBuckets):
+	// ErrBucketListDenied when s3:ListAllMyBuckets is missing.
+	Buckets(ctx context.Context, profile, region string) ([]Bucket, error)
 }
 
 // System asks this computer and AWS.
@@ -57,4 +60,9 @@ func (System) CheckBucket(ctx context.Context, profile, region, bucket string) e
 		return err
 	}
 	return awsx.HeadBucket(ctx, cfg, bucket)
+}
+
+// Buckets implements Service.
+func (System) Buckets(ctx context.Context, profile, region string) ([]Bucket, error) {
+	return Buckets(ctx, profile, region)
 }
