@@ -9,6 +9,44 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ## [Non rilasciato]
 
+### Aggiunto
+
+- **`dialga import <file.bak>...`**: importa più database come un solo job
+  (upload, restore, attesa del task, report `post`), in parallelo nei limiti
+  di `max_tasks`. Opzioni `--db`, `--key`, `--prefix`, `--differential`,
+  `--norecovery`, `--overwrite`, `--skip-failing`, `--interval`. Anteprima
+  per default con i controlli di tutti i database, una sola conferma per
+  job, Ctrl-C annulla il job (upload abortiti, task nativi già avviati
+  continuano su RDS). Exit code 0, 2 (controllo fallito, nulla parte), 3
+  (task in `ERROR` o `CANCELLED`), 1.
+- **`dialga run <piano.yaml>`**: import o export di più database descritti
+  da un piano YAML (`kind: Import` o `Export`, lettura stretta, backup
+  striped con `files`, `destination` per scaricare l'export). Formato e
+  controlli in `docs/piani-job.md`.
+- **`dialga jobs`** (elenco), **`jobs show <id>`** e **`jobs resume <id>`**:
+  leggono il journal dei job dell'app; la ripresa vale solo per i job
+  interrotti, continua gli upload dalle parti già in S3, segue i task già
+  in coda, chiede il nome del target se protetto (`--confirm`) ed è
+  rifiutata finché l'app desktop tiene il journal.
+- **App desktop**: wizard **Import** (File, Verifica con `inspect`,
+  Destinazione, Anteprima, Avanzamento, Esito) e wizard **Export**
+  (Database, Opzioni, Finestre, Anteprima, Avanzamento, Esito) con le
+  finestre dei backup automatici e di manutenzione e una stima della durata;
+  *Export selected* in Databases; pagina **Activity** con elenco, dettaglio
+  ed eventi dal vivo, *Cancel job* e *Resume* sui job interrotti, e il
+  numero dei job in corso nella barra laterale.
+- **Job**: un solo tunnel SSM per target per job (nella CLI è del job,
+  nell'app è il tunnel condiviso del target).
+
+### Modificato
+
+- **`dialga config init` e `config add-target`** usano come modalità di
+  connessione predefinita `tunnel` (tunnel SSM integrato), come *Add
+  instance* dell'app; prima era `external`. Un target già nel file senza
+  `connect.mode` resta `external`.
+- Le voci **Import**, **Export** e **Activity** della barra laterale non
+  sono più disabilitate.
+
 ## [0.2.0] - 2026-10-16
 
 Prima linea di rilascio: configurazione guidata, controlli, tunnel SSM
