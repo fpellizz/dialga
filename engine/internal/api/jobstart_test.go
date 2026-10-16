@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -248,5 +249,22 @@ func TestStartJobSkipsFailingItems(t *testing.T) {
 	var job jobs.Job
 	if rec.Code != http.StatusCreated || json.Unmarshal(rec.Body.Bytes(), &job) != nil || len(job.Items) != 1 || job.Items[0].Name != "sales" {
 		t.Fatalf("status %d, body %s", rec.Code, rec.Body)
+	}
+}
+
+// A batch of 50 databases is bigger than the 64 KiB of the other routes.
+func TestStartJobTakesALargeBatch(t *testing.T) {
+	doc := testConfig
+	js := newJobServer(t, &doc, testEnv)
+	var items []string
+	for i := 0; i < 50; i++ {
+		items = append(items, fmt.Sprintf(`{"file":"/data/%s/sales%d.bak","database":"sales%d"}`, strings.Repeat("d", 1400), i, i))
+	}
+	body := `{"kind":"import","target":"dev-sql","dryRun":true,"items":[` + strings.Join(items, ",") + `]}`
+	if len(body) < 1<<16 || len(body) > 1<<18 {
+		t.Fatalf("body of %d bytes", len(body))
+	}
+	if rec := postBody(js.h, "/api/v1/jobs", body); rec.Code == http.StatusRequestEntityTooLarge || strings.Contains(rec.Body.String(), "too large") {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
 }
