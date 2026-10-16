@@ -143,8 +143,8 @@ test("explains why the tasks cannot be listed", async ({ page }) => {
     "aria-expanded",
     "true",
   );
-  // 422 from the engine, shown as is: no "Error:" prefix.
-  await expect(card.getByRole("alert")).toHaveText(/^SQL password: /);
+  // 428 from the engine: the app asks for the password instead of showing the error.
+  await expect(card.getByRole("alert")).toContainText("The SQL password for e2e-fake is needed");
 });
 
 test("shows why the overview of an instance is missing, and retries", async ({ page }) => {
@@ -179,9 +179,8 @@ test("shows why the databases cannot be listed, per target", async ({ page }) =>
   const target = page.getByRole("combobox", { name: "Instance" });
   const banner = page.getByRole("alert");
   await expect(target).toHaveValue("e2e-fake");
-  // 422: no SQL password for e2e-fake in the engine environment.
-  await expect(banner.locator(".banner-text")).toHaveText(/^SQL password: /);
-  await expect(banner).toContainText("the engine needs the SQL password");
+  // 428: no SQL password for e2e-fake in the engine yet.
+  await expect(banner).toContainText("The SQL password for e2e-fake is needed");
   await expect(page.getByRole("table")).toHaveCount(0);
 
   // 502: e2e-env has its password, its session fails at the AWS profile.

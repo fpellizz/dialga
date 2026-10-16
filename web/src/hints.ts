@@ -38,6 +38,11 @@ const RULES: { test: RegExp; hint: (m: RegExpMatchArray) => Hint }[] = [
     test: /environment variable (\w+) is empty/,
     hint: (m) => ({ key: "hint.envVar", vars: { name: m[1] ?? "" } }),
   },
+  {
+    // 422 of a password the engine reads itself (env:, secretsmanager:): nothing to type here.
+    test: /^SQL password: (secret |system keyring)/,
+    hint: () => ({ key: "hint.passwordSource" }),
+  },
   { test: /login failed/i, hint: () => ({ key: "hint.sqlLogin" }) },
   { test: /x509|certificate/i, hint: () => ({ key: "hint.tls" }) },
   {
@@ -121,6 +126,9 @@ export function passwordHint(error: unknown): Hint | undefined {
       return { key: "password.hint.source" };
     case 501:
       return { key: "password.hint.keyring" };
+    case 502:
+      // AWS or the tunnel: the password was not even tried.
+      return errorHint(error) ?? { key: "password.hint.connection" };
     default:
       return errorHint(error);
   }

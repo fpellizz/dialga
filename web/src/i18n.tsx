@@ -126,6 +126,10 @@ const en = {
     "SQL Server refused the login: check the password and the SQL user, then try again.",
   "password.hint.source":
     "The password of this target is not entered here: change its source in the configuration file.",
+  "hint.passwordSource":
+    "This password is read by the engine from its source: fix the source in the configuration, it cannot be typed in the app.",
+  "password.hint.connection":
+    "The password was not checked because the instance could not be reached: check the tunnel and the AWS profile, then try again.",
   "password.hint.keyring":
     "Untick “Remember in the system keyring” to keep the password for this session only.",
   "password.needed": "The SQL password for {target} is needed",
@@ -849,6 +853,10 @@ const it: Record<MessageKey, string> = {
     "SQL Server ha rifiutato il login: controlla la password e l'utente SQL, poi riprova.",
   "password.hint.source":
     "La password di questo target non si inserisce qui: cambia la sua origine nel file di configurazione.",
+  "hint.passwordSource":
+    "L'engine legge questa password dalla sua origine: correggi l'origine nella configurazione, non si può digitare nell'app.",
+  "password.hint.connection":
+    "La password non è stata verificata perché l'istanza non è raggiungibile: controlla il tunnel e il profilo AWS, poi riprova.",
   "password.hint.keyring":
     "Togli la spunta da «Ricorda nel portachiavi di sistema» per tenere la password solo per questa sessione.",
   "password.needed": "Serve la password SQL di {target}",

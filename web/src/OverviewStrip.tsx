@@ -206,6 +206,9 @@ function OverviewBody({
             <dd className={o.activeTasks ? "tone-info" : undefined}>{o.activeTasks ?? 0}</dd>
           </div>
         </dl>
+      ) : passwordNeeded(o.sqlDetail) ? (
+        // The engine answers 200 with the SQL part skipped, not 428.
+        <PasswordNeededBanner target={passwordNeeded(o.sqlDetail) ?? target} />
       ) : (
         <details className="overview-sql">
           <summary className={o.sql === "failed" ? "tone-warning" : undefined}>

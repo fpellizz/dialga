@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ApiError, failure, PasswordNeededError, passwordNeeded } from "./api";
@@ -109,6 +109,60 @@ describe("the password dialog from the pages", () => {
     expect(await screen.findByText("Asked once per session · not entered yet")).toBeVisible();
     expect(requestsTo(fetch, "DELETE /api/v1/targets/dev-sql/password")).toHaveLength(1);
     expect(screen.getByRole("button", { name: "Enter password for dev-sql" })).toBeVisible();
+  });
+
+  it("Instances: the overview that skips SQL for the password offers the dialog, then reloads", async () => {
+    const fetch = mockFetch({
+      "GET /api/v1/targets": () => json({ configPath: CONFIG_PATH, targets: [WITH_PASSWORD] }),
+      "GET /api/v1/targets/dev-sql/overview": (_req, call) =>
+        json(
+          call === 0
+            ? overview("dev-sql", { sql: "skipped", sqlDetail: NEEDED })
+            : overview("dev-sql", { sql: "ok", userDatabases: 3 }),
+        ),
+      "PUT /api/v1/targets/dev-sql/password": ok,
+    });
+    renderWithPassword(<InstancesPage engine={ENGINE} engineError="" />);
+    // The state line of the card has the same button: this one is in the overview.
+    const buttons = () => screen.getAllByRole("button", { name: "Enter password for dev-sql" });
+    await waitFor(() => expect(buttons()).toHaveLength(2));
+    await userEvent.click(buttons()[1] as HTMLElement);
+    await userEvent.type(await screen.findByLabelText("Password"), "pw");
+    await userEvent.click(screen.getByRole("button", { name: "Connect" }));
+    expect(await screen.findByRole("link", { name: /3 · / })).toBeVisible();
+    expect(requestsTo(fetch, "GET /api/v1/targets/dev-sql/overview")).toHaveLength(2);
+  });
+
+  it("a password the engine reads itself is a 422 with a hint, without the dialog", async () => {
+    mockFetch({
+      "GET /api/v1/targets": () => json({ configPath: CONFIG_PATH, targets: [WITH_PASSWORD] }),
+      "GET /api/v1/targets/dev-sql/databases": () =>
+        text("SQL password: secret arn:x is empty\n", 422),
+    });
+    renderWithPassword(<DatabasesPage engine={ENGINE} engineError="" />);
+    const banner = await screen.findByRole("alert");
+    expect(banner).toHaveTextContent("secret arn:x is empty");
+    expect(banner).toHaveTextContent("fix the source in the configuration");
+    expect(screen.queryByRole("button", { name: /Enter password/ })).toBeNull();
+  });
+
+  it("shows a 502 of the verification as a connection error and keeps the dialog", async () => {
+    mockFetch({
+      "GET /api/v1/targets": () => json({ configPath: CONFIG_PATH, targets: [WITH_PASSWORD] }),
+      "GET /api/v1/targets/dev-sql/databases": () => needed(),
+      "PUT /api/v1/targets/dev-sql/password": () => text("could not reach the instance\n", 502),
+    });
+    renderWithPassword(<DatabasesPage engine={ENGINE} engineError="" />);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Enter password for dev-sql" }),
+    );
+    await userEvent.type(await screen.findByLabelText("Password"), "pw");
+    await userEvent.click(screen.getByRole("button", { name: "Connect" }));
+    const dialog = screen.getByRole("dialog");
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+      "could not reach the instance",
+    );
+    expect(dialog).toHaveTextContent("check the tunnel and the AWS profile");
   });
 
   it.each([

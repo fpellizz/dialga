@@ -76,10 +76,9 @@ test("explains why the engine cannot preview a drop", async ({ page }) => {
 
   const dialog = page.getByRole("dialog", { name: "Drop sales" });
   await expect(dialog).toBeVisible();
-  // 422 from the real engine: no SQL password in its environment.
+  // 428 from the real engine: no SQL password yet.
   const alert = dialog.getByRole("alert");
-  await expect(alert).toContainText("SQL password:");
-  await expect(alert).toContainText("The engine needs the SQL password in its environment");
+  await expect(alert).toContainText("The SQL password for e2e-fake is needed");
   await expect(dialog.getByRole("textbox", { name: /to confirm$/ })).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "Drop database" })).toBeDisabled();
 
@@ -116,7 +115,7 @@ test("runs a drop only on the exact name, then shows the engine refusal", async 
 
   // The execution goes to the real engine, which refuses it before running anything.
   await run.click();
-  await expect(dialog.getByRole("alert")).toContainText("SQL password:");
+  await expect(dialog.getByRole("alert")).toContainText("The SQL password for e2e-fake is needed");
   await expect(run).toBeVisible();
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(dialog).toHaveCount(0);
@@ -132,5 +131,5 @@ test("asks for the restore values before previewing", async ({ page }) => {
   await dialog.getByRole("textbox", { name: "Database name" }).fill("sales_copy");
   await dialog.getByRole("textbox", { name: "S3 key of the backup" }).fill("sales.bak");
   await dialog.getByRole("textbox", { name: "S3 key of the backup" }).press("Enter");
-  await expect(dialog.getByRole("alert")).toContainText("SQL password:");
+  await expect(dialog.getByRole("alert")).toContainText("The SQL password for e2e-fake is needed");
 });

@@ -105,9 +105,12 @@ function engineEnv(dir: string): NodeJS.ProcessEnv {
   return {
     ...env,
     HOME: dir,
+    XDG_RUNTIME_DIR: dir,
     // The job journal of the engine under test, never the user's.
     XDG_STATE_HOME: path.join(dir, "state"),
     DIALGA_DEV: "1",
+    // A bus that is not there: the keyring of the user is never reached, and unusable.
+    DBUS_SESSION_BUS_ADDRESS: `unix:path=${path.join(dir, "no-bus")}`,
     AWS_CONFIG_FILE: awsConfig,
     AWS_SHARED_CREDENTIALS_FILE: awsCredentials,
     AWS_EC2_METADATA_DISABLED: "true",
