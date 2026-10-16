@@ -47,6 +47,8 @@ type SQL interface {
 	mssql.TaskReader
 	DatabaseState(ctx context.Context, db string) (string, error)
 	ActiveTasks(ctx context.Context, db string) (int, error)
+	// ActiveSessions counts the other sessions working in db.
+	ActiveSessions(ctx context.Context, db string) (int, error)
 	StartTask(ctx context.Context, stmt, db string) (mssql.Task, error)
 	Exec(ctx context.Context, stmt string) error
 	DatabaseReport(ctx context.Context, db string) (mssql.DatabaseReport, error)
@@ -104,6 +106,9 @@ type Params struct {
 	// must name the bucket of the target.
 	Key     string
 	Restore mssql.RestoreOptions
+	// Replace is what a restore does when the database exists (default:
+	// refuse).
+	Replace ReplaceOptions
 	// TaskID is the native task to cancel.
 	TaskID int
 }
@@ -123,6 +128,13 @@ func Validate(op string, p Params, t config.Target) error {
 		return nil
 	default:
 		return fmt.Errorf("unknown operation %q (known: %s)", op, strings.Join(Operations, ", "))
+	}
+	if op == OpRestore {
+		if err := ValidateReplace(p.Replace, p.Restore); err != nil {
+			return err
+		}
+	} else if p.Replace != (ReplaceOptions{}) {
+		return fmt.Errorf("replace is for restore, not %s", op)
 	}
 	switch {
 	case op == OpRestore && p.Key == "":
@@ -175,7 +187,7 @@ func resolveKey(in, prefix, bucket string) (key string, bare bool, err error) {
 func (s *Session) Build(ctx context.Context, op string, p Params) (*Prepared, error) {
 	switch op {
 	case OpRestore:
-		return s.Restore(ctx, p.Database, p.Key, p.Restore)
+		return s.RestoreOver(ctx, p.Database, p.Key, p.Restore, p.Replace)
 	case OpExport:
 		return s.Export(ctx, p.Database, p.Key)
 	case OpFinish:
@@ -201,6 +213,24 @@ type Prepared struct {
 	sql SQL
 	// task is the native task the plan started, set while it runs.
 	task *mssql.Task
+
+	// Replace is how a restore replaces the existing database; nil otherwise.
+	Replace *Replacement
+	// exec, waitCtx and dropped are the state of a replace while it runs: its
+	// actions follow their own tasks (with the options and the context of
+	// Execute) and tell what is left after the drop.
+	exec    ExecOptions
+	waitCtx context.Context
+	dropped bool
+}
+
+// Result is the line to show once the plan ran: what a replace kept (the old
+// database, the backup); "" for the other operations.
+func (p *Prepared) Result() string {
+	if p.Replace == nil {
+		return ""
+	}
+	return p.Replace.Result
 }
 
 func (s *Session) prepare(op string, p Params) *Prepared {
@@ -237,12 +267,20 @@ func (p *Prepared) Ready() bool {
 // the same target, so what runs is what the user previewed.
 func (p *Prepared) Digest() string {
 	data, _ := json.Marshal(p.Plan)
+	if p.Replace != nil {
+		// The stamp only dates the new names: the checks run again at execute.
+		data = []byte(strings.ReplaceAll(string(data), p.Replace.Stamp, "<stamp>"))
+	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:16])
 }
 
 // ErrNotReady means a pre-flight check failed: nothing was run.
 var ErrNotReady = errors.New("a pre-flight check failed: nothing was changed")
+
+// ErrReplaceNoWait means a replace was asked not to follow its tasks: each of
+// its steps needs the one before it to be done.
+var ErrReplaceNoWait = errors.New("a replace follows its native tasks to the end: it cannot run without waiting")
 
 // ExecOptions tunes Execute.
 type ExecOptions struct {
@@ -275,14 +313,18 @@ func (p *Prepared) Execute(ctx context.Context, opts ExecOptions) (*mssql.Task, 
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	if p.Replace != nil && !opts.Wait {
+		return nil, ErrReplaceNoWait
+	}
 	emit := opts.OnStep
 	if emit == nil {
 		emit = func(core.Event) {}
 	}
+	p.exec, p.waitCtx = opts, ctx
 	if err := p.Plan.Execute(context.WithoutCancel(ctx), opts.Confirm, emit); err != nil {
 		return p.task, err
 	}
-	if p.task == nil || !opts.Wait {
+	if p.task == nil || !opts.Wait || p.Replace != nil {
 		return p.task, nil
 	}
 	id := p.task.ID

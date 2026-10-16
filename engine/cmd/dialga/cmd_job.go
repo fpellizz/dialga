@@ -62,7 +62,8 @@ func (a *app) importCmd() *cobra.Command {
 	var f jobFlags
 	var dbs []string
 	var key, prefix string
-	var noRecovery, differential, overwrite bool
+	var noRecovery, differential, overwrite, noBackup bool
+	var replace string
 	cmd := &cobra.Command{
 		Use:   "import <file.bak>...",
 		Short: "Import backups: upload, restore, wait and post-restore report, as one job",
@@ -75,6 +76,10 @@ target (max_tasks native tasks at once).
 The database is named after the file (sales.bak -> sales) unless --db
 gives the names, one per file in order. A striped backup (several files of
 one backup) goes in a plan for "dialga run".
+
+--replace auto|swap|drop restores onto databases that already exist (see
+dialga restore --help for the strategies); --no-backup-first skips the
+safety backup of a drop. The plan asks to retype the database name.
 ` + jobExitStatus,
 		Args: cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -83,6 +88,11 @@ one backup) goes in a plan for "dialga run".
 				return fmt.Errorf("--db names one database per file: %d file(s), %d name(s)", len(args), len(dbs))
 			case key != "" && len(args) > 1:
 				return errors.New("--key names the object of one file: use --prefix for several")
+			}
+			var backupFirst *bool
+			if noBackup {
+				no := false
+				backupFirst = &no
 			}
 			req := pipeline.Request{Kind: jobs.Import, SkipFailing: f.skipFailing}
 			if cmd.Flags().Changed("prefix") {
@@ -100,7 +110,7 @@ one backup) goes in a plan for "dialga run".
 					return err
 				}
 				req.Import = append(req.Import, pipeline.ImportItem{Files: []string{path}, Database: db, Key: key,
-					Differential: differential, NoRecovery: noRecovery, Overwrite: overwrite})
+					Differential: differential, NoRecovery: noRecovery, Overwrite: overwrite, Replace: replace, BackupFirst: backupFirst})
 			}
 			return a.runJob(cmd, f, req)
 		},
@@ -112,6 +122,8 @@ one backup) goes in a plan for "dialga run".
 	cmd.Flags().BoolVar(&noRecovery, "norecovery", false, "leave the databases RESTORING (a differential follows): no post-restore report")
 	cmd.Flags().BoolVar(&differential, "differential", false, "differential backups, onto databases left RESTORING")
 	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "replace the objects that already exist in S3")
+	cmd.Flags().StringVar(&replace, "replace", "", "restore onto existing databases: auto, swap or drop")
+	cmd.Flags().BoolVar(&noBackup, "no-backup-first", false, "with --replace drop: do not back the current databases up to S3 first")
 	return cmd
 }
 

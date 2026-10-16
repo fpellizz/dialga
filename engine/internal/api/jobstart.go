@@ -38,6 +38,9 @@ type JobRequest struct {
 	Confirm string `json:"confirm,omitempty"`
 	// Digest, when set, must be the digest of the preview.
 	Digest string `json:"digest,omitempty"`
+	// Stamp dates the names a replace creates; send back the one of the
+	// preview (plan.stamp) to start the names it showed.
+	Stamp string `json:"stamp,omitempty"`
 }
 
 // JobRequestItem is one database of a JobRequest: file or files (import:
@@ -52,6 +55,10 @@ type JobRequestItem struct {
 	Differential bool     `json:"differential,omitempty"`
 	NoRecovery   bool     `json:"noRecovery,omitempty"`
 	Overwrite    bool     `json:"overwrite,omitempty"`
+	// Import - restore onto a database that exists: "auto", "swap" or "drop"
+	// ("" refuses it); BackupFirst, for drop, backs it up to S3 first (default true).
+	Replace     string `json:"replace,omitempty"`
+	BackupFirst *bool  `json:"backupFirst,omitempty"`
 }
 
 // JobRefused is the answer 412 of POST /api/v1/jobs: why, and the plan
@@ -62,7 +69,7 @@ type JobRefused struct {
 }
 
 func (r JobRequest) pipeline() (pipeline.Request, error) {
-	req := pipeline.Request{Kind: jobs.Kind(r.Kind), Prefix: r.Prefix, SkipFailing: r.SkipFailing}
+	req := pipeline.Request{Kind: jobs.Kind(r.Kind), Prefix: r.Prefix, SkipFailing: r.SkipFailing, Stamp: r.Stamp}
 	for i, it := range r.Items {
 		where := fmt.Sprintf("item %d (%s)", i+1, it.Database)
 		switch req.Kind {
@@ -77,10 +84,11 @@ func (r JobRequest) pipeline() (pipeline.Request, error) {
 				files = []string{it.File}
 			}
 			req.Import = append(req.Import, pipeline.ImportItem{Files: files, Database: it.Database, Key: it.Key,
-				Differential: it.Differential, NoRecovery: it.NoRecovery, Overwrite: it.Overwrite})
+				Differential: it.Differential, NoRecovery: it.NoRecovery, Overwrite: it.Overwrite,
+				Replace: it.Replace, BackupFirst: it.BackupFirst})
 		case jobs.Export:
-			if it.File != "" || len(it.Files) > 0 || it.NoRecovery || it.Differential {
-				return req, fmt.Errorf("%s: file, files, noRecovery and differential are for import items", where)
+			if it.File != "" || len(it.Files) > 0 || it.NoRecovery || it.Differential || it.Replace != "" || it.BackupFirst != nil {
+				return req, fmt.Errorf("%s: file, files, noRecovery, differential, replace and backupFirst are for import items", where)
 			}
 			req.Export = append(req.Export, pipeline.ExportItem{Database: it.Database, Key: it.Key,
 				Destination: it.Destination, Overwrite: it.Overwrite})

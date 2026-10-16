@@ -31,6 +31,8 @@ func (f *fakeInstance) DatabaseState(_ context.Context, db string) (string, erro
 
 func (f *fakeInstance) ActiveTasks(context.Context, string) (int, error) { return 0, nil }
 
+func (f *fakeInstance) ActiveSessions(context.Context, string) (int, error) { return 0, nil }
+
 func (f *fakeInstance) StartTask(_ context.Context, stmt, db string) (mssql.Task, error) {
 	f.ran = append(f.ran, stmt)
 	return mssql.Task{ID: 100, Type: "RESTORE_DB", Database: db, Lifecycle: mssql.Created}, f.execErr

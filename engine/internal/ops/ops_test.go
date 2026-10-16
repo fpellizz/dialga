@@ -17,8 +17,13 @@ import (
 // fakeSQL is an instance in memory: database states, tasks, and the
 // statements run against it.
 type fakeSQL struct {
-	states  map[string]string
-	active  map[string]int // by database, "" for all
+	states map[string]string
+	active map[string]int // by database, "" for all
+	// sessions are the other sessions in a database
+	sessions map[string]int
+	// onExec sees every statement before it runs: it applies renames and
+	// drops to states, or fails a statement.
+	onExec  func(f *fakeSQL, stmt string) error
 	tasks   map[int]mssql.Task
 	report  mssql.DatabaseReport
 	ran     []string
@@ -33,6 +38,10 @@ func (f *fakeSQL) DatabaseState(_ context.Context, db string) (string, error) {
 }
 
 func (f *fakeSQL) ActiveTasks(_ context.Context, db string) (int, error) { return f.active[db], nil }
+
+func (f *fakeSQL) ActiveSessions(_ context.Context, db string) (int, error) {
+	return f.sessions[db], nil
+}
 
 func (f *fakeSQL) StartTask(_ context.Context, stmt, db string) (mssql.Task, error) {
 	f.ran = append(f.ran, stmt)
@@ -49,6 +58,11 @@ func (f *fakeSQL) StartTask(_ context.Context, stmt, db string) (mssql.Task, err
 
 func (f *fakeSQL) Exec(_ context.Context, stmt string) error {
 	f.ran = append(f.ran, stmt)
+	if f.onExec != nil {
+		if err := f.onExec(f, stmt); err != nil {
+			return err
+		}
+	}
 	return f.execErr
 }
 

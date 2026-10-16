@@ -112,6 +112,7 @@ func TestOpenAPISchemasMatchTheGoTypes(t *testing.T) {
 		"ExecuteRequest": {ExecuteRequest{}},
 		"PlanPreview":    {PlanPreview{}},
 		"PlanDone":       {PlanDone{}},
+		"Replacement":    {ops.Replacement{}},
 		"DatabaseInfo":   {mssql.DatabaseInfo{}},
 		"DatabaseFile":   {mssql.DatabaseFile{}},
 		"ObjectCount":    {mssql.ObjectCount{}},

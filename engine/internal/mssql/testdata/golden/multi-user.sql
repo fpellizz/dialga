@@ -1,0 +1,1 @@
+ALTER DATABASE [golden_db] SET MULTI_USER;

@@ -16,6 +16,10 @@ import (
 var (
 	dbNamePattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]{0,99}$`)
 	s3KeyPattern  = regexp.MustCompile(`^[A-Za-z0-9._/*+=@-]+$`)
+	// derived names are a valid name plus a suffix: the same characters, up
+	// to the 128 of a SQL Server identifier.
+	derivedNamePattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$`)
+	stampPattern       = regexp.MustCompile(`^[0-9]{14}$`)
 
 	// System databases of SQL Server plus the RDS administration database.
 	systemDatabases = map[string]bool{
@@ -32,6 +36,27 @@ func DBName(name string) error {
 	}
 	if systemDatabases[strings.ToLower(name)] {
 		return fmt.Errorf("%q is a system database", name)
+	}
+	return nil
+}
+
+// DerivedDBName reports whether name can be a name Dialga derives from a
+// database name (the temporary and the old database of a swap): the same
+// characters as DBName, up to 128.
+func DerivedDBName(name string) error {
+	if !derivedNamePattern.MatchString(name) {
+		return fmt.Errorf("invalid database name %q: use letters, digits, _ and -, max 128 characters", name)
+	}
+	if systemDatabases[strings.ToLower(name)] {
+		return fmt.Errorf("%q is a system database", name)
+	}
+	return nil
+}
+
+// Stamp reports whether s is a replace timestamp, yyyymmddhhmmss.
+func Stamp(s string) error {
+	if !stampPattern.MatchString(s) {
+		return fmt.Errorf("invalid stamp %q: expected yyyymmddhhmmss", s)
 	}
 	return nil
 }

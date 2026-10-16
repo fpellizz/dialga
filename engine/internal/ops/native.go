@@ -21,7 +21,14 @@ const maxBackupFiles = 10
 // full restore with NoRecovery) and the backup must be in the bucket; a "*"
 // in key restores a backup striped over several files.
 func (s *Session) Restore(ctx context.Context, db, key string, o mssql.RestoreOptions) (*Prepared, error) {
-	in := Params{Database: db, Key: key, Restore: o}
+	return s.RestoreOver(ctx, db, key, o, ReplaceOptions{})
+}
+
+// RestoreOver is Restore with what to do when the database exists: with a
+// replace mode the plan restores beside it and swaps the names, or drops it
+// first (see ReplaceOptions), instead of refusing it.
+func (s *Session) RestoreOver(ctx context.Context, db, key string, o mssql.RestoreOptions, r ReplaceOptions) (*Prepared, error) {
+	in := Params{Database: db, Key: key, Restore: o, Replace: r}
 	if err := Validate(OpRestore, in, s.Target); err != nil {
 		return nil, err
 	}
@@ -29,13 +36,16 @@ func (s *Session) Restore(ctx context.Context, db, key string, o mssql.RestoreOp
 	p := s.prepare(OpRestore, in)
 	key, size := s.checkSource(ctx, p, key, bare, in.Key)
 	p.Params.Key = key
-	if !o.Differential {
-		s.checkSpace(ctx, p, size)
-	}
-
 	state, err := s.SQL.DatabaseState(ctx, db)
 	if err != nil {
 		return nil, err
+	}
+	replacing := r.Mode != ReplaceNone && !o.Differential && state != ""
+	if !o.Differential && !replacing {
+		s.checkSpace(ctx, p, size)
+	}
+	if r.BackupSize > 0 && size <= 0 {
+		size = r.BackupSize
 	}
 	const step, label = "database", "Target database"
 	switch {
@@ -45,6 +55,10 @@ func (s *Session) Restore(ctx context.Context, db, key string, o mssql.RestoreOp
 		p.fail(step, label, db+" is "+state+": a differential restore needs it RESTORING (full restore with --norecovery first)")
 	case o.Differential:
 		p.ok(step, label, db+" is RESTORING (differential restore)")
+	case replacing && state != "ONLINE":
+		p.fail(step, label, db+" is "+state+", not ONLINE: only an online database can be replaced (drop it first with dialga drop)")
+	case replacing:
+		p.ok(step, label, db+" exists ("+state+"): it will be replaced ("+r.Mode+")")
 	case state != "":
 		p.fail(step, label, db+" already exists ("+state+"): choose another name or drop it first")
 	default:
@@ -54,6 +68,20 @@ func (s *Session) Restore(ctx context.Context, db, key string, o mssql.RestoreOp
 		return nil, err
 	}
 
+	if replacing {
+		if state != "ONLINE" {
+			return p, nil // the database check failed
+		}
+		repl, err := s.planReplace(ctx, p, db, key, size, r)
+		if err != nil {
+			return nil, err
+		}
+		p.Replace = repl
+		p.Plan.Subject = db
+		p.Params.Replace.Stamp = repl.Stamp
+		p.Plan.Actions = s.replaceActions(p, repl)
+		return p, nil
+	}
 	arn := mssql.S3ARN(s.Target.Bucket, key)
 	stmt := mssql.RestoreDatabase(db, arn, o)
 	p.Plan.Actions = []core.Action{{

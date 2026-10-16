@@ -25,6 +25,7 @@ import (
 
 	"github.com/decisyon/dialga/engine/internal/config"
 	"github.com/decisyon/dialga/engine/internal/jobs"
+	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/ops"
 	"github.com/decisyon/dialga/engine/internal/validate"
 )
@@ -60,6 +61,10 @@ type Request struct {
 	// SkipFailing leaves out the databases whose pre-flight failed instead
 	// of refusing the job.
 	SkipFailing bool
+	// Stamp (yyyymmddhhmmss, UTC) dates the names a replace creates; "" is
+	// now. Plan.Stamp is the one a preview chose: send it back to start the
+	// job previewed.
+	Stamp string
 }
 
 // ImportItem is a backup to upload and restore.
@@ -79,6 +84,11 @@ type ImportItem struct {
 	NoRecovery bool
 	// Overwrite replaces the objects at the keys, if there are any.
 	Overwrite bool
+	// Replace restores onto a database that exists: "auto", "swap" or "drop"
+	// (ops.ReplaceOptions); "" refuses it. BackupFirst, for drop, backs the
+	// current database up to S3 first; nil means true.
+	Replace     string
+	BackupFirst *bool
 }
 
 // ExportItem is a database to back up and download.
@@ -150,6 +160,10 @@ func (r Request) Validate(t config.Target) error {
 		case n > 1 && it.Key != "":
 			return invalidf("%s: a key names one file: a striped backup goes under the prefix", it.Database)
 		}
+		over := ops.ReplaceOptions{Mode: it.Replace, BackupFirst: it.BackupFirst, Stamp: r.Stamp}
+		if err := ops.ValidateReplace(over, mssql.RestoreOptions{Differential: it.Differential, NoRecovery: it.NoRecovery}); err != nil {
+			return invalidf("%s: %v", it.Database, err)
+		}
 		files := map[string]bool{}
 		for _, f := range it.Files {
 			if !filepath.IsAbs(f) {
@@ -183,6 +197,7 @@ func (r Request) Validate(t config.Target) error {
 //	target: dev-sql
 //	prefix: import/2026-10       # optional, Import: instead of the import prefix
 //	skipFailing: false
+//	replace: auto                # optional: the default of the items (so is backupFirst)
 //	items:
 //	  - file: backups/sales.bak  # Import: relative to the plan file
 //	    database: sales
@@ -190,6 +205,8 @@ func (r Request) Validate(t config.Target) error {
 //	    differential: false      # optional
 //	    noRecovery: false        # optional
 //	    overwrite: false         # optional: replace the object in S3
+//	    replace: auto            # optional: restore onto an existing database (auto, swap, drop)
+//	    backupFirst: true        # optional: drop only, back the database up to S3 first (default true)
 //	  - files: [crm_1.bak, crm_2.bak]  # a striped backup
 //	    database: crm
 //	  - database: hr             # Export
@@ -199,11 +216,14 @@ func (r Request) Validate(t config.Target) error {
 //
 // Unknown keys are errors, so a typo never silently falls back to a default.
 type File struct {
-	APIVersion  string     `yaml:"apiVersion"`
-	Kind        string     `yaml:"kind"`
-	Target      string     `yaml:"target"`
-	Prefix      *string    `yaml:"prefix"`
-	SkipFailing bool       `yaml:"skipFailing"`
+	APIVersion  string  `yaml:"apiVersion"`
+	Kind        string  `yaml:"kind"`
+	Target      string  `yaml:"target"`
+	Prefix      *string `yaml:"prefix"`
+	SkipFailing bool    `yaml:"skipFailing"`
+	// Replace and BackupFirst are the default of the items that give none.
+	Replace     string     `yaml:"replace"`
+	BackupFirst *bool      `yaml:"backupFirst"`
 	Items       []FileItem `yaml:"items"`
 }
 
@@ -217,6 +237,8 @@ type FileItem struct {
 	NoRecovery   bool     `yaml:"noRecovery"`
 	Overwrite    bool     `yaml:"overwrite"`
 	Destination  string   `yaml:"destination"`
+	Replace      string   `yaml:"replace"`
+	BackupFirst  *bool    `yaml:"backupFirst"`
 }
 
 // MaxFileSize is the largest plan file ReadFile and ParseFile take.
@@ -285,10 +307,12 @@ func ParseFile(data []byte, base string) (File, error) {
 			return File{}, invalidf("%s: give file or files, not both", where)
 		case f.Kind == FileImport && it.Destination != "":
 			return File{}, invalidf("%s: destination is for export items", where)
-		case f.Kind == FileExport && (it.File != "" || len(it.Files) > 0 || it.NoRecovery || it.Differential):
-			return File{}, invalidf("%s: file, files, noRecovery and differential are for import items", where)
+		case f.Kind == FileExport && (it.File != "" || len(it.Files) > 0 || it.NoRecovery || it.Differential || it.Replace != "" || it.BackupFirst != nil):
+			return File{}, invalidf("%s: file, files, noRecovery, differential, replace and backupFirst are for import items", where)
 		case f.Kind == FileExport && f.Prefix != nil:
 			return File{}, invalidf("prefix is for imports")
+		case f.Kind == FileExport && (f.Replace != "" || f.BackupFirst != nil):
+			return File{}, invalidf("replace and backupFirst are for imports")
 		}
 		f.Items[i].File, f.Items[i].Destination = abs(it.File), abs(it.Destination)
 		for k, file := range it.Files {
@@ -314,8 +338,16 @@ func (f File) Request() Request {
 		if it.File != "" {
 			files = []string{it.File}
 		}
-		r.Import = append(r.Import, ImportItem{Files: files, Database: it.Database, Key: it.Key,
-			Differential: it.Differential, NoRecovery: it.NoRecovery, Overwrite: it.Overwrite})
+		item := ImportItem{Files: files, Database: it.Database, Key: it.Key,
+			Differential: it.Differential, NoRecovery: it.NoRecovery, Overwrite: it.Overwrite,
+			Replace: f.Replace, BackupFirst: f.BackupFirst}
+		if it.Replace != "" {
+			item.Replace = it.Replace
+		}
+		if it.BackupFirst != nil {
+			item.BackupFirst = it.BackupFirst
+		}
+		r.Import = append(r.Import, item)
 	}
 	return r
 }

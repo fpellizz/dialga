@@ -23,6 +23,12 @@ func TestStatementsMatchMssqlImport(t *testing.T) {
 		{"finish.sql", FinishRestore("golden_db")},
 		{"drop.sql", DropDatabase("golden_db")},
 		{"cancel.sql", CancelTask(42)},
+		// The statements of a restore over an existing database have no
+		// counterpart in mssql-import.sh: these golden files are written by hand.
+		{"single-user.sql", SetSingleUser("golden_db")},
+		{"multi-user.sql", SetMultiUser("golden_db")},
+		{"rename.sql", RenameDatabase("golden_db", "golden_db_old_20261016091500")},
+		{"backup-before-replace.sql", BackupDatabase("golden_db", S3ARN(bucket, "export/golden_db_before_replace_20261016091500.bak"))},
 	}
 	for _, tc := range tests {
 		t.Run(tc.golden, func(t *testing.T) {

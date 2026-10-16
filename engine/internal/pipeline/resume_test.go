@@ -13,7 +13,7 @@ import (
 )
 
 var factories = map[string]jobs.Factory{
-	KindUpload: rebuildUpload, KindTask: rebuildTask, KindWait: rebuildWait, KindPost: rebuildPost, KindDownload: rebuildDownload,
+	KindUpload: rebuildUpload, KindTask: rebuildTask, KindWait: rebuildWait, KindPost: rebuildPost, KindDownload: rebuildDownload, KindSQL: rebuildSQL,
 }
 
 // rebuildOf is what Manager.Resume hands to a factory for the step of an item.

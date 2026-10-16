@@ -53,6 +53,7 @@ type fakeRDS struct {
 	// report answers DatabaseReport (default: online, accessible).
 	report     func(db string) (mssql.DatabaseReport, error)
 	statements []string
+	execs      []string       // statements of Exec
 	stmts      map[int]string // by task
 	running    int            // native tasks not ended
 	maxRunning int
@@ -72,6 +73,8 @@ func (f *fakeRDS) DatabaseState(_ context.Context, db string) (string, error) {
 
 func (f *fakeRDS) ActiveTasks(context.Context, string) (int, error) { return 0, nil }
 
+func (f *fakeRDS) ActiveSessions(context.Context, string) (int, error) { return 0, nil }
+
 func (f *fakeRDS) StartTask(_ context.Context, stmt, db string) (mssql.Task, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -88,7 +91,25 @@ func (f *fakeRDS) StartTask(_ context.Context, stmt, db string) (mssql.Task, err
 	return *t, nil
 }
 
-func (f *fakeRDS) Exec(context.Context, string) error { return nil }
+var (
+	renameStmt = regexp.MustCompile(`rds_modify_db_name N'([^']*)', N'([^']*)'`)
+	dropStmt   = regexp.MustCompile(`rds_drop_database @db_name = N'([^']*)'`)
+)
+
+// Exec applies the drops and the renames of a replace to the states; the
+// other statements change nothing.
+func (f *fakeRDS) Exec(_ context.Context, stmt string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.execs = append(f.execs, stmt)
+	if m := renameStmt.FindStringSubmatch(stmt); m != nil {
+		f.states[m[2]], f.states[m[1]] = f.states[m[1]], ""
+	}
+	if m := dropStmt.FindStringSubmatch(stmt); m != nil {
+		f.states[m[1]] = ""
+	}
+	return nil
+}
 
 func (f *fakeRDS) DatabaseReport(_ context.Context, db string) (mssql.DatabaseReport, error) {
 	if f.report != nil {
@@ -166,6 +187,7 @@ func testEnv(t *testing.T, target config.Target) (Env, *fakeRDS, *transfertest.S
 	rds := newFakeRDS(s3)
 	env := Env{
 		Name: "dev-sql", Target: target, S3: s3, TaskInterval: time.Millisecond,
+		Now: func() time.Time { return time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC) },
 		OpenOps: func(context.Context) (*ops.Session, func(), error) {
 			rds.mu.Lock()
 			rds.opens++

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/decisyon/dialga/engine/internal/jobs"
+	"github.com/decisyon/dialga/engine/internal/ops"
 	"github.com/decisyon/dialga/engine/internal/validate"
 )
 
@@ -17,6 +18,7 @@ const (
 	KindWait     = "pipeline.wait"
 	KindPost     = "pipeline.post"
 	KindDownload = "pipeline.download"
+	KindSQL      = "pipeline.sql"
 )
 
 func init() {
@@ -25,6 +27,7 @@ func init() {
 	jobs.Register(KindWait, rebuildWait)
 	jobs.Register(KindPost, rebuildPost)
 	jobs.Register(KindDownload, rebuildDownload)
+	jobs.Register(KindSQL, rebuildSQL)
 }
 
 // envOf is the Env a resume hands to the factories (ResumeOptions.Env).
@@ -81,7 +84,7 @@ func rebuildTask(rb jobs.Rebuild) (jobs.Step, error) {
 	if p.Statement == "" {
 		return nil, errors.New("the step recorded no statement")
 	}
-	if err := validate.DBName(p.Database); err != nil {
+	if err := validate.DerivedDBName(p.Database); err != nil {
 		return nil, err
 	}
 	if err := validate.S3Key(p.Key); err != nil {
@@ -93,6 +96,44 @@ func rebuildTask(rb jobs.Rebuild) (jobs.Step, error) {
 	}
 	if p.Statement != want {
 		return nil, errors.New("the statement the step recorded is not the one its parameters and the target's bucket build")
+	}
+	return p.Step(env, rb.Step.ID, rb.Step.Title), nil
+}
+
+// rebuildSQL rebuilds a statement of a replace. The statement is built again
+// from the parameters and compared with the one recorded, as for a task; the
+// step then reads the names on the instance before it acts, so an interrupt
+// between the two renames of a swap resumes where it stopped.
+func rebuildSQL(rb jobs.Rebuild) (jobs.Step, error) {
+	env, err := envOf(rb)
+	if err != nil {
+		return nil, err
+	}
+	var p SQLParams
+	if err := rb.Params(&p); err != nil {
+		return nil, err
+	}
+	if err := validate.DerivedDBName(p.Database); err != nil {
+		return nil, err
+	}
+	if p.Op == ops.StepRename {
+		if err := validate.DerivedDBName(p.To); err != nil {
+			return nil, err
+		}
+		if p.Fallback != "" {
+			if err := validate.DerivedDBName(p.Fallback); err != nil {
+				return nil, err
+			}
+		}
+	} else if p.To != "" || p.Fallback != "" {
+		return nil, fmt.Errorf("the %s step recorded a new name", p.Op)
+	}
+	want, err := p.expected()
+	if err != nil {
+		return nil, err
+	}
+	if p.Statement != want {
+		return nil, errors.New("the statement the step recorded is not the one its parameters build")
 	}
 	return p.Step(env, rb.Step.ID, rb.Step.Title), nil
 }

@@ -1,5 +1,5 @@
 -- Mock of the msdb.dbo.rds_* procedures for a plain SQL Server, used by the integration tests.
--- Copied verbatim from ~/Claudio/AWS/Sales/mssql-import/test/mock-rds.sql (the end-to-end test of mssql-import.sh).
+-- Copied from ~/Claudio/AWS/Sales/mssql-import/test/mock-rds.sql (the end-to-end test of mssql-import.sh).
 -- Load it into a throwaway SQL Server 2022 container, one batch per GO; the last batch needs a writable /bak directory.
 USE msdb;
 GO
@@ -43,6 +43,18 @@ GO
 CREATE PROCEDURE dbo.rds_cancel_task @task_id int AS
   UPDATE dbo.mock_tasks SET lifecycle = 'CANCELLED', last_updated = GETDATE() WHERE task_id = @task_id;
 GO
+-- rdsadmin.dbo.rds_modify_db_name, the RDS way to rename a database (it wants SINGLE_USER first).
+-- TODO: confermare su mssql-dev. Not in mssql-import.sh/test/mock-rds.sql: added for the restore-over-existing tests.
+CREATE DATABASE rdsadmin;
+GO
+USE rdsadmin;
+GO
+CREATE PROCEDURE dbo.rds_modify_db_name @old sysname, @new sysname AS
+BEGIN
+  DECLARE @s nvarchar(400) = N'ALTER DATABASE ' + QUOTENAME(@old) + N' MODIFY NAME = ' + QUOTENAME(@new);
+  EXEC (@s);
+END
+GO
 -- A "god" login like the RDS master user, and a DB with an orphaned user
 USE master;
 CREATE LOGIN god WITH PASSWORD = 'Mock-god-1!', CHECK_POLICY = OFF;
@@ -67,6 +79,10 @@ GRANT SELECT ON dbo.rds_fn_task_status TO public;
 CREATE USER god FOR LOGIN god;
 GRANT EXECUTE ON dbo.rds_backup_database TO god; GRANT EXECUTE ON dbo.rds_restore_database TO god;
 GRANT EXECUTE ON dbo.rds_drop_database TO god; GRANT EXECUTE ON dbo.rds_cancel_task TO god;
+GO
+USE rdsadmin;
+CREATE USER god FOR LOGIN god;
+GRANT EXECUTE ON dbo.rds_modify_db_name TO god;
 GO
 -- the test .bak for the inspect script (2022 -> version 16, must be KO)
 BACKUP DATABASE app_db TO DISK = N'/bak/app_db_2022.bak' WITH COMPRESSION, CHECKSUM, INIT;
