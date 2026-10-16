@@ -47,6 +47,15 @@ describe("App", () => {
     expect(link("Settings")).toHaveAttribute("aria-current", "page");
   });
 
+  it.each(["#databases", "#databases/dev-sql"])("opens Databases from %s", async (hash) => {
+    window.location.hash = hash;
+    render(<App />);
+    expect(heading()).toHaveTextContent("Databases");
+    expect(link("Databases")).toHaveAttribute("aria-current", "page");
+    // The fake engine has no targets.
+    expect(await screen.findByText("No instances configured")).toBeInTheDocument();
+  });
+
   it("follows the hash as it changes", async () => {
     render(<App />);
     goTo("#settings");
@@ -54,6 +63,13 @@ describe("App", () => {
     expect(link("Instances")).not.toHaveAttribute("aria-current");
 
     goTo("#instances");
+    expect(await screen.findByRole("heading", { level: 1, name: "Instances" })).toBeInTheDocument();
+
+    goTo("#settings");
+    await screen.findByRole("heading", { level: 1, name: "Settings" });
+    goTo("#databases/prod-sql");
+    expect(await screen.findByRole("heading", { level: 1, name: "Databases" })).toBeInTheDocument();
+    goTo("#databasesx");
     expect(await screen.findByRole("heading", { level: 1, name: "Instances" })).toBeInTheDocument();
 
     goTo("#settings");

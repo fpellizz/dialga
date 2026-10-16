@@ -21,6 +21,25 @@ targets:
       local_port: 11433
 `;
 
+/**
+ * FAKE_TARGET plus e2e-env, whose SQL password is in the engine environment
+ * (E2E_SQL_PASSWORD, a placeholder): its SQL session gets as far as the AWS
+ * profile and fails there (502), while e2e-fake stops at the password (422).
+ */
+export const TWO_TARGETS = `${FAKE_TARGET}  e2e-env:
+    account_id: "123456789012"
+    region: eu-west-1
+    aws_profile: dialga-e2e-missing
+    instance: e2e-env-instance
+    bucket: e2e-fake-bucket
+    sql:
+      user: e2e
+      password: env:E2E_SQL_PASSWORD
+    connect:
+      mode: external
+      local_port: 11434
+`;
+
 /** A configuration with an unknown key: the engine reads it strictly. */
 export const BROKEN = `apiVersion: v1
 targets:
