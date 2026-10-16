@@ -54,6 +54,17 @@ export interface JobStep {
   detail?: string;
 }
 
+/** The checksum of the file a database uploaded or downloaded. */
+export interface JobChecksum {
+  algorithm: string;
+  /** Base64 of the checksum of the whole object. */
+  value?: string;
+  /** The checksum computed here matches the one S3 keeps. */
+  verified: boolean;
+  /** Why it was not verified. */
+  note?: string;
+}
+
 /** One database of a job. */
 export interface JobItem {
   name: string;
@@ -67,6 +78,7 @@ export interface JobItem {
   taskIds?: number[];
   taskLeftRunning?: boolean;
   upload?: MultipartUpload;
+  checksum?: JobChecksum;
   error?: string;
   result?: string;
 }

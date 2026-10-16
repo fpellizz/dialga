@@ -695,3 +695,20 @@ func TestInterruptedKeepsUploads(t *testing.T) {
 		t.Fatal("a cancel must abort the uploads")
 	}
 }
+
+func TestReporterRecordsTheChecksum(t *testing.T) {
+	m := New(Options{})
+	job := start(t, m, Spec{Kind: Export, Target: "dev", Instance: "db1",
+		Items: items([]string{"sales"}, func(string) []Step {
+			return []Step{NewStep("download", "Download", ResourceTransfer, func(_ context.Context, r Reporter) (string, error) {
+				r.(interface {
+					Checksum(algorithm, value string, verified bool, note string)
+				}).Checksum("CRC64NVME", "AAAA", true, "")
+				return "", nil
+			})}
+		})})
+	got := waitJob(t, m, job.ID)
+	if c := got.Items[0].Checksum; c == nil || c.Algorithm != "CRC64NVME" || c.Value != "AAAA" || !c.Verified {
+		t.Fatalf("checksum %+v", c)
+	}
+}

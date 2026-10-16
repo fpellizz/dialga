@@ -238,4 +238,20 @@ describe("mapJob", () => {
     expect(mapJob(failed, PLAN)[0]).toMatchObject({ state: "failed", taskLeftRunning: true });
     expect(String(mapJob(failed, PLAN)[0]?.error)).toContain("the engine stopped");
   });
+
+  it("shows the checksum the download reported", () => {
+    const done = job("succeeded", {
+      ...DONE.items[0],
+      transfer: { direction: "download", bytes: 6, total: 6, bytesPerSecond: 2 },
+      checksum: { algorithm: "CRC64NVME", value: "AAAA", verified: true },
+    });
+    expect(mapJob(done, PLAN, "my-sqlserver-backups")[0]?.download).toMatchObject({
+      path: FILE,
+      key: KEY,
+      size: 6,
+      checksumAlgorithm: "CRC64NVME",
+      checksum: "AAAA",
+      verified: true,
+    });
+  });
 });

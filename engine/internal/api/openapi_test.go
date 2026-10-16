@@ -138,6 +138,7 @@ func TestOpenAPISchemasMatchTheGoTypes(t *testing.T) {
 		"TransferProgress": {jobs.TransferProgress{}},
 		"TaskProgress":     {jobs.TaskStatus{}},
 		"MultipartUpload":  {jobs.UploadState{}},
+		"JobChecksum":      {jobs.ChecksumInfo{}},
 		"ResumeRequest":    {ResumeRequest{}},
 		"TunnelState":      {TunnelState{}},
 		"TunnelList":       {TunnelList{}},

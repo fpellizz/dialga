@@ -167,6 +167,16 @@ type UploadState struct {
 	PartsDone []int  `json:"partsDone"`
 }
 
+// ChecksumInfo is the checksum of the item's file, as the transfer step saw
+// it (transfer.Result): Value is the base64 of the whole object, Verified
+// says the one computed here matches the one S3 keeps.
+type ChecksumInfo struct {
+	Algorithm string `json:"algorithm"`
+	Value     string `json:"value,omitempty"`
+	Verified  bool   `json:"verified"`
+	Note      string `json:"note,omitempty"`
+}
+
 // StepInfo is one step of an item as the GUI and the journal see it.
 type StepInfo struct {
 	ID       string     `json:"id"`
@@ -205,8 +215,10 @@ type Item struct {
 	// native task was still running on the instance.
 	TaskLeftRunning bool         `json:"taskLeftRunning,omitempty"`
 	Upload          *UploadState `json:"upload,omitempty"`
-	Error           string       `json:"error,omitempty"`
-	Result          string       `json:"result,omitempty"`
+	// Checksum is that of the file the item uploaded or downloaded.
+	Checksum *ChecksumInfo `json:"checksum,omitempty"`
+	Error    string        `json:"error,omitempty"`
+	Result   string        `json:"result,omitempty"`
 }
 
 // Job is one execution on a target, with its items and its event log.

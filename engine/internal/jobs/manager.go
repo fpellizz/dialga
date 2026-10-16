@@ -1020,6 +1020,21 @@ func (p *reporter) Upload(u UploadState) {
 	r.save(prev == nil || prev.UploadID != u.UploadID)
 }
 
+// Checksum records the checksum of the item's file (the pipeline's
+// transfer steps call it when the reporter has it).
+func (p *reporter) Checksum(algorithm, value string, verified bool, note string) {
+	r := p.r
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	it, ok := p.live()
+	if !ok {
+		return
+	}
+	it.Checksum = &ChecksumInfo{Algorithm: algorithm, Value: value, Verified: verified, Note: note}
+	r.job.UpdatedAt = r.m.opts.Now()
+	r.save(false)
+}
+
 func (p *reporter) Log(level Level, msg string) {
 	r := p.r
 	r.mu.Lock()

@@ -1468,8 +1468,18 @@ components:
           type: boolean
           description: The database stopped (cancel, interrupt) while its native task still ran on the instance.
         upload: { $ref: "#/components/schemas/MultipartUpload" }
+        checksum: { $ref: "#/components/schemas/JobChecksum" }
         error: { type: string }
         result: { type: string }
+    JobChecksum:
+      type: object
+      description: Checksum of the file the database uploaded or downloaded.
+      required: [algorithm, verified]
+      properties:
+        algorithm: { type: string, examples: [CRC64NVME] }
+        value: { type: string, description: Base64 of the checksum of the whole object. }
+        verified: { type: boolean, description: The checksum computed here matches the one S3 keeps. }
+        note: { type: string, description: Why it was not verified. }
     JobStep:
       type: object
       required: [id, title, status]

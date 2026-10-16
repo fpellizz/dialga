@@ -10,6 +10,7 @@
 import { ApiError, failure, type StepEvent, type StepStatus, type Task } from "./api";
 import type { EngineInfo } from "./engine";
 import type { ExportItemRun, ItemState } from "./exportRun";
+import type { JobChecksum } from "./jobs";
 import { createSseParser } from "./sse";
 
 export interface JobItemRequest {
@@ -102,6 +103,7 @@ interface JobItem {
   };
   task?: { id: number; type?: string; lifecycle: Task["lifecycle"]; percent: number };
   taskLeftRunning?: boolean;
+  checksum?: JobChecksum;
   error?: string;
   result?: string;
 }
@@ -363,6 +365,21 @@ export function mapJob(job: Job, plan: JobPlan, bucket?: string): ExportItemRun[
     if (item.state === "succeeded" && planned?.file) {
       run.localFile = planned.file;
       run.note = downloadStep?.detail;
+      if (item.checksum && item.transfer) {
+        // What the download checked, as the single downloads show it.
+        run.download = {
+          path: planned.file,
+          bucket: bucket ?? "",
+          key: planned.key ?? "",
+          size: item.transfer.total,
+          checksumAlgorithm: item.checksum.algorithm,
+          checksum: item.checksum.value,
+          verified: item.checksum.verified,
+          note: item.checksum.note,
+          seconds: 0,
+          bytesPerSecond: item.transfer.bytesPerSecond,
+        };
+      }
     }
     if (item.error) {
       run.error = new Error(item.error);
