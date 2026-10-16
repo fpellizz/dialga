@@ -100,12 +100,13 @@ func (b *Batch) action(item Item, title string, risk core.Risk, statement string
 			b.mu.Lock()
 			b.results = append(b.results, res)
 			b.mu.Unlock()
-			return res.summary(), nil
+			return res.Summary(), nil
 		},
 	})
 }
 
-func (r Result) summary() string {
+// Summary is the result line of a transfer: size, time, speed and checksum.
+func (r Result) Summary() string {
 	d := time.Duration(r.Seconds * float64(time.Second))
 	if d >= time.Second {
 		d = d.Round(time.Second)
@@ -312,7 +313,7 @@ func PlanDownload(ctx context.Context, c Client, target string, t config.Target,
 	if err != nil {
 		return nil, err
 	}
-	dest, err := destPath(r.Dest, key)
+	dest, err := LocalDestination(r.Dest, key)
 	if err != nil {
 		return nil, err
 	}
@@ -389,9 +390,10 @@ func sourceKey(src string, t config.Target) (string, error) {
 	return key, keyError(key)
 }
 
-// destPath is the local file of a download: dest itself, or the last part
-// of the key inside dest when dest is a folder.
-func destPath(dest, key string) (string, error) {
+// LocalDestination is the local file a download of key writes: dest
+// itself, or the last part of the key inside dest when dest is a folder (""
+// is the current folder). The folder must exist.
+func LocalDestination(dest, key string) (string, error) {
 	if dest == "" {
 		dest = "."
 	}

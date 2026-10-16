@@ -21,6 +21,7 @@
 package jobs
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/decisyon/dialga/engine/internal/mssql"
@@ -83,6 +84,8 @@ const (
 	EventJobFailed      EventType = "job.failed"
 	EventJobCancelled   EventType = "job.cancelled"
 	EventJobInterrupted EventType = "job.interrupted"
+	// EventJobResumed: an interrupted job runs again (Manager.Resume).
+	EventJobResumed EventType = "job.resumed"
 
 	EventStepWaiting     EventType = "step.waiting"
 	EventStepStarted     EventType = "step.started"
@@ -164,12 +167,29 @@ type UploadState struct {
 	PartsDone []int  `json:"partsDone"`
 }
 
+// ChecksumInfo is the checksum of the item's file, as the transfer step saw
+// it (transfer.Result): Value is the base64 of the whole object, Verified
+// says the one computed here matches the one S3 keeps.
+type ChecksumInfo struct {
+	Algorithm string `json:"algorithm"`
+	Value     string `json:"value,omitempty"`
+	Verified  bool   `json:"verified"`
+	Note      string `json:"note,omitempty"`
+}
+
 // StepInfo is one step of an item as the GUI and the journal see it.
 type StepInfo struct {
-	ID        string     `json:"id"`
-	Title     string     `json:"title"`
-	Resource  Resource   `json:"resource,omitempty"`
-	Status    StepStatus `json:"status"`
+	ID       string     `json:"id"`
+	Title    string     `json:"title"`
+	Resource Resource   `json:"resource,omitempty"`
+	Status   StepStatus `json:"status"`
+	// Kind and Params rebuild the step on a resume (Resumable): the factory
+	// registered for Kind gets Params back. Never secrets: they are in the
+	// journal and in the API.
+	Kind   string          `json:"kind,omitempty"`
+	Params json.RawMessage `json:"params,omitempty"`
+	// TaskID is the native task the step reported (Reporter.Task).
+	TaskID    int        `json:"taskId,omitempty"`
 	StartedAt *time.Time `json:"startedAt,omitempty"`
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
 	// Detail is the result line of a succeeded step or the error of a
@@ -195,8 +215,10 @@ type Item struct {
 	// native task was still running on the instance.
 	TaskLeftRunning bool         `json:"taskLeftRunning,omitempty"`
 	Upload          *UploadState `json:"upload,omitempty"`
-	Error           string       `json:"error,omitempty"`
-	Result          string       `json:"result,omitempty"`
+	// Checksum is that of the file the item uploaded or downloaded.
+	Checksum *ChecksumInfo `json:"checksum,omitempty"`
+	Error    string        `json:"error,omitempty"`
+	Result   string        `json:"result,omitempty"`
 }
 
 // Job is one execution on a target, with its items and its event log.
@@ -205,6 +227,9 @@ type Job struct {
 	Kind     Kind   `json:"kind"`
 	Target   string `json:"target"`
 	Instance string `json:"instance"`
+	// InstanceKey is account/region/instance of the RDS instance (empty in
+	// journals of older versions): a resume refuses another one.
+	InstanceKey string `json:"instanceKey,omitempty"`
 	// MaxTasks is the native tasks the job runs at once on the instance.
 	MaxTasks        int        `json:"maxTasks"`
 	State           State      `json:"state"`

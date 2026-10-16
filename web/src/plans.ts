@@ -4,10 +4,11 @@
  * Events, and the post-restore report of a database. Pure helpers of the
  * plan dialog live here too.
  */
-import type { Lifecycle, StepEvent, Task } from "./api";
+import { ApiError, authHeaders, failure, type Lifecycle, type StepEvent, type Task } from "./api";
 import type { EngineInfo } from "./engine";
+import type { Hint } from "./hints";
 import type { MessageKey } from "./i18n";
-import { createSseParser } from "./sse";
+import { readEventStream } from "./sse";
 
 export type Operation = "restore" | "export" | "finish" | "cancel" | "drop";
 
@@ -105,30 +106,12 @@ export interface DatabaseReport {
   objects: ObjectCount[];
 }
 
-/** An engine answer that is not 2xx: the status says what went wrong. */
-export class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message);
-    this.name = "HttpError";
-  }
-}
-
-async function httpError(response: Response): Promise<HttpError> {
-  return new HttpError(
-    response.status,
-    (await response.text()).trim() || `HTTP ${response.status}`,
-  );
-}
-
 function planURL(engine: EngineInfo, target: string, operation: Operation): string {
   return `${engine.url}/api/v1/targets/${encodeURIComponent(target)}/plans/${operation}`;
 }
 
 function jsonHeaders(engine: EngineInfo): HeadersInit {
-  return { Authorization: `Bearer ${engine.token}`, "Content-Type": "application/json" };
+  return { ...authHeaders(engine), "Content-Type": "application/json" };
 }
 
 /** Runs the pre-flight checks and answers the plan. Nothing is changed. */
@@ -146,7 +129,7 @@ export async function previewPlan(
     signal,
   });
   if (!response.ok) {
-    throw await httpError(response);
+    throw await failure(response);
   }
   return (await response.json()) as PlanPreview;
 }
@@ -162,7 +145,7 @@ export interface ExecuteHandlers {
 
 /**
  * Executes the plan and streams its progress. A refusal before the stream
- * (412 plan changed or pre-flight failed, 422 confirmation) is an HttpError;
+ * (412 plan changed or pre-flight failed, 422 confirmation) is an ApiError;
  * a stream that ends without "done" is an Error: the task may still run.
  */
 export async function executePlan(
@@ -180,11 +163,11 @@ export async function executePlan(
     signal,
   });
   if (!response.ok || !response.body) {
-    throw await httpError(response);
+    throw await failure(response);
   }
   // An object, not a let: TypeScript does not see assignments in the callback.
   const result: { done?: PlanDone } = {};
-  const parse = createSseParser((message) => {
+  await readEventStream(response.body, (message) => {
     const data = JSON.parse(message.data);
     if (message.event === "notice") {
       handlers.onNotice((data as { message: string }).message);
@@ -196,14 +179,6 @@ export async function executePlan(
       result.done = data as PlanDone;
     }
   });
-  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-  for (;;) {
-    const { value, done: end } = await reader.read();
-    if (end) {
-      break;
-    }
-    parse(value);
-  }
   if (!result.done) {
     throw new Error("the engine closed the stream before the end");
   }
@@ -219,10 +194,10 @@ export async function getDatabaseReport(
 ): Promise<DatabaseReport> {
   const response = await fetch(
     `${engine.url}/api/v1/targets/${encodeURIComponent(target)}/databases/${encodeURIComponent(database)}/report`,
-    { headers: { Authorization: `Bearer ${engine.token}` }, signal },
+    { headers: authHeaders(engine), signal },
   );
   if (!response.ok) {
-    throw await httpError(response);
+    throw await failure(response);
   }
   return (await response.json()) as DatabaseReport;
 }
@@ -278,26 +253,23 @@ export function sameRequest(a: PlanRequest, b: PlanRequest): boolean {
   );
 }
 
-/** What to do after an engine error, by HTTP status. */
-export function errorHint(error: unknown): MessageKey | undefined {
-  if (!(error instanceof HttpError)) {
-    return error instanceof Error ? "plan.hint.network" : undefined;
+/**
+ * What to do after a refused plan call, by HTTP status: the fallback of
+ * ErrorBanner (Feedback.tsx), after the hints of the message (hints.ts).
+ */
+export function planHint(error: unknown): Hint | undefined {
+  if (!(error instanceof ApiError)) {
+    return error instanceof Error ? { key: "plan.hint.network" } : undefined;
   }
-  switch (error.status) {
-    case 400:
-      return "plan.hint.400";
-    case 404:
-    case 409:
-      return "plan.hint.config";
-    case 412:
-      return "plan.hint.412";
-    case 422:
-      return "plan.hint.422";
-    case 502:
-      return "plan.hint.502";
-    default:
-      return undefined;
-  }
+  const key = (
+    {
+      400: "plan.hint.400",
+      412: "plan.hint.412",
+      422: "plan.hint.422",
+      502: "plan.hint.502",
+    } as Record<number, MessageKey>
+  )[error.status];
+  return key ? { key } : undefined;
 }
 
 /** Message key of a pre-flight check or report finding, when the UI knows it. */

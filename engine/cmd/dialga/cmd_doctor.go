@@ -116,6 +116,9 @@ func (a *app) doctor(cmd *cobra.Command) []doctorItem {
 			}
 		default:
 			it.Status, it.Detail, it.Install = check.Failed, "not found: needed for "+pr.Purpose, pr.Install
+			if pr.Error != "" {
+				it.Detail = "not usable: " + pr.Error
+			}
 			// Only inspect needs a container runtime; direct targets need no tunnel.
 			if pr.ID == discover.PrereqContainerRuntime || (pr.ID == discover.PrereqSSMPlugin && allDirect) {
 				it.Status = check.Warning

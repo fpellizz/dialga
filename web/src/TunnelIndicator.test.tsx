@@ -70,7 +70,12 @@ describe("TunnelIndicator", () => {
 
     await userEvent.click(await screen.findByRole("button", { name: "Connect" }));
     expect(requestsTo(fetch, OPEN)).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "Connect" })).toBeDisabled();
+    // Busy, not disabled: it keeps the focus and ignores a second click.
+    const connect = screen.getByRole("button", { name: "Connect" });
+    expect(connect).toHaveAttribute("aria-disabled", "true");
+    expect(connect).toBeEnabled();
+    await userEvent.click(connect);
+    expect(requestsTo(fetch, OPEN)).toHaveLength(1);
 
     await tunnel.state({ ...CLOSED, status: "connecting" });
     expect(await screen.findByText("Connecting…")).toBeInTheDocument();
@@ -115,7 +120,7 @@ describe("TunnelIndicator", () => {
 
     await tunnel.state({ ...CLOSED, failed: true, detail: "no ssm-bridge instance in vpc-0abc" });
     expect(await screen.findByText("Connection failed")).toBeInTheDocument();
-    expect(screen.getByText("no ssm-bridge instance in vpc-0abc")).toHaveClass("tone-destructive");
+    expect(screen.getByRole("alert")).toHaveTextContent("no ssm-bridge instance in vpc-0abc");
     expect(announced()).toHaveTextContent("Tunnel to lab-sql failed");
     expect(screen.getByRole("button", { name: "Connect" })).toBeEnabled();
   });
@@ -129,10 +134,24 @@ describe("TunnelIndicator", () => {
     indicator();
     await tunnel.state(CLOSED);
     await userEvent.click(await screen.findByRole("button", { name: "Connect" }));
-    expect(await screen.findByText("session-manager-plugin not found: install it")).toHaveClass(
-      "tone-destructive",
-    );
-    expect(screen.getByRole("button", { name: "Connect" })).toBeEnabled();
+    const alert = await screen.findByRole("alert");
+    // The message says what to do already: no hint is added.
+    expect(alert).toHaveTextContent(/^session-manager-plugin not found: install it$/);
+    expect(screen.getByRole("button", { name: "Connect" })).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("adds what to do to a refused Connect", async () => {
+    const tunnel = events();
+    mockFetch({
+      [EVENTS]: tunnel.route,
+      [OPEN]: () => text("failed to get shared config profile, lab\n", 502),
+    });
+    indicator();
+    await tunnel.state(CLOSED);
+    await userEvent.click(await screen.findByRole("button", { name: "Connect" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("failed to get shared config profile, lab");
+    expect(alert).toHaveTextContent("Create the profile lab in ~/.aws/config");
   });
 
   it("follows the events again when the stream drops", async () => {
@@ -166,11 +185,13 @@ describe("TunnelIndicator", () => {
       </TunnelsProvider>,
     );
     await waitFor(() => expect(requestsTo(fetch, TUNNELS)).toHaveLength(1));
+    // The first state is not a change: no second list.
     await tunnel.state(CLOSED);
-    await waitFor(() => expect(requestsTo(fetch, TUNNELS)).toHaveLength(2));
+    expect(await screen.findByText("Not connected")).toBeInTheDocument();
+    expect(requestsTo(fetch, TUNNELS)).toHaveLength(1);
 
     await tunnel.state(READY);
     expect(await screen.findByText("1 tunnel open")).toBeInTheDocument();
-    expect(requestsTo(fetch, TUNNELS)).toHaveLength(3);
+    expect(requestsTo(fetch, TUNNELS)).toHaveLength(2);
   });
 });

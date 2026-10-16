@@ -89,6 +89,10 @@ type Options struct {
 	// OpenS3 opens the S3 client of a target for the transfers (default
 	// transfer.Open; tests replace it).
 	OpenS3 func(context.Context, config.Target) (transfer.Client, error)
+	// JobEnv builds what resumed steps run with (the pipeline's
+	// environment, handed to the step factories). Default: the pipeline's
+	// own, like the jobs this engine starts.
+	JobEnv func(ctx context.Context, name string, t config.Target, password string) (any, error)
 }
 
 // Server is the HTTP API of the engine.
@@ -109,6 +113,9 @@ type TargetSummary struct {
 	ConnectMode string `json:"connectMode"`
 	LocalPort   int    `json:"localPort,omitempty"`
 	Protected   bool   `json:"protected"`
+	// ImportPrefix and ExportPrefix are the S3 key prefixes of the target.
+	ImportPrefix string `json:"importPrefix"`
+	ExportPrefix string `json:"exportPrefix"`
 }
 
 // TargetList is the answer of GET /api/v1/targets. A missing file is not an
@@ -140,6 +147,10 @@ type TaskList struct {
 	Tasks []mssql.Task `json:"tasks"`
 }
 
+// opsOpenWith opens the sessions of the native operations (ops.OpenWith;
+// tests replace it).
+var opsOpenWith = ops.OpenWith
+
 // New builds a server; Token must be at least 32 characters.
 func New(opts Options) (*Server, error) {
 	if len(opts.Token) < 32 {
@@ -167,7 +178,8 @@ func New(opts Options) (*Server, error) {
 		opts.DescribeTarget = session.DescribeTarget
 	}
 	if opts.OpenOps == nil {
-		opts.OpenOps = ops.Open
+		// The jobs and the operations borrow the shared tunnels too.
+		opts.OpenOps = opsOpenWith(session.Sessions{Tunnels: opts.Tunnels})
 	}
 	if opts.TaskInterval <= 0 {
 		opts.TaskInterval = 30 * time.Second
@@ -176,6 +188,11 @@ func New(opts Options) (*Server, error) {
 		opts.Jobs = jobs.New(jobs.Options{Log: opts.Log})
 	}
 	s := &Server{opts: opts, mux: http.NewServeMux()}
+	if s.opts.JobEnv == nil {
+		s.opts.JobEnv = func(ctx context.Context, name string, t config.Target, password string) (any, error) {
+			return s.pipelineEnv(ctx, name, t, password)
+		}
+	}
 	for _, rt := range s.routes() {
 		s.mux.HandleFunc(rt.method+" "+rt.path, rt.handler)
 	}
@@ -316,12 +333,7 @@ func (s *Server) listTargets(w http.ResponseWriter, _ *http.Request) {
 		resp.Error = err.Error()
 	default:
 		for _, name := range cfg.Names() {
-			t := cfg.Targets[name]
-			resp.Targets = append(resp.Targets, TargetSummary{
-				Name: name, Instance: t.Instance, Region: t.Region, Profile: t.AWSProfile,
-				AccountID: t.AccountID, Bucket: t.Bucket, SQLUser: t.SQL.User,
-				ConnectMode: t.Connect.Mode, LocalPort: t.Connect.LocalPort, Protected: t.Protected,
-			})
+			resp.Targets = append(resp.Targets, summaryOf(name, cfg.Targets[name]))
 		}
 	}
 	writeJSON(w, resp)

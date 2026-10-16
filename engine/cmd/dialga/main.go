@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -19,10 +20,12 @@ import (
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/config"
 	"github.com/decisyon/dialga/engine/internal/discover"
+	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/ops"
 	"github.com/decisyon/dialga/engine/internal/session"
 	"github.com/decisyon/dialga/engine/internal/transfer"
+	"github.com/decisyon/dialga/engine/internal/tunnels"
 )
 
 // version is overridden at build time by ci/build-engine.sh
@@ -62,6 +65,16 @@ type app struct {
 	// discover answers config init and doctor (nil: discover.System).
 	discover discover.Service
 	openS3   func(context.Context, config.Target) (transfer.Client, error)
+	// jobEnv builds what resumed steps run with (jobs resume); jobRegistry
+	// has their factories (nil: jobs.DefaultRegistry); jobInterval is the
+	// time between two reads of a native task (0: the default).
+	jobEnv      func(ctx context.Context, name string, t config.Target, password string) (env any, closeEnv func(), err error)
+	jobRegistry *jobs.Registry
+	jobInterval time.Duration
+	// openOpsVia and jobTunnel open the sessions and the tunnel of a job in
+	// tunnel mode (cmd_job.go; nil: ops.OpenWith and the integrated tunnel).
+	openOpsVia func(session.Sessions) func(context.Context, string, config.Target, string) (*ops.Session, func(), error)
+	jobTunnel  tunnels.Opener
 }
 
 func main() {
@@ -77,6 +90,7 @@ func main() {
 		readConfirm:      readLineFromTerminal,
 		openS3:           transfer.Open,
 	}
+	a.jobEnv = a.pipelineJobEnv
 	os.Exit(a.execute(os.Args[1:], os.Stdout, os.Stderr))
 }
 

@@ -75,16 +75,24 @@ type Session struct {
 // Open connects to the target: AWS credentials with the account guard, the
 // bucket and a SQL session with the certificate verified. close ends it.
 func Open(ctx context.Context, name string, t config.Target, password string) (*Session, func(), error) {
-	db, cfg, err := session.OpenWithAWS(ctx, t, password)
-	if err != nil {
-		return nil, nil, err
+	return OpenWith(session.Sessions{})(ctx, name, t, password)
+}
+
+// OpenWith is Open through sessions: with the engine's shared tunnels (or a
+// job's), a tunnel-mode target borrows that tunnel instead of opening one.
+func OpenWith(sessions session.Sessions) func(ctx context.Context, name string, t config.Target, password string) (*Session, func(), error) {
+	return func(ctx context.Context, name string, t config.Target, password string) (*Session, func(), error) {
+		db, cfg, err := sessions.OpenWithAWS(ctx, t, password)
+		if err != nil {
+			return nil, nil, err
+		}
+		s := &Session{Name: name, Target: t, SQL: mssql.Session{DB: db}, Bucket: awsx.NewBucket(cfg, t.Bucket),
+			FreeStorage: func(ctx context.Context) (int64, error) {
+				free, err := awsx.FreeStorageBytes(ctx, cfg, t.Instance)
+				return int64(free), err
+			}}
+		return s, func() { _ = db.Close() }, nil
 	}
-	s := &Session{Name: name, Target: t, SQL: mssql.Session{DB: db}, Bucket: awsx.NewBucket(cfg, t.Bucket),
-		FreeStorage: func(ctx context.Context) (int64, error) {
-			free, err := awsx.FreeStorageBytes(ctx, cfg, t.Instance)
-			return int64(free), err
-		}}
-	return s, func() { _ = db.Close() }, nil
 }
 
 // Params are the parameters of an operation.

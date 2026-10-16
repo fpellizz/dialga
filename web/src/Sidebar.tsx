@@ -5,29 +5,29 @@ import type { EngineInfo } from "./engine";
 import { type MessageKey, useI18n } from "./i18n";
 import { TunnelSummary } from "./TunnelIndicator";
 
-export type Page = "instances" | "databases" | "settings";
+export type Page = "instances" | "databases" | "import" | "export" | "activity" | "settings";
 
 /** The window title of each page: "Databases · Dialga". */
 const PAGE_TITLE: Record<Page, MessageKey> = {
   instances: "nav.instances",
   databases: "nav.databases",
+  import: "nav.import",
+  export: "nav.export",
+  activity: "nav.activity",
   settings: "nav.settings",
 };
-
-const SOON: { icon: typeof Upload; key: MessageKey }[] = [
-  { icon: Upload, key: "nav.import" },
-  { icon: Download, key: "nav.export" },
-  { icon: Activity, key: "nav.activity" },
-];
 
 export function Sidebar({
   page,
   engine,
   engineError,
+  runningJobs = 0,
 }: {
   page: Page;
   engine: EngineInfo | null;
   engineError: string;
+  /** Jobs queued or running: a badge on Activity. */
+  runningJobs?: number;
 }) {
   const { t } = useI18n();
   let dot = "dot dot-wait";
@@ -73,13 +73,26 @@ export function Sidebar({
           <Database size={16} className="nav-icon" aria-hidden="true" />
           {t("nav.databases")}
         </a>
-        {SOON.map(({ icon: Icon, key }) => (
-          <span key={key} className="nav-link nav-disabled" aria-disabled="true">
-            <Icon size={16} aria-hidden="true" />
-            {t(key)}
-            <span className="soon">{t("nav.soon")}</span>
-          </span>
-        ))}
+        <a href="#import" className="nav-link" aria-current={current("import")}>
+          <Upload size={16} className="nav-icon" aria-hidden="true" />
+          {t("nav.import")}
+        </a>
+        <a href="#export" className="nav-link" aria-current={current("export")}>
+          <Download size={16} className="nav-icon" aria-hidden="true" />
+          {t("nav.export")}
+        </a>
+        <a href="#activity" className="nav-link" aria-current={current("activity")}>
+          <Activity size={16} className="nav-icon" aria-hidden="true" />
+          {t("nav.activity")}
+          {runningJobs > 0 && (
+            <>
+              <span className="nav-count" aria-hidden="true">
+                {runningJobs}
+              </span>
+              <span className="sr-only">{t("nav.activityRunning", { count: runningJobs })}</span>
+            </>
+          )}
+        </a>
         <a href="#settings" className="nav-link nav-bottom" aria-current={current("settings")}>
           <Settings size={16} className="nav-icon" aria-hidden="true" />
           {t("nav.settings")}

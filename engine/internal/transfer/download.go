@@ -286,6 +286,10 @@ func mustNotExist(path string) error {
 	return err
 }
 
+// FreeBytes is the space the user can still write in dir;
+// errors.ErrUnsupported where the OS cannot tell.
+func FreeBytes(dir string) (uint64, error) { return freeBytes(dir) }
+
 // enoughSpace checks that dir can take size more bytes. Where the free space
 // cannot be known (an OS without the call) the check is skipped.
 func enoughSpace(free func(string) (uint64, error), dir string, size int64) error {
@@ -313,7 +317,7 @@ func place(tmp, dest string, overwrite bool) error {
 		_ = os.Remove(tmp) // dest is complete; at worst a hidden .part file stays
 		return nil
 	case errors.Is(err, fs.ErrExist):
-		return fmt.Errorf("%s appeared during the download and was not replaced", dest)
+		return fmt.Errorf("%s already exists (it appeared during the download): not replaced, use overwrite", dest)
 	}
 	// No hard links on this file system: check, then rename.
 	if err := mustNotExist(dest); err != nil {

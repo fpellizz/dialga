@@ -94,7 +94,12 @@ type PlanDone struct {
 
 // readBody decodes a small JSON body, rejecting unknown fields.
 func readBody(w http.ResponseWriter, r *http.Request, v any) bool {
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16))
+	return readBodyMax(w, r, v, 1<<16)
+}
+
+// readBodyMax is readBody with its own limit in bytes.
+func readBodyMax(w http.ResponseWriter, r *http.Request, v any, limit int64) bool {
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		http.Error(w, "invalid JSON body: "+err.Error(), http.StatusBadRequest)

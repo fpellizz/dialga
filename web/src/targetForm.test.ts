@@ -3,6 +3,7 @@ import type { DiscoveredInstance } from "./api";
 import { messages } from "./i18n";
 import {
   applyInstance,
+  CONNECT_MODES,
   emptyForm,
   type FormField,
   firstInvalid,
@@ -90,6 +91,7 @@ describe("target form", () => {
         bucket: "Bad_Bucket",
         passwordKind: "env",
         envVar: "1X",
+        connectMode: "external",
         localPort: "70000",
         name: "Bad",
       },
@@ -116,6 +118,11 @@ describe("target form", () => {
     expect(validateForm({ ...filled(), replace: true }, ["prod-sqlserver"]).name).toBeUndefined();
   });
 
+  it("starts from the integrated tunnel, listed first", () => {
+    expect(emptyForm().connectMode).toBe("tunnel");
+    expect(CONNECT_MODES).toEqual(["tunnel", "external", "direct"]);
+  });
+
   it("ignores the port unless the mode is external", () => {
     expect(validateForm({ ...filled(), connectMode: "direct", localPort: "" }, [])).toEqual({});
   });
@@ -130,10 +137,11 @@ describe("target form", () => {
       bucket: "prod-backups",
       sqlUser: "admin",
       passwordSource: "prompt",
-      connectMode: "external",
-      localPort: 11433,
+      // The integrated tunnel by default: no port, Dialga picks a free one.
+      connectMode: "tunnel",
       protected: true,
     });
+    expect(toTargetInput({ ...filled(), connectMode: "external" }).localPort).toBe(11433);
     const env = toTargetInput({
       ...filled(),
       passwordKind: "env",

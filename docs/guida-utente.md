@@ -4,7 +4,7 @@
 |---|---|
 | **Data** | 2026-10-16 |
 | **Autore** | Fabio Pellizzaro (con Claude Code) |
-| **Versione documentata** | `0.2.0` |
+| **Versione documentata** | `0.3.0` |
 | **Destinatari** | Sviluppatori e amministratori DLOOP che importano o esportano database SQL Server su Amazon RDS |
 | **Piattaforma** | Linux x86_64 (app desktop e CLI); solo CLI su Windows e macOS |
 
@@ -12,7 +12,7 @@
 > - Dialga importa ed esporta database SQL Server su istanze **Amazon RDS** passando per **S3** (backup e restore nativi `rds_*`). Ha un'**app desktop** e una **CLI** (`dialga`), che usano lo stesso engine.
 > - Oggi fa: **controlli preliminari** (`check`, `doctor`), **configurazione guidata** (`config init`), **upload e download su S3** (`upload`, `download`), **operazioni native** (`restore`, `export`, `finish`, `cancel`, `drop`, `post`), **task nativi** (`status`, `wait`), **tunnel SSM integrato** (`tunnel`), **elenco dei database** (`databases`) e **ispezione dei `.bak`** (`inspect`).
 > - Ogni comando che modifica qualcosa mostra prima un'**anteprima** (dry-run) e cambia lo stato solo con `--apply`; i target protetti e le azioni distruttive chiedono di riscrivere un testo di conferma.
-> - Nell'app desktop ci sono le azioni sui database (Export, Report, Drop, Finish, Restore from S3), l'aggiunta guidata di un'istanza e il tunnel condiviso. I **wizard Import ed Export**, la schermata **Activity** (coda dei job) e la **ripresa dei job** sono **in arrivo** nella prossima versione (segnati con `> In arrivo` in questa guida).
+> - Nell'app desktop ci sono le azioni sui database (Export, Report, Drop, Finish, Restore from S3), l'aggiunta guidata di un'istanza e il tunnel condiviso. Ci sono anche i **wizard Import ed Export**, la schermata **Activity** (coda dei job) e la **ripresa dei job**.
 > - La password SQL **non è mai nel file di configurazione**: il file dice solo da dove leggerla.
 
 ## 1. Cosa c'è oggi
@@ -27,12 +27,13 @@
 | Tunnel SSM verso l'istanza | `dialga tunnel`, `connect.mode: tunnel` | Tunnel condiviso, indicatore sulla scheda e nella barra laterale | Disponibile |
 | Database dell'istanza | `dialga databases` | Databases | Disponibile |
 | Panoramica dell'istanza (stato, spazio, DB, task attivi) | — | Instances, nella scheda | Disponibile |
-| Ispezione dei `.bak` | `dialga inspect` | — (passo *Verifica* del wizard Importa) | CLI disponibile, GUI in arrivo |
-| Upload e download su S3 | `dialga upload`, `dialga download` | — (nei wizard Importa ed Esporta) | CLI disponibile, GUI in arrivo |
+| Ispezione dei `.bak` | `dialga inspect` | Passo *Files → Verify* del wizard Import | Disponibile |
+| Upload e download su S3 | `dialga upload`, `dialga download` | Dentro i wizard Import ed Export | Disponibile |
 | Restore, export, finish, drop di un database | `dialga restore`, `export`, `finish`, `drop` | Databases: *Restore from S3*, *Export*, *Finish restore*, *Drop* | Disponibile |
 | Report dopo il restore | `dialga post` | Databases → *Report* | Disponibile |
-| Wizard Importa ed Esporta (pipeline completa) | — | Import, Export | In arrivo |
-| Coda e storico delle attività, ripresa dei job | — | Activity | In arrivo |
+| Import di più database come un solo job | `dialga import`, `dialga run` (piano YAML) | Wizard Import | Disponibile |
+| Export di più database come un solo job | `dialga run` (piano YAML) | Wizard Export, *Export selected* in Databases | Disponibile |
+| Elenco, dettaglio e ripresa dei job | `dialga jobs`, `dialga jobs show`, `dialga jobs resume` | Activity | Disponibile |
 
 ## 2. Installazione
 
@@ -148,20 +149,22 @@ Aggiunge un target alla configurazione, in modo guidato: profilo AWS, regione, i
 
 ```bash
 dialga config init [--profile P] [--region R] [--instance I] [--bucket B] [--sql-user U] [--password prompt|env:VAR] \
-  [--mode external|direct|tunnel] [--local-port N] [--name N] [--protected] [--replace] [--no-bucket-check] [-y]
+  [--mode tunnel|external|direct] [--local-port N] [--name N] [--protected] [--replace] [--no-bucket-check] [-y]
 ```
 
 - **Su un terminale** chiede ogni valore che le opzioni non danno e, alla fine, una conferma (`-y` salta la conferma).
 - **Senza terminale** i valori arrivano dalle opzioni, almeno `--instance` e `--bucket` (altrimenti: `not a terminal: give at least --instance and --bucket`).
 - Chiamate AWS, tutte in sola lettura: `sts:GetCallerIdentity` (la guardia sull'account), `rds:DescribeDBInstances`, `rds:DescribeOptionGroups`, `s3:HeadBucket`.
 - Un target con lo stesso nome non viene toccato senza `--replace`.
-- Default: regione del profilo (altrimenti `us-east-1`), profilo `$AWS_PROFILE` (altrimenti `default`), modalità `external` con `--local-port 11433`, nome ricavato dall'identificativo dell'istanza.
+- Default: regione del profilo (altrimenti `us-east-1`), profilo `$AWS_PROFILE` (altrimenti `default`), modalità `tunnel` (tunnel SSM integrato; con `--mode external` la porta `--local-port` vale `11433`), nome ricavato dall'identificativo dell'istanza.
+
+> Novità della 0.3.0: nella 0.2.0 `config init` e `config add-target` avevano `external` come modalità predefinita; ora è `tunnel`, come in *Add instance* dell'app. Un target **già nel file** senza `connect.mode` resta `external` (§4.2): il default di `tunnel` vale solo per i target che questi comandi scrivono.
 
 #### 4.1.2 `dialga config add-target` e `remove-target`
 
 ```bash
 dialga config add-target <nome> --instance I --account-id 123456789012 --bucket B --sql-user U [--region R] [--profile P] \
-  [--password prompt|env:VAR] [--mode ...] [--local-port N] [--protected] [--replace]
+  [--password prompt|env:VAR] [--mode tunnel|external|direct] [--local-port N] [--protected] [--replace]
 dialga config remove-target <nome> [--confirm <nome>]
 ```
 
@@ -241,6 +244,8 @@ Chi usa la porta locale, in modalità `tunnel`:
 | Un comando singolo della CLI (`check`, `status`, `restore`, …) | **Sempre una porta libera**, anche se `connect.local_port` è impostato | Alla fine del comando (anche con Ctrl-C, SIGTERM, SIGHUP o una pipe chiusa) |
 | `dialga tunnel` | `--port`, altrimenti `connect.local_port`, altrimenti una libera | Ctrl-C o SIGTERM |
 | App desktop | `connect.local_port` (`0` o assente = una libera): **un solo tunnel per target**, condiviso da panoramica, check, database e operazioni | Si chiude da solo dopo **10 minuti** senza utilizzatori se è stato aperto dall'uso; resta aperto finché non lo disconnetti se l'hai aperto con *Connect*; si chiude comunque all'uscita dall'app (§6.1) |
+
+> Novità della 0.3.0: un **job** apre **un solo tunnel per target**, non uno per database. Nella CLI (`dialga import`, `dialga run`, `dialga jobs resume`) il tunnel è del job: lo usano il controllo preliminare e tutti i database, e si chiude alla fine del job (anche con Ctrl-C). Nell'app i job prendono in prestito il tunnel condiviso del target (quello dell'indicatore): uno solo per target, anche con più job insieme.
 
 Ogni comando singolo apre la sua sessione SSM (qualche secondo in più). Se lavori a lungo con un client SQL o con molti comandi di fila, tieni aperto un tunnel con `dialga tunnel` (§5.5) e usa un target `external` sulla stessa porta. L'indicatore del tunnel dell'app è nel §6.3.
 
@@ -548,7 +553,7 @@ dialga upload <file.bak>... [-t target] [--prefix P] [--key K] [--overwrite] [--
 - **Multipart**: le parti sono dimensionate sul file (da 5 MiB, massimo 10 000 parti), ogni parte è ritentata da sola e ha un timeout.
 - **Checksum**: CRC64NVME, che S3 verifica; alla fine l'oggetto viene riletto (dimensione e checksum) e, se non coincidono, l'upload risulta fallito.
 - **Ctrl-C** (come SIGTERM, SIGHUP e una pipe chiusa) **annulla** l'upload: l'upload multipart viene abortito e **in S3 non resta nulla**. Se anche l'abort fallisce, l'errore stampa il comando `aws s3api abort-multipart-upload …` da lanciare.
-- **Pausa e ripresa**: l'engine sa mettere in pausa un upload tenendo le parti già in S3 e completarlo poi (`ListParts` su S3 è la verità). Nella v0.2.0 questa funzione non ha un comando né un pulsante: la usa la coda dei job, in arrivo (§6.7). Da CLI un upload interrotto si rifà da capo.
+- **Pausa e ripresa**: l'engine sa mettere in pausa un upload tenendo le parti già in S3 e completarlo poi (`ListParts` su S3 è la verità). Nella v0.2.0 questa funzione non ha un comando né un pulsante: la usa la coda dei job, in arrivo (§6.9): un upload di un job interrotto si riprende da *Resume* in Activity o da `dialga jobs resume` (§5.14). Da `dialga upload` un upload interrotto si rifà da capo.
 - File che non possono partire (illeggibile, non regolare, nome con caratteri non ammessi, stessa chiave di un altro file, oggetto già presente senza `--overwrite`) sono elencati con il motivo e **gli altri vengono caricati**: exit `2`.
 
 #### 5.10.2 `dialga download`
@@ -649,6 +654,76 @@ dialga doctor [-o json]
 | *Target <nome>* | Profilo AWS presente sul computer e origine della password SQL (`WARN` se la variabile indicata è vuota) |
 
 Per le voci mancanti stampa il comando di installazione per la tua distribuzione (Fedora, Debian/Ubuntu). Chiude con `Ready.`, `Ready, with warnings.` oppure `Not ready: fix the items marked FAIL.` Exit: `0` pronto (anche con avvisi), `2` qualcosa da correggere, `1` errore.
+
+### 5.12 `dialga import`
+
+Importa uno o più `.bak` come **un solo job**: per ogni database `upload` su S3 (multipart, checksum verificato) → `restore` → attesa del task nativo → report `post` in sola lettura (non con `--norecovery`). I database avanzano **in parallelo**, nei limiti di `max_tasks` del target; un database che fallisce non ferma gli altri.
+
+```bash
+dialga import <file.bak>... [-t target] [--db nome,...] [--key K | --prefix P] [--differential] [--norecovery] \
+  [--overwrite] [--skip-failing] [--interval 30s] [--apply] [--confirm testo]
+```
+
+| Opzione | Significato |
+|---|---|
+| `--db` | Nomi dei database, **uno per file** nell'ordine (default: il nome del file senza estensione, `sales.bak` → `sales`). Se il nome non si ricava dal file: `cannot name the database after …: pass --db` |
+| `--key K` | Chiave S3 dell'upload, solo con **un** file (con più file: `--key names the object of one file: use --prefix for several`) |
+| `--prefix P` | Prefisso al posto di quello `import` del target (`""` = radice del bucket) |
+| `--differential` | Backup differenziali, su database lasciati `RESTORING` |
+| `--norecovery` | Lascia i database `RESTORING` (segue un differenziale); niente report `post` |
+| `--overwrite` | Sostituisce gli oggetti già presenti in S3 (richiede conferma) |
+| `--skip-failing` | Lascia fuori i database il cui controllo preliminare fallisce, invece di rifiutare tutto il job |
+| `--interval` | Intervallo di lettura dei task nativi (default 30 s) |
+
+- **Backup striped** (più file di un solo backup): `dialga import` tratta ogni file come un database; per le stripe serve un piano YAML con `files` (§5.13).
+- **Anteprima per default**: controlli preliminari di **tutti** i database e piano; senza `--skip-failing` basta un controllo fallito perché non parta niente. `--apply` avvia il job e lo segue nel terminale.
+- **Conferma una sola volta per job**: il nome del target se è `protected`, altrimenti il testo di ciò che viene sostituito (la chiave, oppure `replace N objects`). Su un terminale lo chiede; senza terminale serve `--confirm`.
+- **Ctrl-C annulla il job** (anche SIGTERM, SIGHUP, pipe chiusa): gli upload in corso vengono interrotti con abort (in S3 non resta nulla), i database in coda non partono, ma i **task nativi già avviati continuano sull'istanza**. Per fermarli: `dialga cancel <task-id>`.
+- Il job gira nel processo di `dialga import` e **non entra nel journal dell'app**: non compare in `dialga jobs` né in Activity, e non si riprende (§5.14). Un job tra più database è limitato a 50 database; i trasferimenti S3 contemporanei sono al massimo 3.
+- Con `-o json`: un documento alla fine (`target`, `applied`, `ready`, `plan`, `job`); con `--apply` gli eventi del job vanno anche su stderr, una riga JSON ciascuno (`{"event": <tipo>, "data": …}`).
+
+| Exit code | Significato |
+|---|---|
+| `0` | Anteprima pronta, oppure job completato |
+| `2` | Controllo preliminare fallito: non è partito niente |
+| `3` | Un task nativo è finito in `ERROR` o `CANCELLED` |
+| `1` | Errore, job fallito o annullato |
+
+### 5.13 `dialga run`
+
+Esegue un job di import **o di export** di più database descritto da un **piano YAML**.
+
+```bash
+dialga run <piano.yaml> [-t target] [--skip-failing] [--interval 30s] [--apply] [--confirm testo]
+```
+
+Schema del piano (`apiVersion: v1`, `kind: Import` o `Export`, `target`, `items`), controlli preliminari e API: `docs/piani-job.md`. Punti da sapere:
+
+- La lettura è **stretta**: una chiave sconosciuta è un errore. I percorsi relativi partono dalla cartella del piano.
+- `-t` serve solo se il piano non ha `target`; se il piano lo ha e `-t` dice un altro target, è un errore.
+- Opzioni e comportamento dopo l'avvio (anteprima, conferma unica, Ctrl-C, exit code `0`/`2`/`3`/`1`, `-o json`) sono quelli di `dialga import` (§5.12).
+- Un `kind: Export` con `destination` scarica il backup dopo l'export; senza, il backup resta in S3.
+
+### 5.14 `dialga jobs`
+
+I job dell'**app desktop** sono registrati in un **journal** su disco: `$XDG_STATE_HOME/dialga/jobs`, oppure `~/.local/state/dialga/jobs` (Linux). `dialga jobs` lo legge **in sola lettura**, anche con l'app aperta.
+
+| Comando | Cosa fa |
+|---|---|
+| `dialga jobs` | Elenco dei job, i più recenti per primi: in corso e storico (gli ultimi 200, al massimo 30 giorni) |
+| `dialga jobs show <job-id> [--events N]` | Database del job con i loro passi, avanzamento, task nativi, ciò che serve a una ripresa, poi gli ultimi `N` eventi (default 20, `0` = tutti); `-o json` stampa il job intero |
+| `dialga jobs resume <job-id> [--confirm <target>]` | Riprende un job **interrotto** in questo terminale |
+
+Tutti accettano `--dir <cartella>` per un altro journal. Non esiste `dialga jobs cancel`: un job lanciato da CLI si annulla con Ctrl-C nel suo terminale; uno dell'app con *Cancel job* in Activity (§6.9).
+
+**`dialga jobs resume`**:
+
+- Solo un job `interrupted` (l'engine si è fermato mentre girava, per esempio l'app chiusa o uccisa). Gli altri stati: `job <id> is <stato>: only an interrupted job can be resumed`.
+- I database già finiti e i passi riusciti restano com'erano; gli altri ripartono da ciò che il journal ha tenuto: un upload **continua il suo multipart** (le parti già in S3 non si rimandano), un task nativo già in coda **viene seguito, non rimesso in coda**. Il job tiene lo stesso id e stampa i suoi eventi finché finisce.
+- **Rifiutato mentre l'app desktop è aperta**: il journal appartiene a un engine alla volta (`the job journal is in use by another Dialga engine: resume the job from the Activity page of the desktop app, or close it and run this again`). Riprendi dall'app (§6.9), oppure chiudi l'app e rilancia.
+- Il target deve essere ancora nella configurazione e puntare alla **stessa istanza** del job.
+- Su un target `protected` chiede di riscrivere il nome del target (`--confirm <target>` senza terminale).
+- Ctrl-C **interrompe di nuovo** il job: si potrà riprendere ancora. Exit: `0` job riuscito, `3` finito `failed` o `cancelled`, `1` errore.
 
 ## 6. App desktop
 
@@ -777,9 +852,63 @@ Ogni azione che modifica qualcosa (Restore, Export, Finish, Drop, Cancel) apre l
 | | *Cancelling* / *Cancelled* (Annullamento / Annullato) | `CANCEL_REQUESTED` / `CANCELLED` |
 | Database | *Online*, *Restoring*, *Recovering*, *Recovery pending*, *Suspect*, *Emergency*, *Offline* | Stato di `sys.databases` (*Restoring* è normale durante un restore, o dopo un restore con NORECOVERY) |
 
-### 6.7 Funzioni in arrivo
+### 6.7 Wizard Import
 
-> In arrivo nella prossima versione: wizard **Importa** (File → Verifica, con il verdetto di `inspect` per ogni file e lo spazio → Destinazione → Anteprima → Avanzamento → Esito) e wizard **Esporta**, schermata **Activity** (coda e storico dei job, con eventi e log) e **ripresa dei job** (anche degli upload messi in pausa). Fino ad allora le singole operazioni si fanno dalle azioni di Databases (§6.4) o dalla CLI (§5.10).
+Voce **Import** (*Importa*) della barra laterale, oppure `#import/<target>`. In alto, la scelta dell'istanza (*Instance*). Sei passi in ordine, con l'indicatore *Step N of 6*; dai passi già fatti si può tornare indietro (*Go back to …*). Non cambia nulla su AWS finché non premi *Start import*.
+
+| Passo | Cosa si fa |
+|---|---|
+| 1. *Files* (File) | Si trascinano i `.bak` nella zona di rilascio (nell'app desktop; in un browser non ci sono i percorsi) oppure si scrivono i **percorsi assoluti**, uno per riga (*Add files*). Le stripe di un backup vanno insieme. Ogni file si può togliere |
+| 2. *Verify* (Verifica) | L'app esegue `dialga inspect` (§5.7) su un SQL Server usa e getta (podman o docker): per ogni backup *Restorable*, *Not restorable*, *Read* (letto, senza verdetto), o *Unreadable*, i dati del backup, lo spazio necessario rispetto al libero e *What to do* per i non ripristinabili. Si toglie un backup con *Remove from the import*; finché ce ne sono di non ripristinabili non si prosegue. *Verify again* rilegge |
+| 3. *Destination* (Destinazione) | Per ogni file il *Database name* (default dal nome del file; regole di §5.12), l'*S3 folder* (default il prefisso `import` del target), *Replace the objects that already exist* e *Leave the database restoring*; per un backup differenziale (riconosciuto in *Verify*) il passo dice su quale database verrà ripristinato, che deve essere già lasciato `RESTORING` da un restore completo |
+| 4. *Preview* (Anteprima) | Il piano del job **senza eseguire nulla**: per ogni database l'upload (bucket, numero di parti, *Replaces an object*) e il restore con il T-SQL e i controlli preliminari. Se un controllo è fallito: *This restore cannot run: fix what the checks say, then preview again* (*Preview again*) |
+| 5. *Progress* (Avanzamento) | Dopo *Start import*: avanzamento dal vivo di ogni database (upload con byte, velocità e tempo residuo; restore con la percentuale del task) |
+| 6. *Result* (Esito) | Per ogni database l'esito e il report post-restore (*The database is online and the login can enter it*, oppure cosa richiede attenzione e gli *SQL users without a login* con i comandi per ricreare il login). Riepilogo *Restored / failed / not completed* e link *Open Databases*, *Follow it in Activity*, *Import more files* |
+
+**Conferme**: una **sola** per l'intero job, nel passo 4: il nome del target se è *Protected*, oppure il testo di ciò che l'upload sostituisce (*retype what it replaces to confirm*). Il pulsante *Start import* si abilita solo con il testo esatto. Se la situazione cambia tra anteprima ed esecuzione (impronta diversa) il job non parte e il wizard rifà l'anteprima.
+
+**Cosa continua se esci o annulli** (§5.10.7):
+
+| Azione | Effetto |
+|---|---|
+| *Stop following* / lasciare la pagina | Smette solo di seguire: **il job va avanti nell'engine** e resta in Activity |
+| *Cancel import* | Annulla il job: gli upload si fermano (in S3 non resta nulla), i database in coda non partono; i **task nativi già avviati continuano su RDS** (*Native task #N was still running on the instance when the job stopped*) |
+| Chiudere l'app durante il job | Il job diventa *Interrupted* e si riprende da Activity (§6.9) |
+
+Con `Leave the database restoring` il risultato dice che il database resta in restoring: il differenziale si ripristina con un secondo import (*Differential backup*) o con `dialga finish` / *Finish restore* in Databases.
+
+### 6.8 Wizard Export
+
+Voce **Export** (*Esporta*), oppure `#export/<target>?db=<nome>&db=<nome>`. Fa il backup nativo RDS di uno o più database su S3 e, a richiesta, li scarica. Sei passi, nulla cambia prima di *Run export*.
+
+| Passo | Cosa si fa |
+|---|---|
+| 1. *Databases* (Database) | Si scelgono i database da esportare (*Select all*, *Clear selection*; *Selected: N · dimensione*). Compaiono solo quelli **online**: gli altri sono elencati come *Not online, not listed* |
+| 2. *Options* (Opzioni) | *S3 key of …* per ogni database (vuoto = nome di default: prefisso `export` del target, database, data e ora UTC; **un export non sovrascrive mai**, e `*` non è ammesso). *Download each backup to this computer*: la *Folder* (percorso assoluto di una cartella esistente; ogni file prende il nome della sua chiave) e *Replace local files with the same name* |
+| 3. *Windows* (Finestre) | La **finestra dei backup automatici** e quella di **manutenzione** dell'istanza (con la prossima occorrenza), i task nativi in corso o in coda e una **durata stimata** (grossolana: un tasso in MB/s per database più alcuni minuti perché RDS avvii ogni task). Se i backup attraversano una finestra, avvisa (*Start them later, or go on knowing that they may take longer*): **non blocca**. Se le finestre non si leggono, l'export può comunque partire |
+| 4. *Preview* (Anteprima) | Per ogni database *Ready* o *Not ready*, dove andrà il backup (*Backup to*), dove sarà scaricato (*Download to*) e il T-SQL. Se qualcosa non va: *Some checks failed: change the options or the instance, then preview again* |
+| 5. *Progress* (Avanzamento) | I backup girano **uno dopo l'altro**; ogni download parte quando il suo backup è su S3 |
+| 6. *Result* (Esito) | Per ogni database: chiave in S3, file locale, dimensione e checksum (*Verified*, *Not verified*, *No checksum from S3*); riepilogo *Exported / failed / not completed* e link *Open Databases*, *Follow it in Activity*, *New export* |
+
+- **Conferma**: una sola, nel passo 4 e solo se serve: il nome del target se è *Protected*. L'export non ha altre conferme (non sostituisce nulla in S3; il file locale solo con *Replace local files*).
+- **Come gira**: se l'engine ha i job, l'export è **un job** (*The engine runs the export as one job: it goes on if you leave this page, and shows in Activity*); altrimenti la pagina li esegue uno dopo l'altro e va tenuta aperta fino alla fine (*a running backup goes on in RDS anyway*).
+- **Cosa continua se esci o annulli**: *Stop following* non annulla un backup in corso, il task RDS va avanti (*Instances → Show tasks*); *Cancel export* ferma l'attesa e i download, ma un **backup già partito su RDS continua** (*Stopped while task N was running: it goes on on …*). I database non ancora partiti non partono.
+- **Export selected**: in Databases (§6.4) si spuntano i database (*Select …*, *Select all shown databases*) e *Export selected (N)* (*Esporta i selezionati*) apre il wizard già sui database scelti.
+
+### 6.9 Activity
+
+Voce **Activity** (*Attività*), con il numero dei job in corso accanto al nome. Mostra gli **import ed export dell'app**: prima quelli in corso (*Running*), poi lo storico (*History*): gli ultimi 200 job, al massimo 30 giorni.
+
+- **Elenco**: per ogni job tipo e target (*Import on …*, *Export on …*), stato (*Queued*, *Running*, *Succeeded*, *Failed*, *Cancelled*, *Interrupted*), *N of M databases done*, quanti falliti e quando è stato creato o è finito. Senza job: *No jobs yet*.
+- **Dettaglio** (clic su un job; torna con *All jobs*): istanza, data di creazione e di fine, id del job; i **database** con i loro passi (*Pending*, *Waiting for a slot*, *Running*, *Done*, *Failed*, *Skipped*, *Cancelled*, *Interrupted*), il progresso dei trasferimenti (byte, velocità, tempo residuo) e i task nativi (*Native task #N*); l'**Event log**, in diretta (*Live*; se cade la connessione: *Connection lost, reconnecting…*), con *Copy the log*.
+- **Cancel job** (*Annulla il job*): chiede conferma (*Cancel this job?*): i database in coda o in attesa non partono e gli upload in corso si fermano; un task nativo RDS già in esecuzione **non viene fermato** (*Native task #N was still running on the instance when the job stopped: Dialga does not stop it*): si ferma con *Cancel* nel pannello dei task o `dialga cancel`. *Keep running* rinuncia.
+- **Job interrotto** (*Interrupted: the engine stopped while this job was running*): compare *Resume* (*Riprendi*), che elenca cosa ha tenuto il journal (database, ultimo passo, passi non fatti, upload multipart con parti già in S3, task nativi, *still running on the instance*) e chiede conferma (*Resume this job?*): i database finiti restano, gli upload **continuano dalle parti già in S3**, un task già in coda **viene seguito, non rimesso in coda**. Su un target protetto si riscrive il nome del target. *Not now* rinuncia.
+- Dai risultati dei wizard Import ed Export il link *Follow it in Activity* porta al dettaglio di quel job.
+- I job lanciati dalla **CLI** non compaiono qui (§5.12); `dialga jobs` e Activity leggono lo stesso journal (§5.14).
+
+### 6.10 Funzioni in arrivo
+
+> In arrivo: i job lanciati dalla CLI (`dialga import`, `dialga run`) non entrano nel journal, quindi non compaiono in Activity e non si riprendono; una pausa su richiesta degli upload non ha ancora un comando o un pulsante (la ripresa riguarda i job interrotti). TODO: confermare con il team cos'altro è previsto per la prossima versione.
 
 ## 7. Risoluzione dei problemi
 
@@ -922,12 +1051,32 @@ Se capita spesso, valuta con l'amministratore un aggiornamento di major version 
 | `no RDS SQL Server instance in account <A>, <regione>` / `instance "<i>" not found (found: …)` | Profilo o regione sbagliati | Controlla profilo e regione |
 | `the confirmation does not match the target name: nothing removed` / `not a terminal: confirm with --confirm <nome>` | `remove-target` | Riscrivi il nome, o `--confirm <nome>` |
 
+### 7.9 Job, wizard e Activity
+
+| Messaggio | Causa | Cosa fare |
+|---|---|---|
+| **412**: `pre-flight failed, nothing was started: …` (app) / `Nothing was started.` (CLI, exit `2`) | Un controllo preliminare di almeno un database è fallito: il job non è partito | Nel wizard leggi i controlli in *Not ready* e correggi; con `--skip-failing` (*skipFailing*) si lasciano fuori i database che falliscono |
+| **412**: `the plan changed since the preview: preview it again` | Tra anteprima e avvio il piano è cambiato (impronta diversa) | Il wizard rifà da solo l'anteprima: leggila e riavvia. Da CLI rilancia il comando |
+| **422**: *not confirmed* / `the text does not match` | Il testo riscritto non è quello chiesto (nome del target se protetto, o ciò che viene sostituito) | Riscrivi il testo esatto indicato dal wizard (*Type … to confirm*) o passa `--confirm` |
+| **422**: `SQL password: …` / `no SQL password in the engine environment` | L'engine dell'app non ha la password del target (`prompt` o `env:VAR`) | Avvia l'app da terminale con la variabile impostata (§4.3) |
+| `job <id> is <stato>: only an interrupted job can be resumed` | `jobs resume` o *Resume* su un job che non è `interrupted` | Solo i job interrotti si riprendono; `dialga jobs show <id>` dice lo stato |
+| `the job journal is in use by another Dialga engine: resume the job from the Activity page …` | L'app desktop è aperta e tiene il journal | Riprendi il job da Activity, oppure chiudi l'app e rilancia `dialga jobs resume` |
+| `the target <t> of job <id> is not in the configuration any more` / `target <t> now points at instance <A>, the job ran on <B>: not resumed` | Il target è stato rimosso o ora punta a un'altra istanza | Riporta il target com'era (stessa istanza) e riprova |
+| `job <id> not found in <cartella> (removed after 30 days or 200 jobs)` / *No job with this id* | Il journal tiene gli ultimi 200 job, al massimo 30 giorni; oppure il job è della CLI, che non entra nel journal | `dialga jobs` elenca quelli disponibili |
+| `the job cannot be resumed` | Un passo da rifare non si può ricostruire dal journal | Il job resta `interrupted` e non cambia nulla: rilancia l'operazione dal wizard o con `dialga import` / `dialga run` |
+| `invalid job id "<x>": dialga jobs lists them` | Id non valido | Copia l'id da `dialga jobs` |
+| *Interrupted: the engine stopped while this job was running* | L'app è stata chiusa o uccisa durante il job | *Resume* in Activity (§6.9). Un task nativo già avviato è andato avanti da solo su RDS: controlla *Show tasks* |
+| `a prefix is for imports` / `database <db> is in the job twice` / `<n> databases: a job takes 50 at most` | Piano non valido | Correggi il piano (`docs/piani-job.md`) |
+| `apiVersion is "<x>", this build reads "v1"` / `invalid YAML: …` | Piano YAML con versione o chiave sbagliata (lettura stretta) | Correggi il file |
+| `the plan is for target <A>, -t says <B>` | `-t` in contrasto con il `target` del piano | Togli `-t` o usa il target giusto |
+
 ## 8. Riferimenti
 
 | Documento | Contenuto |
 |---|---|
 | `docs/config.example.yaml` | Configurazione di esempio commentata |
 | `docs/iam-policy.md`, `docs/iam-policy.json` | Policy IAM minima per gli utenti |
+| `docs/piani-job.md` | Piani YAML di `dialga run`, controlli preliminari dei job, API dei job |
 | `docs/release.md` | Come si rilascia e si installa una versione |
 | `engine/internal/api/openapi.yaml` | Contratto OpenAPI dell'API locale dell'app (`GET /api/v1/openapi.yaml` sull'engine in esecuzione) |
 | `CHANGELOG.md` | Modifiche per versione |

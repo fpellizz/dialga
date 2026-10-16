@@ -1,11 +1,11 @@
 import { LoaderCircle } from "lucide-react";
 import { useEffect, useState } from "react";
-import { errorText } from "./api";
 import { formatBytes } from "./databases";
 import type { EngineInfo } from "./engine";
+import { ErrorBanner } from "./Feedback";
 import { useI18n } from "./i18n";
 import { Modal } from "./Modal";
-import { type DatabaseReport, errorHint, getDatabaseReport, planStepKey } from "./plans";
+import { type DatabaseReport, getDatabaseReport, planHint, planStepKey } from "./plans";
 import { StepList } from "./StepList";
 
 const MIB = 1024 * 1024;
@@ -40,7 +40,6 @@ export function ReportDialog({
     return () => controller.abort();
   }, [engine, target, database]);
 
-  const hint = error === null ? undefined : errorHint(error);
   const d = report?.database;
   return (
     <Modal
@@ -60,12 +59,7 @@ export function ReportDialog({
           <span>{t("report.loading")}</span>
         </div>
       )}
-      {error !== null && (
-        <div className="banner banner-fail" role="alert">
-          <span className="banner-text">{errorText(error)}</span>
-          {hint && <span className="banner-hint">{t(hint)}</span>}
-        </div>
-      )}
+      {error !== null && <ErrorBanner error={error} fallback={planHint(error)} />}
       {report && d && (
         <>
           <section aria-label={t("report.findings")}>
