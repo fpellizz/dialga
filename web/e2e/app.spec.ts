@@ -1,5 +1,5 @@
-import { expect, test } from "@playwright/test";
 import { BROKEN, configPath, FAKE_TARGET, removeConfig, writeConfig } from "./config";
+import { expect, test } from "./fixtures";
 
 // Every test starts like a first run: no configuration file.
 test.beforeEach(async () => {
