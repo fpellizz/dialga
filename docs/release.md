@@ -1,43 +1,45 @@
-# Releasing Dialga (v1, Linux)
+# Rilascio di Dialga (v1, Linux)
 
-A release is a `vX.Y.Z` tag on `main`. The Bitbucket tag pipeline builds
-the CLI for six platforms and the Linux packages; a **manual** step uploads
-them, with `SHA256SUMS`, to the repository Downloads. Packages are
-**unsigned** until v2.0.
+Un rilascio è un tag `vX.Y.Z` su `main`. La pipeline Bitbucket del tag
+compila la CLI per sei piattaforme e i pacchetti Linux; uno step **manuale**
+li carica, con `SHA256SUMS`, nei Downloads del repository. I pacchetti sono
+**non firmati** fino alla v2.0.
 
-| Output | File names |
+| Output | Nomi dei file |
 |---|---|
-| Desktop app + CLI, Debian/Ubuntu | `Dialga_X.Y.Z_amd64.deb` |
-| Desktop app + CLI, Fedora and other rpm distributions | `Dialga-X.Y.Z-1.x86_64.rpm` |
-| CLI only | `dialga_X.Y.Z_{linux,darwin}_{amd64,arm64}.tar.gz`, `dialga_X.Y.Z_windows_{amd64,arm64}.zip` |
-| Checksums | `SHA256SUMS` (all of the above) |
+| App desktop + CLI, Debian/Ubuntu | `Dialga_X.Y.Z_amd64.deb` |
+| App desktop + CLI, Fedora e altre distribuzioni rpm | `Dialga-X.Y.Z-1.x86_64.rpm` |
+| Solo CLI | `dialga_X.Y.Z_{linux,darwin}_{amd64,arm64}.tar.gz`, `dialga_X.Y.Z_windows_{amd64,arm64}.zip` |
+| Checksum | `SHA256SUMS` (tutti i file sopra) |
 
-Versions are plain `MAJOR.MINOR.PATCH`: a pre-release suffix such as
-`-rc.1` is not a valid rpm version and sorts after the release in dpkg.
-In `0.x` a MINOR may break the CLI, the API or the configuration.
+Le versioni sono semplici `MAJOR.MINOR.PATCH`: un suffisso di pre-release
+come `-rc.1` non è una versione rpm valida, e in dpkg viene ordinato dopo il
+rilascio. Nella `0.x` una MINOR può rompere la CLI, l'API o la
+configurazione.
 
-## 1. Prepare the release commit
+## 1. Preparare il commit di rilascio
 
-On a branch (`chore/release-vX.Y.Z`), from an up-to-date `main`:
+Su un branch (`chore/release-vX.Y.Z`), partendo da un `main` aggiornato:
 
-1. `CHANGELOG.md`: rename `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`
-   and add a new empty `## [Unreleased]` above it.
-2. Set the version everywhere it is declared and check it:
+1. `CHANGELOG.md`: rinomina `## [Non rilasciato]` in
+   `## [X.Y.Z] - AAAA-MM-GG` e aggiungi sopra una nuova `## [Non rilasciato]`
+   vuota.
+2. Imposta la versione ovunque sia dichiarata e verificala:
 
    ```bash
-   bash ci/bump-version.sh X.Y.Z          # tauri.conf.json, Cargo.toml, Cargo.lock, package.json files
+   bash ci/bump-version.sh X.Y.Z          # tauri.conf.json, Cargo.toml, Cargo.lock, package.json
    bash ci/bump-version.sh --check X.Y.Z  # what the pipeline compares with the tag
    ```
 
-   The script changes nothing if any file cannot be updated, and fails if a
-   manifest with a version is not in its list.
-3. Optional, recommended for packaging changes: build the packages locally
-   (section 7).
-4. Commit `chore(release): vX.Y.Z`, open the pull request, merge it.
+   Lo script non cambia nulla se anche un solo file non si può aggiornare, e
+   fallisce se un manifest con una versione non è nel suo elenco.
+3. Facoltativo, consigliato quando cambia il packaging: compila i pacchetti
+   in locale (§7).
+4. Commit `chore(release): vX.Y.Z`, poi pull request e merge.
 
 ## 2. Tag
 
-On the merge commit in `main`:
+Sul commit di merge in `main`:
 
 ```bash
 git switch main && git pull --ff-only
@@ -46,89 +48,90 @@ git tag -a vX.Y.Z -m "Dialga vX.Y.Z"
 git push origin vX.Y.Z
 ```
 
-## 3. What the tag pipeline does
+## 3. Cosa fa la pipeline del tag
 
-| Order | Step | Result |
+| Ordine | Step | Risultato |
 |---|---|---|
-| 1 (parallel) | Engine tests and golangci-lint, web lint/typecheck/test/build, desktop fmt/clippy/test, gitleaks | Same checks as a pull request, all of them |
-| 2 | Engine integration tests | SQL Server 2022 + `rds_*` mock + MinIO |
-| 3 | Engine cross-build | Six CLI archives, and the Linux sidecar stamped with the tag version |
-| 4 | Desktop Linux bundles | Stops if `tauri.conf.json` is not the tag version; builds the deb and the rpm |
-| 5 | **Release: upload to Bitbucket Downloads** | **Manual** (*Run* button) |
-| 6 | Mirror to GitHub | Off until v2.0 |
+| 1 (in parallelo) | Test e golangci-lint dell'engine; lint, typecheck, test e build del web; fmt, clippy e test del desktop; gitleaks | Gli stessi controlli di una pull request, tutti |
+| 2 | Test di integrazione dell'engine | SQL Server 2022 + mock `rds_*` + MinIO |
+| 3 | Cross-build dell'engine | Sei archivi della CLI e il sidecar Linux con la versione del tag |
+| 4 | Bundle desktop Linux | Si ferma se `tauri.conf.json` non ha la versione del tag; crea il deb e l'rpm |
+| 5 | **Release: upload to Bitbucket Downloads** | **Manuale** (pulsante *Run*) |
+| 6 | Mirror su GitHub | Spento fino alla v2.0 |
 
-Any failing step stops the pipeline before the upload: nothing is published.
+Se uno step fallisce, la pipeline si ferma prima dell'upload: non viene
+pubblicato nulla.
 
-## 4. Upload to Downloads (manual)
+## 4. Upload nei Downloads (manuale)
 
-1. Bitbucket, *Pipelines*, the pipeline of the tag: check the artifacts of
-   steps 3 and 4.
-2. Press *Run* on "Release · upload to Bitbucket Downloads". It copies the
-   archives and the packages, writes `SHA256SUMS` and uploads everything.
-   Pipeline artifacts last 14 days: run it within that time, or run the
-   tag pipeline again.
-3. Without `BITBUCKET_DOWNLOADS_TOKEN` the step uploads nothing. Then
-   download the artifacts of steps 3 and 4, and upload them by hand
-   (*Repository*, *Downloads*, *Add files*) together with:
+1. Bitbucket, *Pipelines*, pipeline del tag: controlla gli artifact degli
+   step 3 e 4.
+2. Premi *Run* su "Release · upload to Bitbucket Downloads". Lo step copia
+   archivi e pacchetti, scrive `SHA256SUMS` e carica tutto.
+   Gli artifact della pipeline durano 14 giorni: eseguilo entro quel
+   termine, altrimenti riesegui la pipeline del tag.
+3. Senza `BITBUCKET_DOWNLOADS_TOKEN` lo step non carica nulla. In quel caso
+   scarica gli artifact degli step 3 e 4 e caricali a mano
+   (*Repository*, *Downloads*, *Add files*), insieme a:
 
    ```bash
    rm -f SHA256SUMS.engine && sha256sum -- * > SHA256SUMS
    ```
 
-TODO: confirm whether Downloads replaces a file uploaded again with the
-same name or keeps both.
+TODO: confermare se Downloads sostituisce un file ricaricato con lo stesso
+nome o li tiene entrambi.
 
-## 5. Install
+## 5. Installazione
 
-Check the files first, in the folder where they were downloaded:
+Prima verifica i file, nella cartella in cui li hai scaricati:
 
 ```bash
 sha256sum -c --ignore-missing SHA256SUMS
 ```
 
-The checksum guards against a damaged or incomplete download. It comes
-from the same place as the packages, so it is no signature (v2.0).
+Il checksum protegge da un download danneggiato o incompleto. Arriva dallo
+stesso posto dei pacchetti, quindi non vale come firma (v2.0).
 
-| Distribution | Install or upgrade | Remove |
+| Distribuzione | Installazione o aggiornamento | Rimozione |
 |---|---|---|
 | Debian, Ubuntu | `sudo apt install ./Dialga_X.Y.Z_amd64.deb` | `sudo apt remove dialga` |
 | Fedora | `sudo dnf install ./Dialga-X.Y.Z-1.x86_64.rpm` | `sudo dnf remove dialga` |
 
-Use `apt`/`dnf`, not `dpkg -i`/`rpm -i`: they also install the
-dependencies (WebKitGTK 4.1 and GTK 3). The package name is `dialga` in
-both formats.
+Usa `apt`/`dnf`, non `dpkg -i`/`rpm -i`: installano anche le dipendenze
+(WebKitGTK 4.1 e GTK 3). Il pacchetto si chiama `dialga` in entrambi i
+formati.
 
-What gets installed:
+Cosa viene installato:
 
-| Path | Content |
+| Percorso | Contenuto |
 |---|---|
-| `/usr/bin/dialga` | The CLI. The desktop app runs the same binary as its engine (`dialga serve`) |
-| `/usr/bin/dialga-desktop` | The desktop app; menu entry "Dialga" |
-| `/usr/share/applications/Dialga.desktop` | Menu entry |
-| `/usr/share/icons/hicolor/<size>/apps/dialga-desktop.png` | Icons, 16 to 512 px |
+| `/usr/bin/dialga` | La CLI. L'app desktop usa lo stesso binario come engine (`dialga serve`) |
+| `/usr/bin/dialga-desktop` | L'app desktop; voce di menu "Dialga" |
+| `/usr/share/applications/Dialga.desktop` | Voce di menu |
+| `/usr/share/icons/hicolor/<size>/apps/dialga-desktop.png` | Icone, da 16 a 512 px |
 | `/usr/share/doc/dialga/` | `config.example.yaml`, `iam-policy.json`, `CHANGELOG.md` |
 
-The CLI is on `PATH` right after installation. Shell completion, if
-wanted:
+La CLI è nel `PATH` subito dopo l'installazione. Completamento della shell,
+se serve:
 
 ```bash
 mkdir -p ~/.local/share/bash-completion/completions
 dialga completion bash > ~/.local/share/bash-completion/completions/dialga
 ```
 
-CLI only (no GUI, any OS): unpack the archive for the platform and put
-`dialga` on `PATH`, for example in `~/.local/bin`. A CLI in
-`/usr/local/bin` or `~/.local/bin` comes before the packaged
-`/usr/bin/dialga`: check with `command -v dialga` and `dialga version`.
+Solo CLI (senza GUI, qualsiasi OS): estrai l'archivio della piattaforma e
+metti `dialga` nel `PATH`, per esempio in `~/.local/bin`. Una CLI in
+`/usr/local/bin` o `~/.local/bin` viene prima di `/usr/bin/dialga` del
+pacchetto: verifica con `command -v dialga` e `dialga version`.
 
-## 6. First run of an unsigned package
+## 6. Primo avvio di un pacchetto non firmato
 
-- **Installing**: `apt` and `dnf` install a local file without a signature
-  by default. If the system enforces signatures on local packages (`dnf`
-  with `localpkg_gpgcheck=1`), add `--nogpgcheck` for this file only, after
-  checking `SHA256SUMS`. `rpm -K` reports the digests as OK and no
-  signature: expected until v2.0.
-- **Configuration** (nothing is created by the package):
+- **Installazione**: `apt` e `dnf` installano per default un file locale
+  senza firma. Se il sistema la impone anche ai pacchetti locali (`dnf` con
+  `localpkg_gpgcheck=1`), aggiungi `--nogpgcheck` solo per questo file, dopo
+  aver verificato `SHA256SUMS`. `rpm -K` riporta i digest OK e nessuna
+  firma: è normale fino alla v2.0.
+- **Configurazione** (il pacchetto non crea nulla):
 
   ```bash
   dialga config path       # ~/.config/dialga/config.yaml
@@ -136,29 +139,32 @@ CLI only (no GUI, any OS): unpack the archive for the platform and put
   [ -e "$cfg" ] || install -D -m 600 /usr/share/doc/dialga/config.example.yaml "$cfg"
   "${EDITOR:-vi}" "$cfg"   # replace the placeholders
   dialga config validate
-  dialga check             # read-only pre-flight checks of every target
+  dialga check             # read-only pre-flight checks of the target
   ```
 
-- **AWS permissions**: `/usr/share/doc/dialga/iam-policy.json`, explained
-  in `docs/iam-policy.md`.
-- **SQL password**: with `sql.password: prompt`, the CLI asks for it on
-  the terminal. The desktop app reads it from its environment, so start it
-  from a terminal for those targets (OS keychain support is planned):
+- **Permessi AWS**: `/usr/share/doc/dialga/iam-policy.json`, spiegata in
+  `docs/iam-policy.md`.
+- **Password SQL**: con `sql.password: prompt` la CLI la chiede sul
+  terminale. L'app desktop la legge dal proprio ambiente, quindi per quei
+  target va avviata da un terminale (il supporto al portachiavi dell'OS è
+  previsto):
 
   ```bash
   read -rs DIALGA_SQL_PASSWORD && export DIALGA_SQL_PASSWORD && dialga-desktop
   ```
 
-- **No auto-update**: new versions come from Downloads, installed as above.
-- **What stays after removal**: the configuration (`~/.config/dialga/`)
-  and the app data of the window (`~/.local/share/com.decisyon.dialga/`).
+- **Nessun aggiornamento automatico**: le nuove versioni si scaricano dai
+  Downloads e si installano come sopra.
+- **Cosa resta dopo la rimozione**: la configurazione (`~/.config/dialga/`)
+  e i dati della finestra (`~/.local/share/com.decisyon.dialga/`).
 
-## 7. Try the packaging without publishing
+## 7. Provare il packaging senza pubblicare
 
-- **Pipeline**: *Run pipeline*, any branch, custom `release-dry-run`: CLI
-  archives and packages as artifacts, no upload. The engine version is
-  `dev-<commit>`; the packages carry the version of `tauri.conf.json`.
-- **Locally** (Fedora prerequisites in `CLAUDE.md`):
+- **Pipeline**: *Run pipeline*, qualsiasi branch, custom `release-dry-run`:
+  archivi della CLI e pacchetti come artifact, nessun upload. La versione
+  dell'engine è `dev-<commit>`; i pacchetti hanno la versione di
+  `tauri.conf.json`.
+- **In locale** (prerequisiti Fedora in `CLAUDE.md`):
 
   ```bash
   pnpm install --frozen-lockfile
@@ -171,30 +177,30 @@ CLI only (no GUI, any OS): unpack the archive for the platform and put
 
 ## 8. Rollback
 
-| Situation | What to do |
+| Situazione | Cosa fare |
 |---|---|
-| Tag pipeline failed before the upload | Nothing was published. Fix on a branch and release the next PATCH. Moving the tag instead (`git push --delete origin vX.Y.Z`, tag again) is acceptable only because nothing was uploaded |
-| A published release is broken | Delete its files from Downloads, keep the tag, release the next PATCH. Never reuse a published version number |
-| A user needs the previous version | Download it from Downloads (keep at least the previous release there) and install it over the current one |
+| La pipeline del tag è fallita prima dell'upload | Non è stato pubblicato nulla. Correggi su un branch e rilascia la PATCH successiva. Spostare il tag (`git push --delete origin vX.Y.Z` e di nuovo il tag) è accettabile solo perché non è stato caricato nulla |
+| Un rilascio pubblicato è difettoso | Cancella i suoi file dai Downloads, tieni il tag, rilascia la PATCH successiva. Non riusare mai un numero di versione già pubblicato |
+| Un utente ha bisogno della versione precedente | Scaricala dai Downloads (tienici almeno il rilascio precedente) e installala sopra quella corrente |
 
-Installing an older version:
+Installare una versione precedente:
 
 ```bash
 sudo apt install --allow-downgrades ./Dialga_<previous>_amd64.deb   # Debian, Ubuntu
 sudo dnf downgrade ./Dialga-<previous>-1.x86_64.rpm                 # Fedora
 ```
 
-In `0.x` the configuration may change between minor versions: keep a copy
-of `config.yaml` before upgrading, and check it with `dialga config
-validate` after a downgrade.
+Nella `0.x` la configurazione può cambiare tra versioni minor: prima
+dell'aggiornamento tieni una copia di `config.yaml`, e dopo un downgrade
+controllala con `dialga config validate`.
 
-## Known limits
+## Limiti noti
 
-- x86_64 only. Linux arm64 packages arrive with the v2.0 GitHub workflow
-  (`ENABLE_LINUX_ARM64`); the arm64 CLI archive exists already.
-- The desktop binary needs the glibc of the system that built it, or
-  newer. The pipeline builds on `node:24`, today Debian 12 (glibc 2.36):
-  Debian 12+, Ubuntu 24.04+, Fedora 37+. Ubuntu 22.04 (glibc 2.35): TODO:
-  confirm. A build on Fedora 43 needs glibc 2.39 (`pidfd_spawnp`): publish
-  only the packages built by the pipeline.
-- License: TODO: confirm (the packages carry none).
+- Solo x86_64. I pacchetti Linux arm64 arrivano con il workflow GitHub
+  della v2.0 (`ENABLE_LINUX_ARM64`); l'archivio arm64 della CLI esiste già.
+- Il binario desktop richiede la glibc del sistema che l'ha compilato, o
+  una più recente. La pipeline compila su `node:24`, oggi Debian 12 (glibc
+  2.36): Debian 12+, Ubuntu 24.04+, Fedora 37+. Ubuntu 22.04 (glibc 2.35):
+  TODO: confermare. Una build su Fedora 43 richiede glibc 2.39
+  (`pidfd_spawnp`): pubblica solo i pacchetti compilati dalla pipeline.
+- Licenza: TODO: confermare (i pacchetti non ne dichiarano una).

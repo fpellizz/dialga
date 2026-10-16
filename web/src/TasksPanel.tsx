@@ -1,7 +1,8 @@
 import { RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { errorText, isActive, type Lifecycle, listTasks, type Task } from "./api";
+import { isActive, type Lifecycle, listTasks, type Task } from "./api";
 import type { EngineInfo } from "./engine";
+import { ErrorBanner } from "./Feedback";
 import { useI18n } from "./i18n";
 
 /** While a task is running the list refreshes itself (RDS updates every ~2 min). */
@@ -25,7 +26,7 @@ function shortTime(value?: string): string {
 export function TasksPanel({ engine, target }: { engine: EngineInfo; target: string }) {
   const { t } = useI18n();
   const [tasks, setTasks] = useState<Task[] | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(false);
   const inFlight = useRef<AbortController | null>(null);
 
@@ -40,11 +41,11 @@ export function TasksPanel({ engine, target }: { engine: EngineInfo; target: str
       const list = await listTasks(engine, target, controller.signal);
       if (!controller.signal.aborted) {
         setTasks(list);
-        setError("");
+        setError(null);
       }
     } catch (e) {
       if (!controller.signal.aborted) {
-        setError(errorText(e));
+        setError(e);
       }
     } finally {
       // A request aborted by the cleanup must not clear the one that replaced it.
@@ -74,27 +75,27 @@ export function TasksPanel({ engine, target }: { engine: EngineInfo; target: str
 
   const titleId = `tasks-${target}`;
   return (
-    <section className="tasks" aria-labelledby={titleId} aria-busy={loading}>
+    <section
+      className="tasks"
+      aria-labelledby={titleId}
+      aria-busy={loading || (tasks === null && error === null)}
+    >
       <div className="tasks-head">
         <h3 id={titleId}>{t("tasks.title")}</h3>
         <button
           type="button"
           className="btn btn-ghost btn-sm"
           onClick={load}
-          disabled={loading}
-          aria-label={t("instances.refresh")}
-          title={t("instances.refresh")}
+          aria-disabled={loading || undefined}
+          aria-label={t("tasks.refresh", { target })}
+          title={t("tasks.refresh", { target })}
         >
           <RefreshCw size={14} className={loading ? "spin" : undefined} aria-hidden="true" />
         </button>
       </div>
 
-      {error && (
-        <div className="banner banner-fail" role="alert">
-          <span className="banner-text">{error}</span>
-        </div>
-      )}
-      {tasks === null && !error && (
+      {error !== null && <ErrorBanner error={error} />}
+      {tasks === null && error === null && (
         <div aria-hidden="true">
           <div className="skeleton skeleton-row" />
           <div className="skeleton skeleton-row" />
