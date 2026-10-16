@@ -163,7 +163,9 @@ func (s *Server) overviewSQL(ctx context.Context, name string, t config.Target) 
 	defer cancel()
 	dbs, closeDBs, err := s.opts.OpenDatabases(ctx, t, password)
 	if err != nil {
-		s.opts.Log.Warn("overview: session failed", "target", name, "err", err)
+		if ctx.Err() == nil { // not a client that went away
+			s.opts.Log.Warn("overview: session failed", "target", name, "err", err)
+		}
 		return Overview{SQL: overviewSQLFailed, SQLDetail: err.Error()}
 	}
 	defer closeDBs()

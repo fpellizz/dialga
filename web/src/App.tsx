@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useState } from "react";
 import { errorText } from "./api";
+import { DatabasesPage } from "./DatabasesPage";
 import { type EngineInfo, getEngineInfo } from "./engine";
 import { InstancesPage } from "./InstancesPage";
 import { I18nProvider } from "./i18n";
@@ -8,7 +9,15 @@ import { type Page, Sidebar } from "./Sidebar";
 import { applyTheme, loadThemePref, saveThemePref, type ThemePref } from "./theme";
 
 function pageFromHash(): Page {
-  return window.location.hash === "#settings" ? "settings" : "instances";
+  const hash = window.location.hash;
+  if (hash === "#settings") {
+    return "settings";
+  }
+  // #databases/<target> opens the screen on that target.
+  if (hash === "#databases" || hash.startsWith("#databases/")) {
+    return "databases";
+  }
+  return "instances";
 }
 
 export function App() {
@@ -40,11 +49,11 @@ export function App() {
       <div className="layout">
         <Sidebar page={page} engine={engine} engineError={engineError} />
         <main className="main">
-          {page === "settings" ? (
+          {page === "settings" && (
             <SettingsPage engine={engine} theme={theme} onThemeChange={changeTheme} />
-          ) : (
-            <InstancesPage engine={engine} engineError={engineError} />
           )}
+          {page === "databases" && <DatabasesPage engine={engine} engineError={engineError} />}
+          {page === "instances" && <InstancesPage engine={engine} engineError={engineError} />}
         </main>
       </div>
     </I18nProvider>

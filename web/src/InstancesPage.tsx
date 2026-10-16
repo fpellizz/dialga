@@ -10,6 +10,7 @@ import {
 } from "./api";
 import type { EngineInfo } from "./engine";
 import { useI18n } from "./i18n";
+import { OverviewStrip } from "./OverviewStrip";
 import { StepList } from "./StepList";
 import { TasksPanel } from "./TasksPanel";
 
@@ -154,6 +155,8 @@ function TargetCard({ engine, target }: { engine: EngineInfo; target: TargetSumm
         <dt>{t("target.connection")}</dt>
         <dd>{connection}</dd>
       </dl>
+
+      <OverviewStrip engine={engine} target={target.name} />
 
       <div className="actions">
         <button

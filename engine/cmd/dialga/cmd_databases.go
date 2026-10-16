@@ -99,7 +99,11 @@ func printDatabases(w io.Writer, name string, t config.Target, list []mssql.Data
 	if err := tw.Flush(); err != nil {
 		return err
 	}
-	_, err := fmt.Fprintf(w, "%d databases, %s in total.\n", len(list), sizeMiB(total))
+	count := fmt.Sprintf("%d databases", len(list))
+	if len(list) == 1 {
+		count = "1 database"
+	}
+	_, err := fmt.Fprintf(w, "%s, %s in total.\n", count, sizeMiB(total))
 	return err
 }
 

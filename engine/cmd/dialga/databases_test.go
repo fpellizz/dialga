@@ -86,6 +86,9 @@ func TestDatabasesJSONAndAlias(t *testing.T) {
 		doc.Databases[0] != sampleDatabases[0] {
 		t.Fatalf("doc %+v", doc)
 	}
+	if code, out, _ := run(a, "dbs"); code != 0 || !strings.Contains(out, "1 database, 24.0 MiB in total.") {
+		t.Fatalf("one database: code %d:\n%s", code, out)
+	}
 }
 
 func TestDatabasesEmptyAndErrors(t *testing.T) {
