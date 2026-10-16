@@ -1,12 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  checkTarget,
-  errorText,
-  HttpError,
-  listTargets,
-  listTasks,
-  type StepEvent,
-} from "./api";
+import { checkTarget, errorText, HttpError, listTargets, listTasks, type StepEvent } from "./api";
 
 const ENGINE = { url: "http://127.0.0.1:43210", token: "t".repeat(48), version: "0.1.0" };
 const AUTH = { Authorization: `Bearer ${ENGINE.token}` };
