@@ -339,7 +339,7 @@ describe("InstancesPage", () => {
       await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
 
       const confirmation = await screen.findByText("Target dev-sql saved. Run check to verify it.");
-      expect(confirmation).toHaveFocus();
+      await waitFor(() => expect(confirmation).toHaveFocus());
       expect(screen.queryByRole("dialog")).toBeNull();
       expect(await screen.findByRole("region", { name: "dev-sql" })).toBeInTheDocument();
       expect(requestsTo(fetch, TARGETS)).toHaveLength(2);

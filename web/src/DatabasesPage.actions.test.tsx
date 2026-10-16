@@ -88,7 +88,7 @@ describe("DatabasesPage actions", () => {
     await userEvent.click(dialog.getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     await waitFor(() => expect(requestsTo(fetch, DATABASES)).toHaveLength(2));
-    expect(drop).toHaveFocus();
+    await waitFor(() => expect(drop).toHaveFocus());
   });
 
   it("closes the dialog with nothing run without reloading", async () => {
