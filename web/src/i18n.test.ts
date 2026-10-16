@@ -45,7 +45,9 @@ describe("i18n", () => {
   });
 
   it("maps the engine step ids it knows", () => {
-    expect(stepKey("sql")).toBe("step.sql");
+    for (const id of ["aws", "instance", "option", "bucket", "storage", "tunnel", "sql", "tasks"]) {
+      expect(stepKey(id), id).toBe(`step.${id}`);
+    }
     expect(stepKey("unknown")).toBeUndefined();
   });
 });

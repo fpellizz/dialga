@@ -15,6 +15,7 @@ func RequestFor(t config.Target) (Request, error) {
 		Instance:        t.Instance,
 		LocalPort:       t.Connect.LocalPort,
 		SQLUser:         t.SQL.User,
+		Bucket:          t.Bucket,
 		ExpectedAccount: t.AccountID,
 		Direct:          t.Connect.Mode == config.ModeDirect,
 	}

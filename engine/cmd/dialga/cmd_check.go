@@ -109,18 +109,33 @@ func (r *checkReport) finish(passed bool) error {
 		}{r.target, r.tgt.Instance, passed, r.steps})
 	}
 	msg := "All checks passed."
-	if !passed {
+	switch {
+	case !passed:
 		msg = "Some checks failed."
+	case r.warnings() > 0:
+		msg = "All checks passed, with warnings."
 	}
 	_, err := fmt.Fprintln(r.w, msg)
 	return err
 }
 
+func (r *checkReport) warnings() int {
+	n := 0
+	for _, e := range r.steps {
+		if e.Status == check.Warning {
+			n++
+		}
+	}
+	return n
+}
+
 func (r *checkReport) tag(s check.Status) string {
-	text, color := "SKIP", "33" // yellow
+	text, color := "SKIP", "90" // grey
 	switch s {
 	case check.OK:
 		text, color = "OK  ", "32" // green
+	case check.Warning:
+		text, color = "WARN", "33" // yellow
 	case check.Failed:
 		text, color = "FAIL", "31" // red
 	}

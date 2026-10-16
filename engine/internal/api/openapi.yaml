@@ -194,9 +194,12 @@ components:
       description: Data of a "step" event; also the events of an action plan.
       required: [step, label, status]
       properties:
-        step: { type: string, description: Stable step id (aws, instance, tunnel, sql, tasks). }
+        step: { type: string, description: "Stable step id: aws, instance, option, bucket, storage, tunnel, sql, tasks for a check." }
         label: { type: string, description: English label; the GUI translates known step ids. }
-        status: { type: string, enum: [running, ok, failed, skipped] }
+        status:
+          type: string
+          enum: [running, ok, warning, failed, skipped]
+          description: warning is worth reading but does not fail the check.
         detail: { type: string }
     Notice:
       type: object

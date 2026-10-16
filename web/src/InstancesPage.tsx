@@ -184,7 +184,11 @@ function TargetCard({ engine, target }: { engine: EngineInfo; target: TargetSumm
       )}
       {state.passed !== null && (
         <div className={state.passed ? "banner banner-ok" : "banner banner-fail"} role="status">
-          {state.passed ? t("check.passed") : t("check.failed")}
+          {!state.passed
+            ? t("check.failed")
+            : state.steps.some((s) => s.status === "warning")
+              ? t("check.passedWarnings")
+              : t("check.passed")}
         </div>
       )}
       {state.error && (
