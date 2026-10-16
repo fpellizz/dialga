@@ -612,3 +612,281 @@ h3 {
     animation: none;
   }
 }
+
+/* First run: add-instance dialog, form fields, prerequisites and targets */
+.head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.empty-action {
+  margin-top: 8px;
+}
+.banner:focus {
+  outline: none;
+}
+.banner:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: var(--shadow-xl);
+}
+.dialog::backdrop {
+  background: rgb(0 0 0 / 0.45);
+}
+.dialog-form {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 34px);
+}
+.dialog-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 20px 20px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.dialog-head p {
+  margin: 0;
+}
+.dialog-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dialog-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 16px 20px 20px;
+}
+.dialog-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+}
+.form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+.form-section > legend {
+  margin-bottom: 4px;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.form-field > label,
+.check label {
+  font-weight: 500;
+}
+.input {
+  width: 100%;
+  min-width: 0;
+  height: var(--control-h);
+  padding: 0 10px;
+  border: 1px solid var(--input);
+  border-radius: var(--radius-md);
+  background: var(--background);
+  color: var(--foreground);
+  font: inherit;
+}
+.input.mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.input:focus-visible {
+  border-color: var(--ring);
+  outline: 3px solid color-mix(in oklab, var(--ring) 30%, transparent);
+  outline-offset: 0;
+}
+.input[aria-invalid="true"] {
+  border-color: var(--destructive);
+}
+.input:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.field-error {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--destructive);
+}
+.check {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.check input {
+  flex-shrink: 0;
+  margin: 3px 0 0;
+  accent-color: var(--primary);
+}
+.indent {
+  padding-left: 24px;
+}
+.actions-start {
+  justify-content: flex-start;
+}
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+}
+.choice:hover {
+  background: var(--muted);
+}
+.choice:has(input:checked) {
+  border-color: var(--primary);
+  background: color-mix(in oklab, var(--primary) 6%, transparent);
+}
+.choice:has(input:focus-visible) {
+  outline: 3px solid color-mix(in oklab, var(--ring) 30%, transparent);
+  outline-offset: 1px;
+}
+.choice input {
+  flex-shrink: 0;
+  margin: 3px 0 0;
+  accent-color: var(--primary);
+}
+.choice-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-wrap: anywhere;
+}
+.choice-title {
+  font-weight: 500;
+}
+.choice-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.btn-destructive {
+  background: var(--destructive);
+  color: var(--destructive-foreground);
+}
+.btn-destructive:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--destructive) 88%, black);
+}
+/* The dark destructive red is light: white text needs a darker fill (AA). */
+[data-theme="dark"] .btn-destructive {
+  background: color-mix(in oklab, var(--destructive) 70%, black);
+}
+[data-theme="dark"] .btn-destructive:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--destructive) 60%, black);
+}
+.card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.settings h2:focus {
+  outline: none;
+}
+.item-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+.item:first-child {
+  padding-top: 0;
+  border-top: none;
+}
+.item-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+.item-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.item-detail {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.install {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.code-line {
+  display: block;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--muted);
+  color: var(--foreground);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.confirm-remove {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid color-mix(in oklab, var(--destructive) 35%, transparent);
+  border-radius: var(--radius-lg);
+}
+.confirm-remove p {
+  margin: 0;
+}

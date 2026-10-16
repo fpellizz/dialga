@@ -1,7 +1,10 @@
-# Dialga configuration: copy to the path printed by `dialga config path`
-# (~/.config/dialga/config.yaml on Linux) and replace the placeholders.
-# Check it with `dialga config validate`; `dialga config show` prints it
-# with the defaults applied. Unknown keys are errors.
+# Dialga configuration. `dialga config init` (or "Add instance" in the app)
+# writes it for you; otherwise copy this file to the path printed by
+# `dialga config path` (~/.config/dialga/config.yaml on Linux) and replace
+# the placeholders. Check it with `dialga config validate`; `dialga config
+# show` prints it with the defaults applied. Unknown keys are errors.
+# When Dialga saves the file it does not keep comments: the previous
+# version stays next to it as config.yaml.bak.
 apiVersion: v1
 targets:
   # Target name: lower case letters, digits and "-".

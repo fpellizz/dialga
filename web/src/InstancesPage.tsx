@@ -1,5 +1,14 @@
-import { Database, History, LoaderCircle, Play, RefreshCw, TriangleAlert } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import {
+  Database,
+  History,
+  LoaderCircle,
+  Play,
+  Plus,
+  RefreshCw,
+  TriangleAlert,
+} from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AddInstanceDialog } from "./AddInstanceDialog";
 import {
   checkTarget,
   errorText,
@@ -34,6 +43,9 @@ export function InstancesPage({
   const { t } = useI18n();
   const [list, setList] = useState<TargetList | null>(null);
   const [loadError, setLoadError] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [saved, setSaved] = useState("");
+  const savedRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(() => {
     if (!engine) {
@@ -45,6 +57,19 @@ export function InstancesPage({
 
   useEffect(load, [load]);
 
+  // After a save the focus goes to the confirmation: the button that opened
+  // the dialog may be gone (the empty state).
+  useEffect(() => {
+    if (saved) {
+      savedRef.current?.focus();
+    }
+  }, [saved]);
+
+  const openAdd = () => {
+    setSaved("");
+    setAdding(true);
+  };
+
   const loading = !list && !loadError && !engineError;
   return (
     <div className="page">
@@ -53,11 +78,25 @@ export function InstancesPage({
           <h1>{t("instances.title")}</h1>
           <p className="lead">{t("instances.lead")}</p>
         </div>
-        <button type="button" className="btn btn-outline" onClick={load} disabled={!engine}>
-          <RefreshCw size={16} aria-hidden="true" />
-          {t("instances.refresh")}
-        </button>
+        <div className="head-actions">
+          {list && list.targets.length > 0 && (
+            <button type="button" className="btn btn-outline" onClick={openAdd} disabled={!engine}>
+              <Plus size={16} aria-hidden="true" />
+              {t("instances.add")}
+            </button>
+          )}
+          <button type="button" className="btn btn-outline" onClick={load} disabled={!engine}>
+            <RefreshCw size={16} aria-hidden="true" />
+            {t("instances.refresh")}
+          </button>
+        </div>
       </header>
+
+      {saved && (
+        <div ref={savedRef} tabIndex={-1} className="banner banner-ok" role="status">
+          {t("instances.saved", { name: saved })}
+        </div>
+      )}
 
       {(engineError || loadError) && (
         <div className="banner banner-fail" role="alert">
@@ -82,6 +121,15 @@ export function InstancesPage({
           <h2>{t("instances.empty.title")}</h2>
           <p>{t("instances.empty.hint")}</p>
           <code className="path">{list.configPath}</code>
+          <button
+            type="button"
+            className="btn btn-primary empty-action"
+            onClick={openAdd}
+            disabled={!engine}
+          >
+            <Plus size={16} aria-hidden="true" />
+            {t("instances.add")}
+          </button>
         </section>
       )}
       {engine && list && list.targets.length > 0 && (
@@ -90,6 +138,18 @@ export function InstancesPage({
             <TargetCard key={target.name} engine={engine} target={target} />
           ))}
         </div>
+      )}
+      {adding && engine && (
+        <AddInstanceDialog
+          engine={engine}
+          existing={list?.targets.map((target) => target.name) ?? []}
+          onClose={() => setAdding(false)}
+          onSaved={(target) => {
+            setAdding(false);
+            setSaved(target.name);
+            load();
+          }}
+        />
       )}
     </div>
   );
