@@ -60,7 +60,8 @@ describe("Sidebar", () => {
       "aria-current",
       "page",
     );
-    expect(screen.getAllByText("Presto")).toHaveLength(3);
+    // Import and Export; Activity is a page now.
+    expect(screen.getAllByText("Presto")).toHaveLength(2);
     expect(screen.getByText("Avvio dell'engine…")).toBeInTheDocument();
   });
 });
