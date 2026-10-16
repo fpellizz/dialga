@@ -491,6 +491,18 @@ const en = {
   "databases.exportSelected": "Export selected ({count})",
   "databases.select": "Select {database}",
   "databases.selectAllShown": "Select all shown databases",
+  "export.announce.failed": "The export did not start.",
+  "export.progress.cancel": "Cancel export",
+  "export.progress.starting": "Starting the export…",
+  "export.progress.stopHintJob":
+    "The engine runs the export as a job: stopping only stops following it here, it goes on in Activity. Cancel export stops it.",
+  "export.via.job":
+    "The engine runs the export as one job: it goes on if you leave this page, and shows in Activity.",
+  "export.via.plans":
+    "This page runs the exports one after the other: stay on it until the end (a running backup goes on in RDS anyway).",
+  "export.result.following": "Stopped following: the export goes on in the engine.",
+  "export.result.activity": "Follow it in Activity",
+  "export.result.download": "Download",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -992,6 +1004,18 @@ const it: Record<MessageKey, string> = {
   "databases.exportSelected": "Esporta i selezionati ({count})",
   "databases.select": "Seleziona {database}",
   "databases.selectAllShown": "Seleziona tutti i database mostrati",
+  "export.announce.failed": "L'export non è partito.",
+  "export.progress.cancel": "Annulla export",
+  "export.progress.starting": "Avvio dell'export…",
+  "export.progress.stopHintJob":
+    "L'engine esegue l'export come job: smettere di seguirlo qui non lo ferma, continua in Attività. Annulla export lo ferma.",
+  "export.via.job":
+    "L'engine esegue l'export come un unico job: continua anche se lasci questa pagina e compare in Attività.",
+  "export.via.plans":
+    "Questa pagina esegue gli export uno dopo l'altro: restaci fino alla fine (un backup in corso continua comunque su RDS).",
+  "export.result.following": "Hai smesso di seguirlo: l'export continua nell'engine.",
+  "export.result.activity": "Seguilo in Attività",
+  "export.result.download": "Download",
 };
 
 export const messages: Record<Lang, Record<MessageKey, string>> = { en, it };

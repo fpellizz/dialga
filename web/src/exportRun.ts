@@ -52,7 +52,13 @@ export interface ExportItemRun {
   transfer?: TransferProgress;
   /** s3://bucket/key once the backup succeeded. */
   s3Uri?: string;
+  /** What the download moved and checked (plan calls). */
   download?: TransferResult;
+  /** The local file and what the engine said about it (job). */
+  localFile?: string;
+  note?: string;
+  /** The item stopped while its native task was still running. */
+  taskLeftRunning?: boolean;
   error?: unknown;
 }
 

@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, LoaderCircle, Play, RefreshCw, Square } from "lucide-react";
+import { ArrowLeft, ArrowRight, LoaderCircle, Play, RefreshCw, Square, X } from "lucide-react";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import {
   type Database,
@@ -24,6 +24,8 @@ import {
   WindowsStep,
 } from "./ExportSteps";
 import type { EngineInfo } from "./engine";
+import { type ExportPreview, previewExport, runExport } from "./exportBackend";
+import { cancelJob } from "./exportJob";
 import {
   type DownloadOptions,
   exportable,
@@ -33,10 +35,9 @@ import {
   type OptionErrors,
   validateOptions,
 } from "./exportPlan";
-import { type ExportItemRun, type PreviewState, runExports, tally } from "./exportRun";
+import { type ExportItemRun, tally } from "./exportRun";
 import { ErrorBanner, HintText } from "./Feedback";
 import { type MessageKey, useI18n } from "./i18n";
-import { cleanRequest, previewPlan } from "./plans";
 import { Wizard } from "./Wizard";
 
 const STEPS = ["databases", "options", "windows", "preview", "progress", "result"] as const;
@@ -82,7 +83,11 @@ export function ExportPage({
   const [optionErrors, setOptionErrors] = useState<OptionErrors>({ keys: {} });
   const [overview, setOverview] = useState<Overview | null>(null);
   const [overviewError, setOverviewError] = useState<unknown>(null);
-  const [previews, setPreviews] = useState<PreviewState[] | null>(null);
+  const [preview, setPreview] = useState<ExportPreview | null>(null);
+  const [previewError, setPreviewError] = useState<unknown>(null);
+  const [runError, setRunError] = useState<unknown>(null);
+  // The engine job of the export, when the engine runs it as one (Activity).
+  const [jobId, setJobId] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
   const [items, setItems] = useState<ExportItemRun[] | null>(null);
   const [running, setRunning] = useState(false);
@@ -148,7 +153,7 @@ export function ExportPage({
     setTarget(name);
     setSelected([]);
     setKeys({});
-    setPreviews(null);
+    setPreview(null);
     window.history.replaceState(null, "", exportHref(name));
   };
 
@@ -169,27 +174,25 @@ export function ExportPage({
     if (!engine || !target) {
       return;
     }
-    setPreviews(null);
+    setPreview(null);
+    setPreviewError(null);
     setTyped("");
-    const out: PreviewState[] = [];
-    // One after the other: each preview opens its own SQL session.
-    for (const database of selected) {
-      try {
-        const preview = await previewPlan(
-          engine,
-          target,
-          "export",
-          cleanRequest({ database, key: keys[database] }),
-        );
-        out.push({ database, preview });
-      } catch (error) {
-        out.push({ database, error });
-      }
+    try {
+      const result = await previewExport(
+        engine,
+        target,
+        selected.map((database) => ({ database, key: keys[database] ?? "" })),
+        download.enabled
+          ? { folder: download.folder.trim(), overwrite: download.overwrite }
+          : undefined,
+      );
+      setPreview(result);
+      const ready = result.items.filter((i) => i.ready).length;
+      setAnnouncement(t("export.announce.preview", { ready, total: result.items.length }));
+    } catch (e) {
+      setPreviewError(e);
     }
-    setPreviews(out);
-    const ready = out.filter((p) => p.preview?.ready).length;
-    setAnnouncement(t("export.announce.preview", { ready, total: out.length }));
-  }, [engine, target, selected, keys, t]);
+  }, [engine, target, selected, keys, download, t]);
 
   function goTo(next: StepId) {
     setStepError(null);
@@ -224,63 +227,84 @@ export function ExportPage({
     }
   }
 
-  const ready = previews?.length && previews.every((p) => p.preview?.ready) ? previews : null;
-  const confirmation = ready?.find((p) => p.preview?.confirmation)?.preview?.confirmation;
-  const runnable = !!ready && (!confirmation || typed === confirmation);
+  const confirmation = preview?.ready ? preview.confirmation : undefined;
+  const runnable = !!preview?.ready && (!confirmation || typed === confirmation);
 
   async function run() {
-    if (!engine || !ready || !runnable || running) {
+    if (!engine || !preview || !runnable || running) {
       return;
     }
     const controller = new AbortController();
     abort.current = controller;
     setRunning(true);
+    setRunError(null);
+    setJobId(null);
+    setItems(null);
     setStep("progress");
     let last = "";
-    const result = await runExports(
-      engine,
-      {
-        target,
-        previews: ready.flatMap((p) => (p.preview ? [p.preview] : [])),
-        confirm: confirmation ? typed : undefined,
-        download: download.enabled
-          ? { folder: download.folder.trim(), overwrite: download.overwrite }
-          : undefined,
-      },
-      (next) => {
-        setItems(next);
-        // Announce each database when it starts and when it ends, not every percent.
-        const text = next.map((i) => `${i.database}:${i.state}:${i.step ?? ""}`).join("|");
-        if (text !== last) {
-          last = text;
-          const changed = next.find((i) => i.state === "running");
-          if (changed) {
-            setAnnouncement(
-              t(
-                changed.step === "download" ? "export.announce.download" : "export.announce.backup",
-                {
-                  database: changed.database,
-                },
-              ),
-            );
-          }
+    let started = false;
+    const onChange = (next: ExportItemRun[]) => {
+      started = true;
+      setItems(next);
+      // Announce each database when it starts and when it ends, not every percent.
+      const text = next.map((i) => `${i.database}:${i.state}:${i.step ?? ""}`).join("|");
+      if (text !== last) {
+        last = text;
+        const changed = next.find((i) => i.state === "running");
+        if (changed) {
+          setAnnouncement(
+            t(changed.step === "download" ? "export.announce.download" : "export.announce.backup", {
+              database: changed.database,
+            }),
+          );
         }
-      },
-      controller.signal,
-    );
-    if (abort.current === controller) {
-      abort.current = null;
+      }
+    };
+    try {
+      const result = await runExport(
+        engine,
+        preview,
+        confirmation ? typed : undefined,
+        onChange,
+        controller.signal,
+        setJobId,
+      );
+      setItems(result);
+      setAnnouncement(t("export.announce.done", tally(result)));
+      setStep("result");
+    } catch (e) {
+      if (controller.signal.aborted) {
+        // Stopped following a job: it goes on in the engine (Activity).
+        setStep("result");
+      } else {
+        setRunError(e);
+        setAnnouncement(t("export.announce.failed"));
+        // Refused before anything started (412, 422): back to the preview.
+        setStep(started ? "result" : "preview");
+      }
+    } finally {
+      if (abort.current === controller) {
+        abort.current = null;
+      }
+      setRunning(false);
     }
-    setRunning(false);
-    setItems(result);
-    const count = tally(result);
-    setAnnouncement(t("export.announce.done", count));
-    setStep("result");
+  }
+
+  async function cancel() {
+    if (engine && jobId) {
+      try {
+        await cancelJob(engine, jobId);
+      } catch (e) {
+        setRunError(e);
+      }
+    }
   }
 
   function startOver() {
     setItems(null);
-    setPreviews(null);
+    setPreview(null);
+    setRunError(null);
+    setJobId(null);
     setTyped("");
     setSelected([]);
     setKeys({});
@@ -331,8 +355,10 @@ export function ExportPage({
           <button
             type="button"
             className="btn btn-ghost"
-            onClick={() => void runPreviews()}
-            aria-disabled={previews === null || undefined}
+            onClick={() =>
+              preview !== null || previewError !== null ? void runPreviews() : undefined
+            }
+            aria-disabled={(preview === null && previewError === null) || undefined}
           >
             <RefreshCw size={16} aria-hidden="true" />
             {t("export.preview.again")}
@@ -351,10 +377,18 @@ export function ExportPage({
       break;
     case "progress":
       footer = running && (
-        <button type="button" className="btn btn-outline" onClick={() => abort.current?.abort()}>
-          <Square size={16} aria-hidden="true" />
-          {t("export.progress.stop")}
-        </button>
+        <>
+          {jobId && (
+            <button type="button" className="btn btn-ghost" onClick={() => void cancel()}>
+              <X size={16} aria-hidden="true" />
+              {t("export.progress.cancel")}
+            </button>
+          )}
+          <button type="button" className="btn btn-outline" onClick={() => abort.current?.abort()}>
+            <Square size={16} aria-hidden="true" />
+            {t("export.progress.stop")}
+          </button>
+        </>
       );
       break;
     case "result":
@@ -390,7 +424,7 @@ export function ExportPage({
       busy={
         (step === "databases" && !list && dbError === null) ||
         (step === "windows" && overview === null && overviewError === null) ||
-        (step === "preview" && previews === null) ||
+        (step === "preview" && preview === null && previewError === null) ||
         running
       }
       footer={footer}
@@ -441,24 +475,31 @@ export function ExportPage({
           onRetry={() => void readOverview()}
         />
       )}
-      {step === "preview" &&
-        (previews === null ? (
-          <p className="plan-loading">
-            <LoaderCircle size={16} className="spin tone-info" aria-hidden="true" />
-            {t("export.preview.loading", { count: selected.length })}
-          </p>
-        ) : (
-          <PreviewStep
-            previews={previews}
-            download={download}
-            confirmation={confirmation}
-            typed={typed}
-            onTyped={setTyped}
-            onRun={() => void run()}
-          />
-        ))}
-      {step === "progress" && items && <ProgressStep items={items} running={running} />}
-      {step === "result" && items && <ResultStep items={items} target={target} />}
+      {step === "preview" && previewError !== null && <ErrorBanner error={previewError} />}
+      {step === "preview" && runError !== null && <ErrorBanner error={runError} />}
+      {step === "preview" && preview === null && previewError === null && (
+        <p className="plan-loading">
+          <LoaderCircle size={16} className="spin tone-info" aria-hidden="true" />
+          {t("export.preview.loading", { count: selected.length })}
+        </p>
+      )}
+      {step === "preview" && preview && (
+        <PreviewStep preview={preview} typed={typed} onTyped={setTyped} onRun={() => void run()} />
+      )}
+      {step === "progress" && <ProgressStep items={items ?? []} running={running} jobId={jobId} />}
+      {step === "result" && (
+        <ResultStep
+          items={items ?? []}
+          target={target}
+          jobId={jobId}
+          stopped={
+            !running &&
+            items !== null &&
+            items.some((i) => i.state === "running" || i.state === "queued")
+          }
+          error={runError}
+        />
+      )}
 
       <div className="sr-only" role="status" aria-live="polite">
         {announcement}

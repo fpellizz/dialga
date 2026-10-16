@@ -1,11 +1,12 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Database, Overview, Task } from "./api";
 import { ExportPage } from "./ExportPage";
+import { resetBackends } from "./exportBackend";
 import type { PlanPreview } from "./plans";
 import { CONFIG_PATH, DEV, PROD, renderI18n } from "./test/fixtures";
-import { ENGINE, json, mockFetch, type Route, requestsTo, sseStream } from "./test/http";
+import { ENGINE, json, mockFetch, type Route, requestsTo, sseStream, text } from "./test/http";
 
 const db = (name: string, more: Partial<Database> = {}): Database => ({
   name,
@@ -84,8 +85,12 @@ const task = (lifecycle: Task["lifecycle"], percent: number): Task => ({
   s3Object: "arn:aws:s3:::my-sqlserver-backups/export/sales_20261016-042000.bak",
 });
 
+/** An engine without the job route: the mux answers 405 to POST /api/v1/jobs. */
+const NO_JOBS = { "POST /api/v1/jobs": () => text("Method Not Allowed\n", 405) };
+
 function serve(routes: Record<string, Route> = {}, targets = [DEV]) {
   return mockFetch({
+    ...NO_JOBS,
     "GET /api/v1/targets": () => json({ configPath: CONFIG_PATH, targets }),
     "GET /api/v1/targets/dev-sql/databases": () => json({ databases: [SALES, CRM, STAGED] }),
     "GET /api/v1/targets/dev-sql/overview": () => json(OVERVIEW),
@@ -97,6 +102,10 @@ function serve(routes: Record<string, Route> = {}, targets = [DEV]) {
 
 const panel = (name: RegExp) => within(screen.getByRole("region", { name }));
 const next = () => userEvent.click(screen.getByRole("button", { name: "Next" }));
+
+beforeEach(() => {
+  resetBackends();
+});
 
 describe("ExportPage", () => {
   it("exports the databases of the address, with a download, step by step", async () => {
@@ -228,6 +237,7 @@ describe("ExportPage", () => {
   it("runs on a protected target only after its name is retyped", async () => {
     window.location.hash = "#export/prod-sql?db=crm";
     mockFetch({
+      ...NO_JOBS,
       "GET /api/v1/targets": () => json({ configPath: CONFIG_PATH, targets: [DEV, PROD] }),
       "GET /api/v1/targets/prod-sql/databases": () => json({ databases: [CRM] }),
       "GET /api/v1/targets/prod-sql/overview": () => json({ ...OVERVIEW, target: "prod-sql" }),
@@ -280,5 +290,100 @@ describe("ExportPage", () => {
     // Back to the options from the stepper.
     await userEvent.click(screen.getByRole("button", { name: "Go back to Options" }));
     expect(screen.getByRole("heading", { name: "Step 2 of 6: Options" })).toHaveFocus();
+  });
+
+  it("runs as one engine job when the engine has the route", async () => {
+    window.location.hash = "#export/dev-sql?db=crm";
+    const KEY = "export/crm_20261016-042000.bak";
+    const plan = {
+      kind: "export",
+      target: "dev-sql",
+      instance: "my-sqlserver",
+      protected: false,
+      ready: true,
+      digest: "j".repeat(32),
+      items: [
+        {
+          database: "crm",
+          file: "",
+          key: KEY,
+          ready: true,
+          checks: [
+            {
+              step: "destination",
+              label: "Destination in S3",
+              status: "ok",
+              detail: `s3://my-sqlserver-backups/${KEY} is free`,
+            },
+          ],
+          actions: [
+            {
+              id: "backup",
+              title: "Back up crm",
+              statement: "exec msdb.dbo.rds_backup_database …",
+            },
+          ],
+        },
+      ],
+      preview: "Dry run",
+    };
+    const snapshot = (state: string, lifecycle: Task["lifecycle"], percent: number) => ({
+      id: "20261016T042000Z-0a1b2c3d",
+      kind: "export",
+      target: "dev-sql",
+      state,
+      items: [
+        {
+          name: "crm",
+          state,
+          step: "wait",
+          percent,
+          steps: [
+            { id: "backup", title: "Back up crm", status: "succeeded" },
+            {
+              id: "wait",
+              title: "Wait for the backup task",
+              status: state === "running" ? "running" : "succeeded",
+            },
+          ],
+          task: { id: 22, type: "BACKUP_DB", lifecycle, percent },
+        },
+      ],
+    });
+    const events = sseStream();
+    const fetch = serve({
+      "POST /api/v1/jobs": (_, call) =>
+        call === 0 ? json(plan) : json(snapshot("running", "IN_PROGRESS", 10), 201),
+      "GET /api/v1/jobs/20261016T042000Z-0a1b2c3d/events": () => events.response,
+      "GET /api/v1/jobs/20261016T042000Z-0a1b2c3d": (_, call) =>
+        call === 0
+          ? json(snapshot("running", "IN_PROGRESS", 50))
+          : json(snapshot("succeeded", "SUCCESS", 100)),
+    });
+    renderI18n(<ExportPage engine={ENGINE} engineError="" />);
+    await screen.findByRole("checkbox", { name: /crm/ });
+    await next();
+    await next();
+    await screen.findByRole("heading", { name: "Step 3 of 6: Windows" });
+    await next();
+    expect(await screen.findByText(/runs the export as one job/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Run export" }));
+
+    expect(await screen.findByRole("button", { name: "Cancel export" })).toBeInTheDocument();
+    events.send("step.started", {});
+    expect(await screen.findByRole("progressbar", { name: "BACKUP_DB crm" })).toHaveAttribute(
+      "aria-valuenow",
+      "50",
+    );
+    events.send("job.succeeded", {});
+    events.close();
+    const result = within(await screen.findByRole("region", { name: "Step 6 of 6: Result" }));
+    expect(result.getByText("Exported: 1 · failed: 0 · not completed: 0")).toBeInTheDocument();
+    expect(result.getByText(`s3://my-sqlserver-backups/${KEY}`)).toBeInTheDocument();
+    // Started with the key the dry run resolved, and its digest.
+    expect(JSON.parse(String(requestsTo(fetch, "POST /api/v1/jobs")[1]?.body))).toMatchObject({
+      items: [{ database: "crm", key: KEY }],
+      digest: "j".repeat(32),
+    });
   });
 });

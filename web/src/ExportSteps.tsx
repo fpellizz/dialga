@@ -1,4 +1,11 @@
-import { CalendarClock, CircleCheck, CircleX, ShieldAlert, TriangleAlert } from "lucide-react";
+import {
+  CalendarClock,
+  CircleCheck,
+  CircleX,
+  LoaderCircle,
+  ShieldAlert,
+  TriangleAlert,
+} from "lucide-react";
 import { type ReactNode, useId, useMemo, useState } from "react";
 import type { Database, Overview, StepEvent, TargetList } from "./api";
 import {
@@ -8,12 +15,12 @@ import {
   formatBytes,
   sortDatabases,
 } from "./databases";
+import type { ExportPreview } from "./exportBackend";
 import {
   BACKUP_MB_PER_MINUTE,
   type DownloadOptions,
   estimateMinutes,
   exportable,
-  localPath,
   nextOccurrence,
   type Occurrence,
   type OptionErrors,
@@ -21,13 +28,7 @@ import {
   parseWindow,
   TASK_START_MINUTES,
 } from "./exportPlan";
-import {
-  type ExportItemRun,
-  type ItemState,
-  type PreviewState,
-  previewURI,
-  tally,
-} from "./exportRun";
+import { type ExportItemRun, type ItemState, tally } from "./exportRun";
 import { ErrorBanner } from "./Feedback";
 import { type Lang, messages, type Translate, useI18n } from "./i18n";
 import { planStepKey } from "./plans";
@@ -422,85 +423,82 @@ function Fact({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-/** Step 4: one plan per database with its checks, then the confirmation. */
+/** Step 4: the plan of each database with its checks, then the confirmation. */
 export function PreviewStep({
-  previews,
-  download,
-  confirmation,
+  preview,
   typed,
   onTyped,
   onRun,
 }: {
-  previews: PreviewState[];
-  download: DownloadOptions;
-  confirmation?: string;
+  preview: ExportPreview;
   typed: string;
   onTyped: (value: string) => void;
   onRun: () => void;
 }) {
   const { t, lang } = useI18n();
   const ids = useId();
-  const notReady = previews.some((p) => !p.preview?.ready);
-  const protectedTarget = previews.find((p) => p.preview?.plan.protected)?.preview?.plan.target;
   const [before, after] = messages[lang]["plan.confirm.label"].split("{text}");
+  const confirmation = preview.confirmation;
   return (
     <>
-      {protectedTarget && (
+      {preview.protected && (
         <div className="banner banner-warn">
           <ShieldAlert size={16} aria-hidden="true" />
           <span className="banner-text">
             <strong>{t("plan.protected")}</strong> ·{" "}
-            {t("plan.confirm.protected", { target: protectedTarget })}
+            {t("plan.confirm.protected", { target: preview.target })}
           </span>
         </div>
       )}
+      <p className="hint">{t(preview.via === "job" ? "export.via.job" : "export.via.plans")}</p>
       <ul className="export-previews">
-        {previews.map(({ database, preview, error }) => {
-          const key = preview?.request.key ?? "";
-          return (
-            <li key={database} className="export-preview">
-              <div className="export-preview-head">
-                <h3 className="mono">{database}</h3>
-                {preview?.ready ? (
-                  <span className="badge badge-ok">{t("export.preview.ready")}</span>
-                ) : (
-                  <span className="badge badge-failed">{t("export.preview.notReadyBadge")}</span>
-                )}
-              </div>
-              {error !== undefined && <ErrorBanner error={error} />}
-              {preview && (
-                <>
-                  <p className="export-uri">
-                    {t("export.preview.s3")} <code>{previewURI(preview)}</code>
-                  </p>
-                  {download.enabled && (
-                    <p className="export-uri">
-                      {t("export.preview.local")}{" "}
-                      <code>{localPath(download.folder.trim(), key)}</code>
-                    </p>
-                  )}
-                  <StepList steps={preview.checks} label={(s) => stepLabel(t, s, database, key)} />
-                  <details className="task-details">
-                    <summary>{t("export.preview.statement")}</summary>
-                    {preview.plan.actions.map((a) => (
-                      <pre key={a.id} className="statement">
-                        {a.statement}
-                      </pre>
-                    ))}
-                  </details>
-                </>
+        {preview.items.map((item) => (
+          <li key={item.database} className="export-preview">
+            <div className="export-preview-head">
+              <h3 className="mono">{item.database}</h3>
+              {item.ready ? (
+                <span className="badge badge-ok">{t("export.preview.ready")}</span>
+              ) : (
+                <span className="badge badge-failed">{t("export.preview.notReadyBadge")}</span>
               )}
-            </li>
-          );
-        })}
+            </div>
+            {item.error !== undefined && <ErrorBanner error={item.error} />}
+            {item.s3Uri && (
+              <p className="export-uri">
+                {t("export.preview.s3")} <code>{item.s3Uri}</code>
+              </p>
+            )}
+            {item.localFile && (
+              <p className="export-uri">
+                {t("export.preview.local")} <code>{item.localFile}</code>
+              </p>
+            )}
+            {item.checks.length > 0 && (
+              <StepList
+                steps={item.checks}
+                label={(s) => stepLabel(t, s, item.database, item.key)}
+              />
+            )}
+            {item.statements.length > 0 && (
+              <details className="task-details">
+                <summary>{t("export.preview.statement")}</summary>
+                {item.statements.map((statement) => (
+                  <pre key={statement} className="statement">
+                    {statement}
+                  </pre>
+                ))}
+              </details>
+            )}
+          </li>
+        ))}
       </ul>
-      {notReady && (
+      {!preview.ready && (
         <div className="banner banner-fail">
           <CircleX size={16} aria-hidden="true" />
           <span className="banner-text">{t("export.preview.notReady")}</span>
         </div>
       )}
-      {confirmation && !notReady && (
+      {confirmation && preview.ready && (
         <div className="plan-confirm">
           <label className="field-inline">
             <span id={`${ids}-confirm`}>
@@ -541,11 +539,25 @@ function transferText(lang: Lang, t: Translate, item: ExportItemRun): string {
 }
 
 /** Step 5: each database with its steps, its native task and its download. */
-export function ProgressStep({ items, running }: { items: ExportItemRun[]; running: boolean }) {
+export function ProgressStep({
+  items,
+  running,
+  jobId,
+}: {
+  items: ExportItemRun[];
+  running: boolean;
+  jobId: string | null;
+}) {
   const { t, lang } = useI18n();
   return (
     <>
       <p className="lead">{t("export.progress.lead")}</p>
+      {items.length === 0 && running && (
+        <p className="plan-loading">
+          <LoaderCircle size={16} className="spin tone-info" aria-hidden="true" />
+          {t("export.progress.starting")}
+        </p>
+      )}
       <ol className="export-items">
         {items.map((item) => (
           <li key={item.database} className="export-item">
@@ -563,25 +575,25 @@ export function ProgressStep({ items, running }: { items: ExportItemRun[]; runni
             )}
             {item.task && <TaskProgress task={item.task} />}
             {item.step === "download" && item.transfer && item.state === "running" && (
-              <div
-                className="progress"
-                role="progressbar"
-                aria-label={t("export.progress.download", { database: item.database })}
-                aria-valuemin={0}
-                aria-valuemax={item.transfer.total || 1}
-                aria-valuenow={item.transfer.done}
-                aria-valuetext={transferText(lang, t, item)}
-              >
+              <>
                 <div
-                  className="progress-bar"
-                  style={{
-                    width: `${item.transfer.total ? (100 * item.transfer.done) / item.transfer.total : 0}%`,
-                  }}
-                />
-              </div>
-            )}
-            {item.step === "download" && item.transfer && item.state === "running" && (
-              <p className="hint">{transferText(lang, t, item)}</p>
+                  className="progress"
+                  role="progressbar"
+                  aria-label={t("export.progress.download", { database: item.database })}
+                  aria-valuemin={0}
+                  aria-valuemax={item.transfer.total || 1}
+                  aria-valuenow={item.transfer.done}
+                  aria-valuetext={transferText(lang, t, item)}
+                >
+                  <div
+                    className="progress-bar"
+                    style={{
+                      width: `${item.transfer.total ? (100 * item.transfer.done) / item.transfer.total : 0}%`,
+                    }}
+                  />
+                </div>
+                <p className="hint">{transferText(lang, t, item)}</p>
+              </>
             )}
             {item.state === "failed" && item.error !== undefined && (
               <ErrorBanner error={item.error} />
@@ -589,83 +601,117 @@ export function ProgressStep({ items, running }: { items: ExportItemRun[]; runni
           </li>
         ))}
       </ol>
-      {running && <p className="hint">{t("export.progress.stopHint")}</p>}
+      {running && (
+        <p className="hint">
+          {t(jobId ? "export.progress.stopHintJob" : "export.progress.stopHint")}
+        </p>
+      )}
     </>
   );
 }
 
 /** Step 6: where each backup went and how it was checked. */
-export function ResultStep({ items, target }: { items: ExportItemRun[]; target: string }) {
+export function ResultStep({
+  items,
+  target,
+  jobId,
+  stopped,
+  error,
+}: {
+  items: ExportItemRun[];
+  target: string;
+  jobId: string | null;
+  /** The page stopped following before the end (a job goes on in the engine). */
+  stopped: boolean;
+  error: unknown;
+}) {
   const { t, lang } = useI18n();
   const count = tally(items);
-  const ok = count.failed === 0 && count.cancelled === 0;
+  const ok = count.failed === 0 && count.cancelled === 0 && !stopped && error === null;
   return (
     <>
-      <div className={ok ? "banner banner-ok" : "banner banner-warn"}>
-        <span className="banner-text">{t("export.result.summary", count)}</span>
-      </div>
+      {error !== null && <ErrorBanner error={error} />}
+      {stopped && jobId ? (
+        <div className="banner banner-warn">
+          <span className="banner-text">
+            {t("export.result.following")} <a href="#activity">{t("export.result.activity")}</a>
+          </span>
+        </div>
+      ) : (
+        <div className={ok ? "banner banner-ok" : "banner banner-warn"}>
+          <span className="banner-text">{t("export.result.summary", count)}</span>
+        </div>
+      )}
       <ul className="export-items">
-        {items.map((item) => (
-          <li key={item.database} className="export-item">
-            <div className="export-preview-head">
-              <h3 className="mono">{item.database}</h3>
-              <span className={`badge ${STATE_BADGE[item.state]}`}>
-                {t(`export.state.${item.state}`)}
-              </span>
-            </div>
-            <dl className="facts">
-              {item.s3Uri && (
-                <Fact label={t("export.result.s3")}>
-                  <code className="export-code">{item.s3Uri}</code>
-                </Fact>
-              )}
-              {item.download && (
-                <>
+        {items.map((item) => {
+          const local = item.download?.path ?? item.localFile;
+          return (
+            <li key={item.database} className="export-item">
+              <div className="export-preview-head">
+                <h3 className="mono">{item.database}</h3>
+                <span className={`badge ${STATE_BADGE[item.state]}`}>
+                  {t(`export.state.${item.state}`)}
+                </span>
+              </div>
+              <dl className="facts">
+                {item.s3Uri && (
+                  <Fact label={t("export.result.s3")}>
+                    <code className="export-code">{item.s3Uri}</code>
+                  </Fact>
+                )}
+                {local && (
                   <Fact label={t("export.result.local")}>
-                    <code className="export-code">{item.download.path}</code>
+                    <code className="export-code">{local}</code>
                   </Fact>
-                  <Fact label={t("export.result.size")}>
-                    {formatBytes(item.download.size, lang)}
-                  </Fact>
-                  <Fact label={t("export.result.checksum")}>
-                    {item.download.checksum ? (
-                      <>
-                        {/* In full: it is what someone compares the file with. */}
-                        <span className="mono export-code">
-                          {item.download.checksumAlgorithm} {item.download.checksum}
-                        </span>{" "}
-                        {item.download.verified ? (
-                          <span className="badge badge-ok">{t("export.result.verified")}</span>
-                        ) : (
-                          <span className="badge badge-warning">
-                            {t("export.result.notVerified")}
-                          </span>
-                        )}
-                      </>
-                    ) : (
-                      <span className="muted">
-                        {item.download.note || t("export.result.noChecksum")}
-                      </span>
-                    )}
-                    {item.download.checksum && !item.download.verified && item.download.note && (
-                      <span className="hint"> {item.download.note}</span>
-                    )}
-                  </Fact>
-                </>
+                )}
+                {item.download && (
+                  <>
+                    <Fact label={t("export.result.size")}>
+                      {formatBytes(item.download.size, lang)}
+                    </Fact>
+                    <Fact label={t("export.result.checksum")}>
+                      {item.download.checksum ? (
+                        <>
+                          {/* In full: it is what someone compares the file with. */}
+                          <span className="mono export-code">
+                            {item.download.checksumAlgorithm} {item.download.checksum}
+                          </span>{" "}
+                          {item.download.verified ? (
+                            <span className="badge badge-ok">{t("export.result.verified")}</span>
+                          ) : (
+                            <span className="badge badge-warning">
+                              {t("export.result.notVerified")}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="muted">
+                          {item.download.note || t("export.result.noChecksum")}
+                        </span>
+                      )}
+                      {item.download.checksum && !item.download.verified && item.download.note && (
+                        <span className="hint"> {item.download.note}</span>
+                      )}
+                    </Fact>
+                  </>
+                )}
+                {!item.download && item.note && (
+                  <Fact label={t("export.result.download")}>{item.note}</Fact>
+                )}
+              </dl>
+              {item.state === "failed" && item.error !== undefined && (
+                <ErrorBanner error={item.error} />
               )}
-            </dl>
-            {item.state === "failed" && item.error !== undefined && (
-              <ErrorBanner error={item.error} />
-            )}
-            {item.state === "cancelled" && (
-              <p className="hint">
-                {item.task
-                  ? t("export.result.leftRunning", { id: item.task.id, target })
-                  : t("export.result.notRun")}
-              </p>
-            )}
-          </li>
-        ))}
+              {(item.state === "cancelled" || item.taskLeftRunning) && (
+                <p className="hint">
+                  {item.task
+                    ? t("export.result.leftRunning", { id: item.task.id, target })
+                    : t("export.result.notRun")}
+                </p>
+              )}
+            </li>
+          );
+        })}
       </ul>
     </>
   );
