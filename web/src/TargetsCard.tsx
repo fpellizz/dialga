@@ -1,5 +1,6 @@
 import { Trash2 } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { errorText, listTargets, removeTarget, type TargetSummary } from "./api";
 import type { EngineInfo } from "./engine";
 import { useI18n } from "./i18n";
@@ -42,7 +43,8 @@ export function TargetsCard({ engine }: { engine: EngineInfo | null }) {
 
   function cancel() {
     const name = confirming;
-    setConfirming("");
+    // The Remove button is disabled while it asks: enable it before it takes the focus back.
+    flushSync(() => setConfirming(""));
     document.getElementById(`remove-${name}`)?.focus();
   }
 
