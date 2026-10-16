@@ -11,7 +11,7 @@ import (
 func (a *app) configCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config",
-		Short: "Show and validate the configuration",
+		Short: "Show, validate and change the configuration",
 	}
 	cmd.AddCommand(
 		&cobra.Command{
@@ -65,6 +65,7 @@ func (a *app) configCmd() *cobra.Command {
 				return err
 			},
 		},
+		a.configInitCmd(), a.configAddTargetCmd(), a.configRemoveTargetCmd(),
 	)
 	return cmd
 }
