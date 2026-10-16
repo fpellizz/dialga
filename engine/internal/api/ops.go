@@ -426,54 +426,25 @@ func planDone(job jobs.Job, prep *ops.Prepared, task *mssql.Task) PlanDone {
 }
 
 // databaseReport answers the post-restore report of a database (read-only).
-// It is recorded as a finished job of kind operation "post", so Activity
-// shows who looked at what; a request refused before it ran is a refusal.
+// It is a view, not a run: it leaves no job.
 func (s *Server) databaseReport(w http.ResponseWriter, r *http.Request) {
 	db := r.PathValue("db")
-	rw := &refusalWriter{ResponseWriter: w}
-	ref := &refused{kind: jobs.Operation, operation: "post", items: []string{db}}
-	defer s.recordRefusal(rw, ref)
-	w = rw
 	name, t, ok := s.opTarget(w, r, func(config.Target) error { return validate.DBName(db) })
 	if !ok {
 		return
 	}
-	ref.target, ref.instance = name, t.Instance
 	sess, closeOps, ok := s.openOps(w, r, name, t)
 	if !ok {
 		return
 	}
 	defer closeOps()
 	report, err := sess.Post(r.Context(), db)
-	ref.done = true // from here on the job is recorded as it ended
-	f := jobs.Finished{Kind: jobs.Operation, Operation: "post", Target: name, Instance: t.Instance, State: jobs.Succeeded}
-	item := jobs.FinishedItem{Name: db, Steps: []jobs.StepInfo{{
-		ID: "post", Title: "Post-restore report of " + db + " (read-only)", Status: jobs.StepSucceeded, Resource: jobs.NoResource}}}
 	switch {
 	case errors.Is(err, mssql.ErrNoDatabase):
 		http.Error(w, err.Error(), http.StatusNotFound)
 	case err != nil:
 		http.Error(w, err.Error(), http.StatusBadGateway)
 	default:
-		detail, failed, _ := pipeline.ReportVerdict(report)
-		item.Steps[0].Detail = detail
-		item.Result = db + " report: " + detail
-		if len(failed) > 0 {
-			item.Error = strings.Join(failed, "; ")
-		}
 		writeJSON(w, report)
-	}
-	if err != nil {
-		item.Error = err.Error()
-		item.Steps[0].Status, item.Steps[0].Detail = jobs.StepFailed, err.Error()
-	} else if item.Error != "" {
-		item.Steps[0].Status, item.Steps[0].Detail = jobs.StepFailed, item.Error
-	}
-	if item.Error != "" {
-		f.State = jobs.Failed
-	}
-	f.Items = []jobs.FinishedItem{item}
-	if _, rerr := s.opts.Jobs.Record(f); rerr != nil {
-		s.opts.Log.Warn("job: cannot record the report", "target", name, "err", rerr)
 	}
 }

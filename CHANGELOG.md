@@ -13,7 +13,7 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 - **Activity completa**. Ogni operazione è un job nel journal e compare in
   Activity: le singole operazioni della pagina Databases (restore da S3,
-  export, drop, finish, cancel, report post) ora girano come job di tipo
+  export, drop, finish, cancel) ora girano come job di tipo
   `operation` (passi del piano, avanzamento del task nativo, annullabili,
   riprendibili; continuano se il client chiude lo stream); i tentativi
   rifiutati al *Run* (412, 422, 428, 502) lasciano un job `failed` con

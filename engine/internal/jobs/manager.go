@@ -1391,8 +1391,7 @@ func (p *reporter) Checkpoint(params any) error {
 func clampPercent(p int) int { return min(max(p, 0), 100) }
 
 // Finished describes a job that is recorded when it already ended: a request
-// that was refused (Refusal), or a quick operation that ran inside the
-// request (the post-restore report).
+// that was refused (Refusal).
 type Finished struct {
 	Kind      Kind
 	Operation string

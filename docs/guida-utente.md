@@ -750,7 +750,7 @@ Ogni operazione è un **job** e finisce in un **journal** su disco: `$XDG_STATE_
 
 Tutti accettano `--dir <cartella>` per un altro journal. Non esiste `dialga jobs cancel`: un job lanciato da CLI si annulla con Ctrl-C nel suo terminale (resta `cancelled`); uno dell'app con *Cancel job* in Activity (§6.9). Un job che gira in un **altro processo** si vede e si segue, ma non lo si ferma da qui: Activity risponde 409 (`the job runs in another Dialga process: stop it there`).
 
-**Chi possiede un job**: finché un job gira, il processo che lo esegue tiene un lock (`.<id>.lock` nella cartella del journal; il sistema lo rilascia se il processo muore). Un job non finito il cui lock è libero è **orfano**: il primo processo che lo trova lo segna `interrupted`. Un job non finito con il lock preso gira altrove e **non si tocca**, quindi aprire l'app mentre un job CLI è in corso non lo rovina e nessun job va perso. I job rifiutati e le operazioni istantanee (il report `post`) sono già finiti quando vengono scritti.
+**Chi possiede un job**: finché un job gira, il processo che lo esegue tiene un lock (`.<id>.lock` nella cartella del journal; il sistema lo rilascia se il processo muore). Un job non finito il cui lock è libero è **orfano**: il primo processo che lo trova lo segna `interrupted`. Un job non finito con il lock preso gira altrove e **non si tocca**, quindi aprire l'app mentre un job CLI è in corso non lo rovina e nessun job va perso. I job rifiutati sono già finiti quando vengono scritti. Il report di un database (§6.4) è una sola lettura e non lascia job.
 
 **`dialga jobs resume`**:
 
@@ -933,7 +933,7 @@ Voce **Export** (*Esporta*), oppure `#export/<target>?db=<nome>&db=<nome>`. Fa i
 
 ### 6.9 Activity
 
-Voce **Activity** (*Attività*), con il numero dei job in corso accanto al nome. Mostra **ogni operazione**: gli import e gli export, le singole operazioni dalla pagina Databases (*Restore from S3*, *Export*, *Drop*, *Finish*, *Cancel task*, *Report*, che sono job di tipo `operation`), i tentativi **rifiutati** al momento di avviarli e i job lanciati dalla **CLI**. Prima quelli in corso (*Running*), poi lo storico (*History*): gli ultimi 200 job, al massimo 30 giorni, di tutte le origini.
+Voce **Activity** (*Attività*), con il numero dei job in corso accanto al nome. Mostra **ogni operazione**: gli import e gli export, le singole operazioni dalla pagina Databases (*Restore from S3*, *Export*, *Drop*, *Finish*, *Cancel task*, che sono job di tipo `operation`), i tentativi **rifiutati** al momento di avviarli e i job lanciati dalla **CLI**. Prima quelli in corso (*Running*), poi lo storico (*History*): gli ultimi 200 job, al massimo 30 giorni, di tutte le origini.
 
 - **Elenco**: per ogni job tipo e target (*Import on …*, *Export on …*), stato (*Queued*, *Running*, *Succeeded*, *Failed*, *Cancelled*, *Interrupted*), *N of M databases done*, quanti falliti e quando è stato creato o è finito. Senza job: *No jobs yet*.
 - **Dettaglio** (clic su un job; torna con *All jobs*): istanza, data di creazione e di fine, id del job; i **database** con i loro passi (*Pending*, *Waiting for a slot*, *Running*, *Done*, *Failed*, *Skipped*, *Cancelled*, *Interrupted*), il progresso dei trasferimenti (byte, velocità, tempo residuo) e i task nativi (*Native task #N*); l'**Event log**, in diretta (*Live*; se cade la connessione: *Connection lost, reconnecting…*), con *Copy the log*.

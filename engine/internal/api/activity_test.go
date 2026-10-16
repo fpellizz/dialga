@@ -266,17 +266,18 @@ func TestPreviewsAndDryRunsCreateNoJob(t *testing.T) {
 	}
 }
 
-func TestReportIsRecordedAsPost(t *testing.T) {
+func TestReportLeavesNoJob(t *testing.T) {
 	doc := testConfig
 	js := newJobServer(t, &doc, testEnv)
 	js.rds.states["sales"] = "ONLINE"
 	if rec := do2(js.h, "/api/v1/targets/dev-sql/databases/sales/report"); rec.Code != http.StatusOK {
 		t.Fatalf("status %d %s", rec.Code, rec.Body)
 	}
-	list := js.jobs.List()
-	if len(list) != 1 || list[0].Kind != jobs.Operation || list[0].Operation != "post" || list[0].State != jobs.Succeeded ||
-		list[0].Databases[0] != "sales" || list[0].Refusal != nil {
-		t.Fatalf("jobs %+v", list)
+	if rec := do2(js.h, "/api/v1/targets/dev-sql/databases/nope/report"); rec.Code != http.StatusNotFound && rec.Code != http.StatusOK {
+		t.Fatalf("status %d", rec.Code)
+	}
+	if n := len(js.jobs.List()); n != 0 {
+		t.Fatalf("%d jobs", n)
 	}
 }
 

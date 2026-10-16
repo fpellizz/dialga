@@ -422,9 +422,7 @@ paths:
   /api/v1/targets/{name}/databases/{db}/report:
     get:
       summary: Post-restore report of a database (read-only)
-      description: |
-        Properties, files, login access, orphaned SQL users, Windows principals and objects by type.
-        Each report is recorded as a finished job (kind operation, operation post) so Activity lists it.
+      description: "Properties, files, login access, orphaned SQL users, Windows principals and objects by type. A read-only view: it leaves no job."
       parameters:
         - $ref: "#/components/parameters/TargetName"
         - name: db
