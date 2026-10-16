@@ -504,7 +504,7 @@ export function PlanDialog({
           {preview.confirmation && preview.ready && (
             <div className="plan-confirm">
               {destructive && !preview.plan.protected && (
-                <p className="plan-warning">
+                <p id={`${ids}-warning`} className="plan-warning">
                   {t("plan.confirm.drop", { database, target: preview.plan.target })}
                 </p>
               )}
@@ -518,6 +518,9 @@ export function PlanDialog({
                   ref={confirmInput}
                   className="input mono"
                   name="confirm"
+                  aria-describedby={
+                    destructive && !preview.plan.protected ? `${ids}-warning` : undefined
+                  }
                   value={typed}
                   autoComplete="off"
                   spellCheck={false}

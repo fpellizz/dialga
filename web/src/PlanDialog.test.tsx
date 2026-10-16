@@ -67,6 +67,9 @@ describe("PlanDialog", () => {
       screen.getByText("This drops sales on dev-sql for good: it cannot be undone."),
     ).toBeInTheDocument();
     expect(confirm).toHaveFocus();
+    expect(confirm).toHaveAccessibleDescription(
+      "This drops sales on dev-sql for good: it cannot be undone.",
+    );
 
     const run = screen.getByRole("button", { name: "Drop database" });
     expect(run).toHaveClass("btn-destructive");
