@@ -76,3 +76,31 @@ func TestServeKeepsTheJobJournal(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestWaitShell(t *testing.T) {
+	r, w := io.Pipe()
+	done := make(chan struct{})
+	go func() {
+		waitShell(r)
+		close(done)
+	}()
+	if _, err := io.WriteString(w, "noise\n"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+		t.Fatal("stopped on a line that is not shutdown")
+	case <-time.After(50 * time.Millisecond):
+	}
+	if _, err := io.WriteString(w, "shutdown\n"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("did not stop on the shutdown line")
+	}
+	_ = w.Close()
+
+	waitShell(strings.NewReader("noise\n")) // EOF: returns
+}

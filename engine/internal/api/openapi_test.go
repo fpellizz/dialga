@@ -16,6 +16,7 @@ import (
 	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/ops"
+	"github.com/decisyon/dialga/engine/internal/transfer"
 )
 
 type openAPIDoc struct {
@@ -133,6 +134,15 @@ func TestOpenAPISchemasMatchTheGoTypes(t *testing.T) {
 		"MultipartUpload":  {jobs.UploadState{}},
 		"TunnelState":      {TunnelState{}},
 		"TunnelList":       {TunnelList{}},
+
+		"UploadsRequest":        {UploadsRequest{}},
+		"DownloadRequest":       {DownloadRequest{}},
+		"TransferPlan":          {transfer.Batch{}},
+		"TransferItem":          {transfer.Item{}},
+		"Rejection":             {transfer.Rejection{}},
+		"TransferProgressEvent": {transfer.Progress{}},
+		"TransferResult":        {transfer.Result{}},
+		"TransferDone":          {TransferDone{}},
 	}
 	schemas := loadSpec(t).Components.Schemas
 	for name, schema := range schemas {

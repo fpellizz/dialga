@@ -8,11 +8,26 @@ export function HintText({ hint, className = "banner-hint" }: { hint?: Hint; cla
   return hint ? <span className={className}>{t(hint.key, hint.vars)}</span> : null;
 }
 
-/** A failed call: the engine's message (the cause), then what to do. */
-export function ErrorBanner({ error, fallback }: { error: unknown; fallback?: Hint }) {
+/**
+ * A failed call: the engine's message (the cause), then what to do.
+ * Preformatted keeps the lines of a multi-line message (configuration errors).
+ */
+export function ErrorBanner({
+  error,
+  fallback,
+  preformatted = false,
+}: {
+  error: unknown;
+  fallback?: Hint;
+  preformatted?: boolean;
+}) {
   return (
     <div className="banner banner-fail" role="alert">
-      <span className="banner-text">{errorText(error)}</span>
+      {preformatted ? (
+        <pre className="error-pre">{errorText(error)}</pre>
+      ) : (
+        <span className="banner-text">{errorText(error)}</span>
+      )}
       <HintText hint={errorHint(error) ?? fallback} />
     </div>
   );

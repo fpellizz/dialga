@@ -4,13 +4,14 @@ import {
   type AwsProfile,
   type DiscoveredInstance,
   discoverInstances,
-  errorText,
   type InstanceDiscovery,
   listProfiles,
   saveTarget,
   type TargetSummary,
 } from "./api";
+import { engineLabel, instanceBadge, instanceStatusKey } from "./databases";
 import type { EngineInfo } from "./engine";
+import { ErrorBanner } from "./Feedback";
 import { useI18n } from "./i18n";
 import { Segmented } from "./SettingsPage";
 import {
@@ -86,6 +87,7 @@ function TextField({
   return (
     <div className="form-field">
       <label htmlFor={fieldId(field)}>{label}</label>
+      {/* Every field of this form is required. */}
       <input
         id={fieldId(field)}
         className={mono ? "input mono" : "input"}
@@ -94,12 +96,20 @@ function TextField({
         inputMode={numeric ? "numeric" : undefined}
         autoComplete="off"
         spellCheck={false}
+        aria-required="true"
         aria-invalid={error ? true : undefined}
         aria-describedby={describedBy(field, Boolean(hint), Boolean(error))}
       />
       <FieldMessages field={field} hint={hint} error={error} />
     </div>
   );
+}
+
+/** The RDS status of a discovered instance, translated when known, as on the Instances cards. */
+function InstanceStatus({ status }: { status: string }) {
+  const { t } = useI18n();
+  const key = instanceStatusKey(status);
+  return <span className={`badge ${instanceBadge(status)}`}>{key ? t(key) : status}</span>;
 }
 
 /**
@@ -126,16 +136,21 @@ export function AddInstanceDialog({
   const [form, setForm] = useState<TargetForm>(emptyForm);
   const [edited, setEdited] = useState<EditedFields>(new Set());
   const [profiles, setProfiles] = useState<AwsProfile[] | null>(null);
-  const [profilesError, setProfilesError] = useState("");
+  const [profilesError, setProfilesError] = useState<unknown>(null);
   const [discovery, setDiscovery] = useState<InstanceDiscovery | null>(null);
   const [discovering, setDiscovering] = useState(false);
-  const [discoveryError, setDiscoveryError] = useState("");
+  const [discoveryError, setDiscoveryError] = useState<unknown>(null);
   const [errors, setErrors] = useState<FormErrors>({});
   const [saving, setSaving] = useState(false);
-  const [saveError, setSaveError] = useState("");
+  const [saveError, setSaveError] = useState<unknown>(null);
+
+  // The control that opened the dialog, read while rendering: by the time an
+  // effect runs again (React strict mode) showModal has moved the focus inside.
+  const [opener] = useState(() =>
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
 
   useEffect(() => {
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = dialogRef.current;
     if (dialog && !dialog.open) {
       dialog.showModal();
@@ -144,7 +159,7 @@ export function AddInstanceDialog({
       discoverAbort.current?.abort();
       opener?.focus();
     };
-  }, []);
+  }, [opener]);
 
   useEffect(() => {
     let live = true;
@@ -157,7 +172,7 @@ export function AddInstanceDialog({
         const profile = initialProfile(list);
         setForm((f) => ({ ...f, profile, region: regionFor(list, profile) }));
       },
-      (e: unknown) => live && setProfilesError(errorText(e)),
+      (e: unknown) => live && setProfilesError(e),
     );
     return () => {
       live = false;
@@ -165,7 +180,7 @@ export function AddInstanceDialog({
   }, [engine]);
 
   // The first field takes the focus once it can be used (the profiles loaded).
-  const ready = profiles !== null || profilesError !== "";
+  const ready = profiles !== null || profilesError !== null;
   useEffect(() => {
     if (ready) {
       document.getElementById(fieldId("profile"))?.focus();
@@ -220,7 +235,7 @@ export function AddInstanceDialog({
     const controller = new AbortController();
     discoverAbort.current = controller;
     setDiscovering(true);
-    setDiscoveryError("");
+    setDiscoveryError(null);
     try {
       const found = await discoverInstances(engine, form.profile, form.region, controller.signal);
       if (controller.signal.aborted) {
@@ -237,7 +252,7 @@ export function AddInstanceDialog({
       }
     } catch (e) {
       if (!controller.signal.aborted) {
-        setDiscoveryError(errorText(e));
+        setDiscoveryError(e);
       }
     } finally {
       if (discoverAbort.current === controller) {
@@ -249,6 +264,9 @@ export function AddInstanceDialog({
 
   async function submit(event: FormEvent) {
     event.preventDefault();
+    if (saving) {
+      return;
+    }
     const found = validateForm(form, existing);
     setErrors(found);
     const first = firstInvalid(found);
@@ -257,11 +275,11 @@ export function AddInstanceDialog({
       return;
     }
     setSaving(true);
-    setSaveError("");
+    setSaveError(null);
     try {
       onSaved(await saveTarget(engine, toTargetInput(form)));
     } catch (e) {
-      setSaveError(errorText(e));
+      setSaveError(e);
       setSaving(false);
     }
   }
@@ -285,15 +303,16 @@ export function AddInstanceDialog({
       }}
     >
       <form className="dialog-form" onSubmit={submit} noValidate>
-        <header className="dialog-head">
+        {/* Divs, not header/footer: inside a dialog those would add banner and contentinfo landmarks. */}
+        <div className="dialog-head">
           <div className="dialog-title">
             <h2 id={`${ID}-title`}>{t("add.title")}</h2>
             <button
               type="button"
               className="btn btn-ghost btn-sm"
               onClick={onClose}
-              aria-label={t("add.cancel")}
-              title={t("add.cancel")}
+              aria-label={t("add.close")}
+              title={t("add.close")}
             >
               <X size={16} aria-hidden="true" />
             </button>
@@ -301,16 +320,12 @@ export function AddInstanceDialog({
           <p id={`${ID}-lead`} className="muted">
             {t("add.lead")}
           </p>
-        </header>
+        </div>
 
         <div className="dialog-body">
           <fieldset className="form-section">
             <legend>{t("add.aws")}</legend>
-            {profilesError && (
-              <div className="banner banner-fail" role="alert">
-                <span className="banner-text">{profilesError}</span>
-              </div>
-            )}
+            {profilesError !== null && <ErrorBanner error={profilesError} />}
             <div className="form-row">
               <div className="form-field">
                 <label htmlFor={fieldId("profile")}>{t("add.profile")}</label>
@@ -320,6 +335,7 @@ export function AddInstanceDialog({
                     className="input"
                     value={form.profile}
                     onChange={(e) => changeProfile(e.target.value)}
+                    aria-required="true"
                     aria-invalid={errors.profile ? true : undefined}
                     aria-describedby={describedBy("profile", true, Boolean(errors.profile))}
                   >
@@ -335,9 +351,10 @@ export function AddInstanceDialog({
                     className="input"
                     value={form.profile}
                     onChange={(e) => changeProfile(e.target.value)}
-                    disabled={profiles === null && !profilesError}
+                    disabled={profiles === null && profilesError === null}
                     autoComplete="off"
                     spellCheck={false}
+                    aria-required="true"
                     aria-invalid={errors.profile ? true : undefined}
                     aria-describedby={describedBy("profile", true, Boolean(errors.profile))}
                   />
@@ -367,7 +384,6 @@ export function AddInstanceDialog({
                 className="btn btn-outline"
                 onClick={discover}
                 disabled={profiles === null}
-                aria-busy={discovering}
               >
                 {discovering ? (
                   <LoaderCircle size={16} className="spin" aria-hidden="true" />
@@ -377,11 +393,7 @@ export function AddInstanceDialog({
                 {discovering ? t("add.discovering") : t("add.discover")}
               </button>
             </div>
-            {discoveryError && (
-              <div className="banner banner-fail" role="alert">
-                <span className="banner-text">{discoveryError}</span>
-              </div>
-            )}
+            {discoveryError !== null && <ErrorBanner error={discoveryError} />}
           </fieldset>
 
           <fieldset className="form-section" aria-busy={discovering}>
@@ -420,15 +432,11 @@ export function AddInstanceDialog({
                     <span className="choice-body">
                       <span className="mono choice-title">{inst.identifier}</span>
                       <span className="choice-meta">
-                        <span>
-                          {inst.engine} {inst.engineVersion}
+                        <span title={`${inst.engine} ${inst.engineVersion}`}>
+                          {engineLabel(inst.engine, inst.engineVersion)}
                         </span>
-                        <span>{inst.class}</span>
-                        <span
-                          className={`badge ${inst.status === "available" ? "badge-ok" : "badge-warning"}`}
-                        >
-                          {inst.status}
-                        </span>
+                        <span className="mono">{inst.class}</span>
+                        <InstanceStatus status={inst.status} />
                         <span
                           className={`badge ${inst.backupRestore ? "badge-ok" : "badge-warning"}`}
                         >
@@ -576,13 +584,9 @@ export function AddInstanceDialog({
           )}
         </div>
 
-        <footer className="dialog-foot">
-          {saveError && (
-            <div className="banner banner-fail" role="alert">
-              <pre className="error-pre">{saveError}</pre>
-            </div>
-          )}
-          {!saveError && Object.keys(errors).some((k) => errors[k as FormField]) && (
+        <div className="dialog-foot">
+          {saveError !== null && <ErrorBanner error={saveError} preformatted />}
+          {saveError === null && Object.keys(errors).some((k) => errors[k as FormField]) && (
             <p className="field-error" role="alert">
               {t("add.invalid")}
             </p>
@@ -591,12 +595,13 @@ export function AddInstanceDialog({
             <button type="button" className="btn btn-outline" onClick={onClose}>
               {t("add.cancel")}
             </button>
-            <button type="submit" className="btn btn-primary" disabled={saving}>
+            {/* Busy, not disabled: a disabled button would drop the focus out of the form. */}
+            <button type="submit" className="btn btn-primary" aria-disabled={saving || undefined}>
               {saving && <LoaderCircle size={16} className="spin" aria-hidden="true" />}
               {saving ? t("add.saving") : t("add.save")}
             </button>
           </div>
-        </footer>
+        </div>
       </form>
     </dialog>
   );

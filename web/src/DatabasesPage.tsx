@@ -1,4 +1,13 @@
-import { ArrowDown, ArrowUp, ArrowUpDown, Database, RefreshCw, SearchX } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  CloudDownload,
+  Database,
+  RefreshCw,
+  SearchX,
+  X,
+} from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { type Database as DatabaseRow, listDatabases, listTargets, type TargetList } from "./api";
 import {
@@ -22,6 +31,9 @@ import {
 import type { EngineInfo } from "./engine";
 import { ErrorBanner, HintText } from "./Feedback";
 import { type MessageKey, useI18n } from "./i18n";
+import { PlanDialog, type PlanResult } from "./PlanDialog";
+import type { Operation } from "./plans";
+import { ReportDialog } from "./ReportDialog";
 
 const COLUMNS: { key: SortKey; label: MessageKey; numeric?: boolean }[] = [
   { key: "name", label: "databases.col.name" },
@@ -33,6 +45,11 @@ const COLUMNS: { key: SortKey; label: MessageKey; numeric?: boolean }[] = [
 ];
 
 const MIB = 1024 * 1024;
+
+/** What a database row, or the page, opens: a plan dialog or the report. */
+type Dialog =
+  | { kind: "plan"; operation: Operation; database?: string }
+  | { kind: "report"; database: string };
 
 /** The databases read for one target; another target shows the skeleton until its own arrive. */
 interface Loaded {
@@ -58,6 +75,9 @@ export function DatabasesPage({
   const [reload, setReload] = useState(0);
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
+  const [dialog, setDialog] = useState<Dialog | null>(null);
+  // A task the plan dialog was following when it closed: it keeps running.
+  const [running, setRunning] = useState<{ id: number; target: string } | null>(null);
 
   useEffect(() => {
     if (!engine) {
@@ -115,6 +135,16 @@ export function DatabasesPage({
     [list, query, sort],
   );
 
+  const closePlan = (result: PlanResult) => {
+    setDialog(null);
+    if (result.running) {
+      setRunning({ id: result.running.id, target });
+    }
+    if (result.changed) {
+      setReload((n) => n + 1);
+    }
+  };
+
   const choose = (name: string) => {
     saveLastTarget(name);
     setTarget(name);
@@ -159,9 +189,36 @@ export function DatabasesPage({
               <RefreshCw size={16} className={loading ? "spin" : undefined} aria-hidden="true" />
               {t("instances.refresh")}
             </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setDialog({ kind: "plan", operation: "restore" })}
+              disabled={!engine || !target}
+            >
+              <CloudDownload size={16} aria-hidden="true" />
+              {t("databases.restore")}
+            </button>
           </div>
         )}
       </header>
+
+      {running && (
+        <div className="banner banner-warn" role="status">
+          <span className="banner-text">
+            {t("databases.taskRunning", { id: running.id, target: running.target })}{" "}
+            <a href="#instances">{t("databases.taskRunningLink")}</a>
+          </span>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => setRunning(null)}
+            aria-label={t("databases.dismiss")}
+            title={t("databases.dismiss")}
+          >
+            <X size={14} aria-hidden="true" />
+          </button>
+        </div>
+      )}
 
       {pageError !== null && pageError !== "" && <ErrorBanner error={pageError} />}
       {targets?.error && (
@@ -251,17 +308,49 @@ export function DatabasesPage({
                         onSort={() => setSort((s) => nextSort(s, col.key))}
                       />
                     ))}
+                    <th scope="col" className="row-actions-head">
+                      {t("databases.col.actions")}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((db) => (
-                    <DatabaseLine key={db.name} db={db} />
+                    <DatabaseLine key={db.name} db={db} onOpen={setDialog} />
                   ))}
                 </tbody>
               </table>
             </div>
           )}
         </section>
+      )}
+
+      {engine && target && dialog?.kind === "plan" && (
+        <PlanDialog
+          engine={engine}
+          target={target}
+          operation={dialog.operation}
+          request={dialog.database ? { database: dialog.database } : {}}
+          fields={
+            dialog.operation === "restore"
+              ? "restore"
+              : dialog.operation === "export"
+                ? "export"
+                : undefined
+          }
+          onClose={closePlan}
+          onShowReport={(database) => {
+            setReload((n) => n + 1);
+            setDialog({ kind: "report", database });
+          }}
+        />
+      )}
+      {engine && target && dialog?.kind === "report" && (
+        <ReportDialog
+          engine={engine}
+          target={target}
+          database={dialog.database}
+          onClose={() => setDialog(null)}
+        />
       )}
     </div>
   );
@@ -294,8 +383,9 @@ function SortHeader({
   );
 }
 
-function DatabaseLine({ db }: { db: DatabaseRow }) {
+function DatabaseLine({ db, onOpen }: { db: DatabaseRow; onOpen: (dialog: Dialog) => void }) {
   const { t, lang } = useI18n();
+  const plan = (operation: Operation) => onOpen({ kind: "plan", operation, database: db.name });
   const stateKey = dbStateKey(db.state);
   const release = compatRelease(db.compatibility);
   return (
@@ -335,6 +425,44 @@ function DatabaseLine({ db }: { db: DatabaseRow }) {
             <span className="sr-only">{t("databases.noOwner")}</span>
           </span>
         )}
+      </td>
+      <td className="row-actions">
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          aria-label={t("dbaction.reportOf", { database: db.name })}
+          onClick={() => onOpen({ kind: "report", database: db.name })}
+        >
+          {t("dbaction.report")}
+        </button>
+        {db.state === "ONLINE" && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            aria-label={t("dbaction.exportOf", { database: db.name })}
+            onClick={() => plan("export")}
+          >
+            {t("dbaction.export")}
+          </button>
+        )}
+        {db.state === "RESTORING" && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            aria-label={t("dbaction.finishOf", { database: db.name })}
+            onClick={() => plan("finish")}
+          >
+            {t("dbaction.finish")}
+          </button>
+        )}
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm btn-danger-text"
+          aria-label={t("dbaction.dropOf", { database: db.name })}
+          onClick={() => plan("drop")}
+        >
+          {t("dbaction.drop")}
+        </button>
       </td>
     </tr>
   );
