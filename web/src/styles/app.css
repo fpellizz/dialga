@@ -1905,3 +1905,54 @@ a.btn {
   align-items: center;
   gap: 8px;
 }
+
+/* Editable combobox (bucket picker): the list sits in the flow, so the scrolling dialog body never clips it. */
+.combo {
+  position: relative;
+  display: flex;
+}
+.combo .input {
+  flex: 1;
+  padding-right: 36px;
+}
+.combo-icon,
+.combo-toggle {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+.combo-toggle {
+  right: 2px;
+}
+.combo-list {
+  display: block;
+  margin: 0;
+  padding: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: var(--shadow-md);
+}
+.combo-list[hidden] {
+  display: none;
+}
+.combo-option {
+  padding: 6px 8px;
+  border-radius: var(--radius-sm, 4px);
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  cursor: pointer;
+}
+.combo-option:hover,
+.combo-option.is-active {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+.combo-option[aria-selected="true"] {
+  font-weight: 600;
+}

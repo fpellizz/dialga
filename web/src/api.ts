@@ -367,6 +367,18 @@ export interface InstanceDiscovery {
   instances: DiscoveredInstance[];
 }
 
+/** An S3 bucket of the account, as the bucket picker lists it. */
+export interface DiscoveredBucket {
+  name: string;
+  region?: string;
+  createdAt?: string;
+}
+
+/** The engine answers 403 with this when the profile lacks s3:ListAllMyBuckets. */
+export function bucketListDenied(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 403;
+}
+
 /** POST /api/v1/config/targets: never a password, only where to find it. */
 export interface TargetInput {
   name: string;
@@ -410,6 +422,23 @@ export function discoverInstances(
 ): Promise<InstanceDiscovery> {
   const query = new URLSearchParams({ profile, region });
   return getJSON<InstanceDiscovery>(engine, `/api/v1/discovery/instances?${query}`, signal);
+}
+
+/** The buckets of a profile in a region, by name (403: no s3:ListAllMyBuckets). */
+export async function listBuckets(
+  engine: EngineInfo,
+  profile: string,
+  region: string,
+  signal?: AbortSignal,
+): Promise<DiscoveredBucket[]> {
+  const query = new URLSearchParams({ profile, region });
+  return (
+    await getJSON<{ buckets: DiscoveredBucket[] }>(
+      engine,
+      `/api/v1/discovery/buckets?${query}`,
+      signal,
+    )
+  ).buckets;
 }
 
 /** Adds a target to the configuration file (or replaces it with replace). */
