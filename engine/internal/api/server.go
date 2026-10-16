@@ -35,6 +35,7 @@ import (
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/config"
 	"github.com/decisyon/dialga/engine/internal/mssql"
+	"github.com/decisyon/dialga/engine/internal/ops"
 	"github.com/decisyon/dialga/engine/internal/session"
 	"github.com/decisyon/dialga/engine/internal/validate"
 )
@@ -66,6 +67,11 @@ type Options struct {
 
 	// RunInspect inspects .bak files (nil: inspect.Run; tests replace it).
 	RunInspect InspectFunc
+	// OpenOps opens a target for the native operations (default ops.Open;
+	// tests replace it). TaskInterval is the time between two reads of the
+	// task an execution follows (default 30s).
+	OpenOps      func(ctx context.Context, name string, t config.Target, password string) (*ops.Session, func(), error)
+	TaskInterval time.Duration
 }
 
 // Server is the HTTP API of the engine.
@@ -139,6 +145,12 @@ func New(opts Options) (*Server, error) {
 	}
 	if opts.DescribeTarget == nil {
 		opts.DescribeTarget = session.DescribeTarget
+	}
+	if opts.OpenOps == nil {
+		opts.OpenOps = ops.Open
+	}
+	if opts.TaskInterval <= 0 {
+		opts.TaskInterval = 30 * time.Second
 	}
 	s := &Server{opts: opts, mux: http.NewServeMux()}
 	for _, rt := range s.routes() {
