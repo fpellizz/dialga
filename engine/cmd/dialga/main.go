@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
@@ -21,6 +22,7 @@ import (
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/ops"
 	"github.com/decisyon/dialga/engine/internal/session"
+	"github.com/decisyon/dialga/engine/internal/transfer"
 )
 
 // version is overridden at build time by ci/build-engine.sh
@@ -59,6 +61,7 @@ type app struct {
 	readConfirm func(prompt string) (string, error)
 	// discover answers config init and doctor (nil: discover.System).
 	discover discover.Service
+	openS3   func(context.Context, config.Target) (transfer.Client, error)
 }
 
 func main() {
@@ -72,12 +75,13 @@ func main() {
 		openDatabases:    session.OpenDatabases,
 		openOps:          ops.Open,
 		readConfirm:      readLineFromTerminal,
+		openS3:           transfer.Open,
 	}
 	os.Exit(a.execute(os.Args[1:], os.Stdout, os.Stderr))
 }
 
 func (a *app) execute(args []string, stdout, stderr io.Writer) int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
 	root := a.rootCmd()
 	root.SetArgs(args)
