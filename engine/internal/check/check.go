@@ -225,7 +225,7 @@ func Run(ctx context.Context, req Request, sqlPassword string, emit Emitter) boo
 
 	r.start(stepSQL)
 	if sqlPassword == "" {
-		r.end(stepSQL, Skipped, "no SQL password in the engine environment (DIALGA_SQL_PASSWORD)")
+		r.end(stepSQL, Skipped, "no SQL password in the engine environment: sql.password says where it comes from (DIALGA_SQL_PASSWORD for prompt, the variable of env:VAR)")
 		r.skip("needs a SQL session", stepTasks)
 		return false
 	}

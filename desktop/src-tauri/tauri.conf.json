@@ -52,7 +52,8 @@
         "files": {
           "/usr/share/doc/dialga/CHANGELOG.md": "../../CHANGELOG.md",
           "/usr/share/doc/dialga/config.example.yaml": "../../docs/config.example.yaml",
-          "/usr/share/doc/dialga/iam-policy.json": "../../docs/iam-policy.json"
+          "/usr/share/doc/dialga/iam-policy.json": "../../docs/iam-policy.json",
+          "/usr/share/doc/dialga/guida-utente.md": "../../docs/guida-utente.md"
         }
       },
       "rpm": {
@@ -60,7 +61,8 @@
         "files": {
           "/usr/share/doc/dialga/CHANGELOG.md": "../../CHANGELOG.md",
           "/usr/share/doc/dialga/config.example.yaml": "../../docs/config.example.yaml",
-          "/usr/share/doc/dialga/iam-policy.json": "../../docs/iam-policy.json"
+          "/usr/share/doc/dialga/iam-policy.json": "../../docs/iam-policy.json",
+          "/usr/share/doc/dialga/guida-utente.md": "../../docs/guida-utente.md"
         }
       }
     }

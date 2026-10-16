@@ -597,7 +597,7 @@ I messaggi sono quelli che stampano la CLI e l'app (in inglese).
 | Messaggio | Causa | Cosa fare |
 |---|---|---|
 | `SQL login will be skipped: environment variable <VAR> is empty` e passi SQL `SKIP` | `sql.password: env:VAR` ma la variabile non è impostata nel terminale (o nell'ambiente dell'app) | `read -rs VAR && export VAR`, poi rilancia |
-| `no SQL password in the engine environment (DIALGA_SQL_PASSWORD)` | L'engine non ha la password (il messaggio cita sempre `DIALGA_SQL_PASSWORD`, anche con `env:VAR`) | Come sopra, con la variabile del tuo `sql.password` |
+| `no SQL password in the engine environment: sql.password says where it comes from …` | L'engine non ha la password: con `prompt` serve `DIALGA_SQL_PASSWORD`, con `env:VAR` la variabile indicata | Esporta la variabile giusta nell'ambiente dell'app o del terminale, poi riprova |
 | `sql.password is prompt: set DIALGA_SQL_PASSWORD, or use env:VAR in the configuration` | App desktop con `prompt`: non può chiedere la password | Avvia l'app da terminale con `DIALGA_SQL_PASSWORD` (§4.3) |
 | *Databases and tasks need the SQL password* (app) | Come sopra | Come sopra |
 | `SQL password: environment variable <VAR> is empty` (`databases`, `status`, `wait`) | Questi comandi richiedono la password | Imposta la variabile |
