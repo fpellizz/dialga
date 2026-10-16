@@ -372,7 +372,7 @@ func (up *uploader) listParts(ctx context.Context) error {
 
 // partReader reports how far the SDK has read a part. Seeking back to the
 // start (to retry, or after hashing the payload over plain HTTP) starts the
-// count again; Len spares the SDK a seek to the end to learn the length.
+// count again; a seek to the end, to learn the length, reports nothing.
 type partReader struct {
 	r      *io.SectionReader
 	pos    int64
@@ -396,8 +396,6 @@ func (p *partReader) Seek(offset int64, whence int) (int64, error) {
 	}
 	return pos, err
 }
-
-func (p *partReader) Len() int { return int(p.r.Size() - p.pos) }
 
 // parallel runs work for every item of todo on up to workers goroutines,
 // each with its own buffer. The first error cancels the others and is the

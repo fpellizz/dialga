@@ -73,7 +73,7 @@ func TestRangeLayout(t *testing.T) {
 func TestFormatBytes(t *testing.T) {
 	tests := map[int64]string{
 		0: "0 B", 512: "512 B", KiB: "1 KiB", 1536: "1.5 KiB", 64 * MiB: "64 MiB",
-		2469606195: "2.3 GiB", 625 * GiB: "625 GiB", 5 * TiB: "5 TiB",
+		2469606195: "2.3 GiB", 625 * GiB: "625 GiB", 5 * TiB: "5 TiB", 40*MiB + 77: "40 MiB", 1023 * KiB: "1023 KiB",
 	}
 	for n, want := range tests {
 		if got := FormatBytes(n); got != want {

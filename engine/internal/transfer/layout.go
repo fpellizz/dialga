@@ -3,6 +3,7 @@ package transfer
 import (
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // Sizes, and the S3 multipart limits.
@@ -90,8 +91,8 @@ func FormatBytes(n int64) string {
 		v /= 1024
 		i++
 	}
-	if v == float64(int64(v)) || v >= 100 {
+	if v >= 100 {
 		return fmt.Sprintf("%.0f %s", v, units[i])
 	}
-	return fmt.Sprintf("%.1f %s", v, units[i])
+	return strings.TrimSuffix(fmt.Sprintf("%.1f", v), ".0") + " " + units[i]
 }
