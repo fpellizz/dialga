@@ -66,40 +66,52 @@ export function PrerequisitesCard({ engine }: { engine: EngineInfo | null }) {
       )}
       {items && (
         <ul className="item-list">
-          {items.map((item) => (
-            <li key={item.id} className="item">
-              <div className="item-row">
-                {item.found ? (
-                  <CircleCheck size={18} className="tone-success" aria-hidden="true" />
-                ) : (
-                  <TriangleAlert size={18} className="tone-warning" aria-hidden="true" />
-                )}
-                <span className="item-title">{t(`prereq.${item.id}`)}</span>
-                <span className={`badge ${item.found ? "badge-ok" : "badge-warning"}`}>
-                  {item.found ? t("prereq.found") : t("prereq.missing")}
-                </span>
-              </div>
-              {item.found ? (
-                <div className="mono muted item-detail">
-                  {[item.program, item.version, item.path && `(${item.path})`]
-                    .filter(Boolean)
-                    .join(" ")}
+          {items.map((item) => {
+            const ok = item.found && !item.outdated;
+            let badge = t("prereq.missing");
+            if (ok) {
+              badge = t("prereq.found");
+            } else if (item.found) {
+              badge = t("prereq.outdated");
+            }
+            return (
+              <li key={item.id} className="item">
+                <div className="item-row">
+                  {ok ? (
+                    <CircleCheck size={18} className="tone-success" aria-hidden="true" />
+                  ) : (
+                    <TriangleAlert size={18} className="tone-warning" aria-hidden="true" />
+                  )}
+                  <span className="item-title">{t(`prereq.${item.id}`)}</span>
+                  <span className={`badge ${ok ? "badge-ok" : "badge-warning"}`}>{badge}</span>
                 </div>
-              ) : (
-                <>
-                  <p className="hint">{t(`prereq.purpose.${item.id}`)}</p>
-                  {item.install.map((hint) => (
-                    <div key={hint.distro} className="install">
-                      <span className="hint">
-                        {t("prereq.install", { distro: DISTROS[hint.distro] ?? hint.distro })}
-                      </span>
-                      <code className="code-line">{hint.command}</code>
-                    </div>
-                  ))}
-                </>
-              )}
-            </li>
-          ))}
+                {item.found && (
+                  <div className="mono muted item-detail">
+                    {[item.program, item.version, item.path && `(${item.path})`]
+                      .filter(Boolean)
+                      .join(" ")}
+                  </div>
+                )}
+                {!ok && (
+                  <>
+                    <p className="hint">
+                      {item.found
+                        ? t("prereq.outdatedHint", { version: item.version ?? "" })
+                        : t(`prereq.purpose.${item.id}`)}
+                    </p>
+                    {item.install.map((hint) => (
+                      <div key={hint.distro} className="install">
+                        <span className="hint">
+                          {t("prereq.install", { distro: DISTROS[hint.distro] ?? hint.distro })}
+                        </span>
+                        <code className="code-line">{hint.command}</code>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>

@@ -352,3 +352,17 @@ func TestSuggestName(t *testing.T) {
 		}
 	}
 }
+
+func TestDoctorOutdatedPlugin(t *testing.T) {
+	a, fake := firstRunApp(t, testConfig)
+	fake.prereqs[0].Version, fake.prereqs[0].Outdated = "1.2.400.0", true
+	code, out, _ := run(a, "doctor")
+	if code != 0 || !strings.Contains(out, "WARN  session-manager-plugin     1.2.400.0 (/usr/bin/session-manager-plugin): too old") {
+		t.Fatalf("external target: code %d, out:\n%s", code, out)
+	}
+	tunnel, fake := firstRunApp(t, strings.Replace(testConfig, "mode: external", "mode: tunnel", 1))
+	fake.prereqs[0].Version, fake.prereqs[0].Outdated = "1.2.400.0", true
+	if code, out, _ := run(tunnel, "doctor"); code != exitCheckFailed || !strings.Contains(out, "FAIL  session-manager-plugin") {
+		t.Fatalf("tunnel target: code %d, out:\n%s", code, out)
+	}
+}

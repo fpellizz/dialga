@@ -153,6 +153,8 @@ export interface Prerequisite {
   found: boolean;
   path?: string;
   version?: string;
+  /** Found but too old for what needs it (the integrated tunnel). */
+  outdated?: boolean;
   purpose: string;
   install: InstallHint[];
 }

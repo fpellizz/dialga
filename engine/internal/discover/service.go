@@ -44,8 +44,8 @@ func (System) Instances(ctx context.Context, profile, region string) (Instances,
 }
 
 // Prerequisites implements Service.
-func (System) Prerequisites(ctx context.Context) []Prerequisite {
-	return LocalPrograms().Prerequisites(ctx)
+func (s System) Prerequisites(ctx context.Context) []Prerequisite {
+	return LocalPrograms(s.getenv).Prerequisites(ctx)
 }
 
 // CheckBucket implements Service.

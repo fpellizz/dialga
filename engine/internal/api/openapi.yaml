@@ -128,9 +128,11 @@ paths:
     get:
       summary: The programs Dialga runs, found or not
       description: |
-        session-manager-plugin (SSM tunnels) and the container runtime (podman,
-        otherwise docker; inspect). Each item carries the install command for
-        Fedora and Debian, worth showing when it is missing.
+        session-manager-plugin (SSM tunnels; also looked up where the installers
+        put it) and the container runtime (podman, otherwise docker, or the one
+        DIALGA_CONTAINER_RUNTIME names; inspect). Each item carries the install
+        command for Fedora and Debian, worth showing when it is missing or
+        outdated.
       responses:
         "200":
           description: The prerequisites.
@@ -384,6 +386,9 @@ components:
         found: { type: boolean }
         path: { type: string }
         version: { type: string, description: Empty when the program does not tell it. }
+        outdated:
+          type: boolean
+          description: Found but too old (a Session Manager plugin not newer than 1.2.497.0 cannot run the integrated tunnel).
         purpose: { type: string, description: What needs it (English; the GUI translates known ids). }
         install:
           type: array

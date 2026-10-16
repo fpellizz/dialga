@@ -240,3 +240,84 @@ func TestParseVersion(t *testing.T) {
 		}
 	}
 }
+
+// programsAt finds the given files (names or absolute paths), each telling
+// the given version.
+func programsAt(files map[string]string, env map[string]string) Programs {
+	return Programs{
+		LookPath: func(file string) (string, error) {
+			if _, ok := files[file]; ok {
+				if strings.HasPrefix(file, "/") {
+					return file, nil
+				}
+				return "/usr/bin/" + file, nil
+			}
+			return "", errors.New("not found")
+		},
+		Output: func(_ context.Context, path string, _ ...string) ([]byte, error) {
+			for file, version := range files {
+				if path == file || path == "/usr/bin/"+file {
+					return []byte(version + "\n"), nil
+				}
+			}
+			return nil, errors.New("exit status 1")
+		},
+		Getenv: func(k string) string { return env[k] },
+		GOOS:   "linux",
+	}
+}
+
+func TestPluginFallbackPathsAndAge(t *testing.T) {
+	tests := []struct {
+		name         string
+		files        map[string]string
+		wantPath     string
+		wantOutdated bool
+	}{
+		{"in PATH, recent", map[string]string{"session-manager-plugin": "1.2.707.0"}, "/usr/bin/session-manager-plugin", false},
+		{"installer path only", map[string]string{"/usr/local/sessionmanagerplugin/bin/session-manager-plugin": "1.2.498.0"},
+			"/usr/local/sessionmanagerplugin/bin/session-manager-plugin", false},
+		{"too old for the integrated tunnel", map[string]string{"session-manager-plugin": "1.2.497.0"}, "/usr/bin/session-manager-plugin", true},
+		{"no version: not judged", map[string]string{"session-manager-plugin": ""}, "/usr/bin/session-manager-plugin", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			plugin := programsAt(tc.files, nil).Prerequisites(context.Background())[0]
+			if !plugin.Found || plugin.Path != tc.wantPath || plugin.Outdated != tc.wantOutdated || plugin.Program != "session-manager-plugin" {
+				t.Fatalf("plugin %+v", plugin)
+			}
+		})
+	}
+}
+
+func TestContainerRuntimeOverride(t *testing.T) {
+	both := map[string]string{"podman": "podman version 5.8.4", "docker": "Docker version 28.3.1, build x"}
+	if got := programsAt(both, nil).Prerequisites(context.Background())[1]; got.Program != "podman" {
+		t.Fatalf("default: %+v", got)
+	}
+	forced := map[string]string{EnvContainerRuntime: "docker"}
+	if got := programsAt(both, forced).Prerequisites(context.Background())[1]; got.Program != "docker" || got.Version != "28.3.1" {
+		t.Fatalf("forced docker: %+v", got)
+	}
+	onlyPodman := map[string]string{"podman": "podman version 5.8.4"}
+	if got := programsAt(onlyPodman, forced).Prerequisites(context.Background())[1]; got.Found || got.Program != "docker" {
+		t.Fatalf("forced docker, missing: %+v", got)
+	}
+}
+
+func TestCompareVersions(t *testing.T) {
+	for _, tc := range []struct {
+		a, b string
+		want int
+	}{
+		{"1.2.497.0", "1.2.497.0", 0},
+		{"1.2.498.0", "1.2.497.0", 1},
+		{"1.2.50.0", "1.2.497.0", -1},
+		{"1.3", "1.2.497.0", 1},
+		{"1.2.497", "1.2.497.0", 0},
+	} {
+		if got := compareVersions(tc.a, tc.b); got != tc.want {
+			t.Errorf("compareVersions(%s, %s) = %d, want %d", tc.a, tc.b, got, tc.want)
+		}
+	}
+}

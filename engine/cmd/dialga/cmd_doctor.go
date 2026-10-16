@@ -87,10 +87,11 @@ func (a *app) doctor(cmd *cobra.Command) []doctorItem {
 			conf.Detail = fmt.Sprintf("%s: %d target(s)", path, len(cfg.Targets))
 		}
 	}
-	allDirect := cfg != nil
+	allDirect, anyTunnel := cfg != nil, false
 	if cfg != nil {
 		for _, t := range cfg.Targets {
 			allDirect = allDirect && t.Connect.Mode == config.ModeDirect
+			anyTunnel = anyTunnel || t.Connect.Mode == config.ModeTunnel
 		}
 	}
 
@@ -100,6 +101,14 @@ func (a *app) doctor(cmd *cobra.Command) []doctorItem {
 			it.Label = "Container runtime"
 		}
 		switch {
+		case pr.Found && pr.Outdated:
+			// Only the integrated tunnel needs the newer plugin.
+			it.Status, it.Install = check.Warning, pr.Install
+			if anyTunnel {
+				it.Status = check.Failed
+			}
+			it.Detail = fmt.Sprintf("%s (%s): too old for the integrated tunnel, which needs a version newer than %s",
+				pr.Version, pr.Path, discover.LastPluginWithoutEnv)
 		case pr.Found:
 			it.Detail = strings.TrimSpace(pr.Program + " " + pr.Version + " (" + pr.Path + ")")
 			if pr.ID != discover.PrereqContainerRuntime {

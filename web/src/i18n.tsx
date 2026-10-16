@@ -145,6 +145,9 @@ const en = {
   "prereq.found": "Found",
   "prereq.missing": "Missing",
   "prereq.install": "Install on {distro}",
+  "prereq.outdated": "Update needed",
+  "prereq.outdatedHint":
+    "Version {version} is too old for the integrated tunnel: install the latest one.",
   "settings.targets": "Targets",
   "settings.targetsLead": "The instances in the configuration file.",
   "settings.noTargets": "No targets yet. Add one from the Instances page.",
@@ -307,6 +310,9 @@ const it: Record<MessageKey, string> = {
   "prereq.found": "Trovato",
   "prereq.missing": "Mancante",
   "prereq.install": "Installazione su {distro}",
+  "prereq.outdated": "Da aggiornare",
+  "prereq.outdatedHint":
+    "La versione {version} è troppo vecchia per il tunnel integrato: installa la più recente.",
   "settings.targets": "Target",
   "settings.targetsLead": "Le istanze nel file di configurazione.",
   "settings.noTargets": "Ancora nessun target. Aggiungine uno dalla pagina Istanze.",
