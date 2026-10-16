@@ -398,6 +398,42 @@ func TestExecuteGuards(t *testing.T) {
 	}
 }
 
+// cancelOnStart cancels the caller's context while the statement runs.
+type cancelOnStart struct {
+	*fakeSQL
+	cancel context.CancelFunc
+	ctxErr error
+}
+
+func (c *cancelOnStart) StartTask(ctx context.Context, stmt, db string) (mssql.Task, error) {
+	c.cancel()
+	c.ctxErr = ctx.Err()
+	return c.fakeSQL.StartTask(ctx, stmt, db)
+}
+
+func TestExecuteFinishesTheStatementWhenTheCallerGoes(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	f := &cancelOnStart{fakeSQL: &fakeSQL{}, cancel: cancel}
+	s := newSession(f.fakeSQL, fakeBucket{"import/sales.bak": 1})
+	s.SQL = f
+	p, err := s.Restore(context.Background(), "sales", "sales.bak", mssql.RestoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := p.Execute(ctx, ExecOptions{Wait: true, Interval: time.Millisecond})
+	if f.ctxErr != nil || task == nil || task.ID != 100 {
+		t.Fatalf("statement context %v, task %+v", f.ctxErr, task)
+	}
+	// The wait stops: the task keeps running.
+	if err == nil || !strings.Contains(err.Error(), "task 100 keeps running") {
+		t.Fatalf("wait: %v", err)
+	}
+	// A context already gone runs nothing.
+	if _, err := p.Execute(ctx, ExecOptions{}); !errors.Is(err, context.Canceled) || len(f.ran) != 1 {
+		t.Fatalf("cancelled before: err %v, ran %v", err, f.ran)
+	}
+}
+
 func TestDigest(t *testing.T) {
 	s := newSession(&fakeSQL{states: map[string]string{"sales": "ONLINE"}}, fakeBucket{})
 	a, _ := s.Export(context.Background(), "sales", "export/a.bak")

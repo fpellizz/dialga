@@ -248,17 +248,23 @@ type ExecOptions struct {
 // Execute runs the plan after checking the confirmation and, with
 // opts.Wait, follows the native task it started. It returns that task, last
 // state read (nil when the operation starts none). A task that ends in ERROR
-// or CANCELLED is not an error: the caller reads its lifecycle. Cancelling
-// ctx while waiting stops the wait, never the task.
+// or CANCELLED is not an error: the caller reads its lifecycle.
+//
+// Once started, the actions run to the end even if ctx ends (the GUI closed
+// the stream, Ctrl-C): a statement cut halfway would leave the instance in
+// doubt. ctx stops the wait, never the task.
 func (p *Prepared) Execute(ctx context.Context, opts ExecOptions) (*mssql.Task, error) {
 	if !p.Ready() {
 		return nil, ErrNotReady
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	emit := opts.OnStep
 	if emit == nil {
 		emit = func(core.Event) {}
 	}
-	if err := p.Plan.Execute(ctx, opts.Confirm, emit); err != nil {
+	if err := p.Plan.Execute(context.WithoutCancel(ctx), opts.Confirm, emit); err != nil {
 		return p.task, err
 	}
 	if p.task == nil || !opts.Wait {
