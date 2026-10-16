@@ -242,6 +242,11 @@ describe("AddInstanceDialog", () => {
     await discover();
     await screen.findByRole("textbox", { name: "S3 bucket" });
     await userEvent.click(screen.getByRole("radio", { name: "Environment variable" }));
+    // The integrated tunnel is the default: a port is asked for an open tunnel only.
+    expect(screen.getByRole("radio", { name: "Integrated tunnel" })).toBeChecked();
+    expect(within(dialog()).queryByRole("textbox", { name: "Local port" })).toBeNull();
+    await userEvent.click(screen.getByRole("radio", { name: "Open tunnel" }));
+    expect(field("Local port")).toHaveValue("11433");
     await userEvent.clear(field("Local port"));
     await userEvent.type(field("Local port"), "70000");
     await userEvent.clear(field("Target name"));

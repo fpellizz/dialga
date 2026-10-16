@@ -171,9 +171,10 @@ const en = {
   "add.mode.direct": "Direct",
   "add.mode.tunnel": "Integrated tunnel",
   "add.modeHint.external":
-    "A tunnel already open on 127.0.0.1, for example with open-dloop-tunnels.sh.",
+    "A tunnel already open on 127.0.0.1, for example with dialga tunnel or open-dloop-tunnels.sh.",
   "add.modeHint.direct": "The RDS endpoint itself, from inside the VPC.",
-  "add.modeHint.tunnel": "Dialga opens the SSM tunnel itself.",
+  "add.modeHint.tunnel":
+    "Recommended: Dialga opens the SSM tunnel through the bridge of the VPC for each operation, and closes it after.",
   "add.localPort": "Local port",
   "add.name": "Target name",
   "add.nameHint": "Lower case letters, digits and -.",
@@ -781,9 +782,10 @@ const it: Record<MessageKey, string> = {
   "add.mode.direct": "Diretta",
   "add.mode.tunnel": "Tunnel integrato",
   "add.modeHint.external":
-    "Un tunnel già aperto su 127.0.0.1, per esempio con open-dloop-tunnels.sh.",
+    "Un tunnel già aperto su 127.0.0.1, per esempio con dialga tunnel o open-dloop-tunnels.sh.",
   "add.modeHint.direct": "L'endpoint RDS stesso, dall'interno della VPC.",
-  "add.modeHint.tunnel": "Dialga apre da sé il tunnel SSM.",
+  "add.modeHint.tunnel":
+    "Consigliato: Dialga apre da sé il tunnel SSM attraverso il bridge della VPC per ogni operazione, e lo chiude alla fine.",
   "add.localPort": "Porta locale",
   "add.name": "Nome del target",
   "add.nameHint": "Lettere minuscole, cifre e -.",
