@@ -63,6 +63,8 @@ type Instance struct {
 	MaxAllocatedGiB int
 	// BackupWindow is the daily automated backup window, UTC (04:29-04:59).
 	BackupWindow string
+	// Class is the DB instance class (db.m6i.large).
+	Class string
 }
 
 // DescribeInstance looks up an RDS DB instance by identifier.
@@ -86,6 +88,7 @@ func DescribeInstance(ctx context.Context, cfg aws.Config, id string) (Instance,
 		AllocatedGiB:    int(aws.ToInt32(db.AllocatedStorage)),
 		MaxAllocatedGiB: int(aws.ToInt32(db.MaxAllocatedStorage)),
 		BackupWindow:    aws.ToString(db.PreferredBackupWindow),
+		Class:           aws.ToString(db.DBInstanceClass),
 	}
 	if inst.Port == 0 {
 		inst.Port = 1433

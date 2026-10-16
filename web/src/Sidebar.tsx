@@ -1,9 +1,9 @@
-import { Activity, Download, Server, Settings, Upload } from "lucide-react";
+import { Activity, Database, Download, Server, Settings, Upload } from "lucide-react";
 import symbolUrl from "./assets/decisyon-symbol.svg";
 import type { EngineInfo } from "./engine";
 import { type MessageKey, useI18n } from "./i18n";
 
-export type Page = "instances" | "settings";
+export type Page = "instances" | "databases" | "settings";
 
 const SOON: { icon: typeof Upload; key: MessageKey }[] = [
   { icon: Upload, key: "nav.import" },
@@ -47,6 +47,10 @@ export function Sidebar({
         <a href="#instances" className="nav-link" aria-current={current("instances")}>
           <Server size={16} className="nav-icon" aria-hidden="true" />
           {t("nav.instances")}
+        </a>
+        <a href="#databases" className="nav-link" aria-current={current("databases")}>
+          <Database size={16} className="nav-icon" aria-hidden="true" />
+          {t("nav.databases")}
         </a>
         {SOON.map(({ icon: Icon, key }) => (
           <span key={key} className="nav-link nav-disabled" aria-disabled="true">

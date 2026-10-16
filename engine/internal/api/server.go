@@ -58,6 +58,11 @@ type Options struct {
 	// (default session.OpenTasks; tests replace it).
 	OpenTasks func(context.Context, config.Target, string) (mssql.TaskReader, func(), error)
 	Log       *slog.Logger
+	// OpenDatabases opens a session to read the databases of a target and
+	// DescribeTarget reads its RDS instance (defaults session.OpenDatabases
+	// and session.DescribeTarget; tests replace them).
+	OpenDatabases  func(context.Context, config.Target, string) (mssql.DatabaseReader, func(), error)
+	DescribeTarget func(context.Context, config.Target) (session.InstanceInfo, error)
 }
 
 // Server is the HTTP API of the engine.
@@ -125,6 +130,12 @@ func New(opts Options) (*Server, error) {
 	}
 	if opts.OpenTasks == nil {
 		opts.OpenTasks = session.OpenTasks
+	}
+	if opts.OpenDatabases == nil {
+		opts.OpenDatabases = session.OpenDatabases
+	}
+	if opts.DescribeTarget == nil {
+		opts.DescribeTarget = session.DescribeTarget
 	}
 	s := &Server{opts: opts, mux: http.NewServeMux()}
 	for _, rt := range s.routes() {

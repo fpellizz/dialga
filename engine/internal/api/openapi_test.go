@@ -86,6 +86,9 @@ func TestOpenAPISchemasMatchTheGoTypes(t *testing.T) {
 		"Done":          {Done{}},
 		"Task":          {mssql.Task{}},
 		"TaskList":      {TaskList{}},
+		"Database":      {mssql.Database{}},
+		"DatabaseList":  {DatabaseList{}},
+		"Overview":      {Overview{}},
 	}
 	schemas := loadSpec(t).Components.Schemas
 	for name, schema := range schemas {

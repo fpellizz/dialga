@@ -138,3 +138,77 @@ export async function checkTarget(
     parse(value);
   }
 }
+
+/** A user database of an instance (sys.databases); sizes in MiB. */
+export interface Database {
+  name: string;
+  /** state_desc: ONLINE, RESTORING, RECOVERING, RECOVERY_PENDING, SUSPECT, EMERGENCY, OFFLINE. */
+  state: string;
+  /** FULL, SIMPLE or BULK_LOGGED. */
+  recovery: string;
+  compatibility: number;
+  /** Absent while the database is offline. */
+  collation?: string;
+  /** Absent when no login has the owner SID. */
+  owner?: string;
+  userAccess: string;
+  readOnly: boolean;
+  /** Server wall-clock time without a zone: 2006-01-02T15:04:05. */
+  createdAt: string;
+  dataMB: number;
+  logMB: number;
+}
+
+/** The user databases of a configured target, by name. */
+export async function listDatabases(
+  engine: EngineInfo,
+  name: string,
+  signal?: AbortSignal,
+): Promise<Database[]> {
+  const response = await fetch(
+    `${engine.url}/api/v1/targets/${encodeURIComponent(name)}/databases`,
+    { headers: authHeaders(engine), signal },
+  );
+  if (!response.ok) {
+    throw await failure(response);
+  }
+  return ((await response.json()) as { databases: Database[] }).databases;
+}
+
+/** GET /api/v1/targets/{name}/overview: the AWS part always, the SQL part when sql is "ok". */
+export interface Overview {
+  target: string;
+  instance: string;
+  status: string;
+  engine: string;
+  engineVersion: string;
+  class: string;
+  allocatedGiB: number;
+  /** Storage autoscaling limit; absent without autoscaling. */
+  maxAllocatedGiB?: number;
+  /** Free storage from CloudWatch; freeError says why it is missing. */
+  freeBytes?: number;
+  freeError?: string;
+  sql: "ok" | "skipped" | "failed";
+  /** Why the SQL part is skipped or failed. */
+  sqlDetail?: string;
+  userDatabases?: number;
+  /** Native tasks queued, running or being cancelled. */
+  activeTasks?: number;
+}
+
+/** The state of a configured target's RDS instance. */
+export async function getOverview(
+  engine: EngineInfo,
+  name: string,
+  signal?: AbortSignal,
+): Promise<Overview> {
+  const response = await fetch(
+    `${engine.url}/api/v1/targets/${encodeURIComponent(name)}/overview`,
+    { headers: authHeaders(engine), signal },
+  );
+  if (!response.ok) {
+    throw await failure(response);
+  }
+  return (await response.json()) as Overview;
+}
