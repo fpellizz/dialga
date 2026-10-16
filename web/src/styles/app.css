@@ -1305,3 +1305,10 @@ th[aria-sort] .sort {
   margin: 0;
   padding-left: 20px;
 }
+a.btn {
+  text-decoration: none;
+}
+.wizard-body p,
+.plan p {
+  margin: 0;
+}

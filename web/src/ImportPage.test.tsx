@@ -334,7 +334,14 @@ describe("ImportPage", () => {
     ).toBeInTheDocument();
     expect(within(result).getByText("SQL users without a login: 1")).toBeInTheDocument();
     const orphans = result.querySelector(".orphan-list") as HTMLElement;
-    expect(within(orphans).getAllByRole("listitem").map((li) => li.textContent)).toEqual(["app_user"]);
+    expect(
+      within(orphans)
+        .getAllByRole("listitem")
+        .map((li) => li.textContent),
+    ).toEqual(["app_user"]);
+    expect(
+      within(result).getByText(/ALTER USER \[app_user\] WITH LOGIN = \[app_user\];/),
+    ).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Open Databases" })).toHaveAttribute(
       "href",
       "#databases/dev-sql",

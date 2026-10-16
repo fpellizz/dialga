@@ -320,6 +320,11 @@ const en = {
   "plan.risk.destructive": "Destructive",
   "plan.dryRun": "Dry run",
   "plan.failed": "The operation did not complete.",
+  "step.plan.source": "Backup in S3",
+  "step.plan.destination": "Destination in S3",
+  "step.plan.database": "Database",
+  "step.plan.task": "Native task",
+  "step.plan.tasks": "Native tasks",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -651,6 +656,11 @@ const it: Record<MessageKey, string> = {
   "plan.risk.destructive": "Distruttiva",
   "plan.dryRun": "Prova a secco",
   "plan.failed": "L'operazione non è stata completata.",
+  "step.plan.source": "Backup in S3",
+  "step.plan.destination": "Destinazione in S3",
+  "step.plan.database": "Database",
+  "step.plan.task": "Task nativo",
+  "step.plan.tasks": "Task nativi",
 };
 
 export const messages: Record<Lang, Record<MessageKey, string>> = { en, it };

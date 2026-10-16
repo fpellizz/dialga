@@ -11,6 +11,7 @@ import {
   folderError,
   formatDuration,
   isAbsolutePath,
+  orphanFixSql,
   parsePaths,
   percentOf,
   previewReady,
@@ -227,6 +228,18 @@ describe("import wizard", () => {
     expect(percentOf(512, 1024)).toBe(50);
     expect(percentOf(5, 0)).toBe(0);
     expect(percentOf(2000, 1024)).toBe(100);
+  });
+
+  it("writes the fix of the orphaned users, with a placeholder password", () => {
+    expect(orphanFixSql("app_db", ["app_user", "odd]name"])).toBe(
+      [
+        "CREATE LOGIN [app_user] WITH PASSWORD = '...';",
+        "CREATE LOGIN [odd]]name] WITH PASSWORD = '...';",
+        "USE [app_db];",
+        "ALTER USER [app_user] WITH LOGIN = [app_user];",
+        "ALTER USER [odd]]name] WITH LOGIN = [odd]]name];",
+      ].join("\n"),
+    );
   });
 
   it("has a message for every error it returns", () => {

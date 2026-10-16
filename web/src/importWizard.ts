@@ -262,3 +262,18 @@ export function formatDuration(seconds: number): string {
 export function percentOf(done: number, total: number): number {
   return total > 0 ? Math.min(100, Math.floor((done / total) * 100)) : 0;
 }
+
+/** [name] with "]" doubled: a T-SQL identifier. */
+function quoteName(name: string): string {
+  return `[${name.replaceAll("]", "]]")}]`;
+}
+
+/**
+ * The statements that give each orphaned user a login, to adapt and run by
+ * hand: the password is a placeholder, never a real one.
+ */
+export function orphanFixSql(database: string, users: readonly string[]): string {
+  const logins = users.map((u) => `CREATE LOGIN ${quoteName(u)} WITH PASSWORD = '...';`);
+  const maps = users.map((u) => `ALTER USER ${quoteName(u)} WITH LOGIN = ${quoteName(u)};`);
+  return [...logins, `USE ${quoteName(database)};`, ...maps].join("\n");
+}

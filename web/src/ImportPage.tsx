@@ -198,6 +198,8 @@ export function ImportPage({
     setFiles(left);
     if (target && left.length > 0) {
       runInspect(left, `${target.name}\n${left.join("\n")}`, target.name);
+      // The button is gone with its backup: the focus goes back to the step.
+      headingRef.current?.focus();
     } else {
       setInspect(NO_INSPECT);
       show("files");

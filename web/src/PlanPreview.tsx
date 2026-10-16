@@ -19,10 +19,11 @@ export function PlanPreview({
   pending?: Record<string, string>;
 }) {
   const { t } = useI18n();
+  // "plan." ids: StepList translates them with the labels of the plan checks.
   const checks: StepEvent[] = preview.checks.map((c) =>
     c.status === "failed" && pending[c.step] !== undefined
-      ? { ...c, status: "skipped", detail: pending[c.step] }
-      : c,
+      ? { ...c, step: `plan.${c.step}`, status: "skipped", detail: pending[c.step] }
+      : { ...c, step: `plan.${c.step}` },
   );
   return (
     <div className="plan">

@@ -17,6 +17,7 @@ import {
   confirmations,
   type Destination,
   formatDuration,
+  orphanFixSql,
   percentOf,
   previewReady,
   restoreRequests,
@@ -596,7 +597,6 @@ function DatabaseResult({
       </section>
     );
   }
-  const orphans = report?.findings.find((f) => f.step === "orphans");
   return (
     <section className="plan" aria-label={title} aria-busy={!report && !error}>
       <h3>{title}</h3>
@@ -623,7 +623,9 @@ function DatabaseResult({
                 ))}
               </ul>
               <p className="hint">{t("import.orphansFix")}</p>
-              {orphans?.detail && <pre className="task-info">{orphans.detail}</pre>}
+              <pre className="task-info">
+                {orphanFixSql(destination.database, report.orphanUsers)}
+              </pre>
             </div>
           )}
           {report.objects.length > 0 && (
