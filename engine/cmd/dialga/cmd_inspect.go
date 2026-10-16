@@ -148,7 +148,7 @@ func (r *inspectReport) finish(res *inspect.Result, runErr error) error {
 func (r *inspectReport) backup(b inspect.Backup) {
 	w := r.w
 	_, _ = fmt.Fprintf(w, "\n%s\n", strings.Join(b.Files, "\n"))
-	line := func(k, v string) { _, _ = fmt.Fprintf(w, "    %-20s %s\n", k, v) }
+	line := func(k, v string) { _, _ = fmt.Fprintln(w, strings.TrimRight(fmt.Sprintf("    %-20s %s", k, v), " ")) }
 	if b.Error != "" {
 		_, _ = fmt.Fprintf(w, "  %s  %s\n", tag(check.Failed, r.color), b.Error)
 	}

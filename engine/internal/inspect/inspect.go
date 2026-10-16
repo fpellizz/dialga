@@ -184,7 +184,7 @@ var (
 	stepFiles     = step{"files", "Database files"}
 	stepVerdict   = step{"verdict", "Verdict"}
 	stepSpace     = step{"space", "Space on the target"}
-	stepCleanup   = step{"cleanup", "Container removed"}
+	stepCleanup   = step{"cleanup", "Cleanup"}
 )
 
 // reporter emits the events of a run. Without a target there is no target,
@@ -306,7 +306,7 @@ func (in *inspector) inspect(ctx context.Context, req Request, emit check.Emitte
 			r.end(stepCleanup, check.Warning, fmt.Sprintf("%v: remove it with %s rm -f %s", err, rt.Name, c.name))
 			return
 		}
-		r.end(stepCleanup, check.OK, c.name)
+		r.end(stepCleanup, check.OK, c.name+" removed")
 	}()
 	disks := make([]mount, len(paths))
 	for i, p := range paths {
