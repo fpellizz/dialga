@@ -9,6 +9,8 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ## [Non rilasciato]
 
+## [0.3.0] - 2026-10-16
+
 ### Aggiunto
 
 - **`dialga import <file.bak>...`**: importa più database come un solo job
@@ -46,6 +48,20 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
   `connect.mode` resta `external`.
 - Le voci **Import**, **Export** e **Activity** della barra laterale non
   sono più disabilitate.
+
+### Sicurezza
+
+- La ripresa di un job viene rifiutata se il target non punta più alla
+  stessa istanza (account, regione e nome) o allo stesso bucket del job
+  registrato. I passaggi ricostruiti rivalidano chiavi S3, nomi dei
+  database e percorsi, e il T-SQL di restore ed export viene rigenerato dai
+  parametri e confrontato con quello registrato. Un job scritto da una
+  build precedente a questo controllo non si può riprendere.
+- Un download senza `--overwrite` non sostituisce mai un file comparso
+  nella destinazione durante il trasferimento.
+- `dialga run` legge piani di al massimo 1 MiB; il prefisso S3 di un job
+  viene validato prima delle chiavi; `POST /api/v1/jobs` accetta corpi
+  fino a 256 KiB (gli altri endpoint restano a 64 KiB).
 
 ## [0.2.0] - 2026-10-16
 
