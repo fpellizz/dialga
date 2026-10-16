@@ -9,9 +9,11 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ## [Non rilasciato]
 
-Prima linea di rilascio: configurazione, controlli in sola lettura,
-tunnel SSM integrato, database dell'istanza, ispezione dei `.bak` e
-monitoraggio dei task nativi, dalla CLI e dall'app desktop Linux.
+Prima linea di rilascio: configurazione guidata, controlli, tunnel SSM
+condiviso, database dell'istanza, ispezione dei `.bak`, trasferimenti su S3
+e operazioni native di restore ed export, dalla CLI e dall'app desktop
+Linux. I wizard Importa ed Esporta, la schermata Activity e la ripresa dei
+job arrivano nella prossima versione.
 
 ### Aggiunto
 
@@ -80,3 +82,68 @@ monitoraggio dei task nativi, dalla CLI e dall'app desktop Linux.
   upload manuale nei Downloads del repository con `SHA256SUMS`),
   `ci/bump-version.sh` e `docs/release.md`.
 - **Documentazione per l'utente**: `docs/guida-utente.md`.
+- **Trasferimenti su S3** (`dialga upload`, `dialga download`): upload
+  multipart con parti dimensionate sul file, ritentativo di ogni parte,
+  checksum CRC64NVME verificato da S3 e rilettura finale dell'oggetto;
+  download per intervalli in un file temporaneo, con controllo dello spazio
+  libero e del checksum. Un oggetto o un file esistente non viene sostituito
+  senza `--overwrite`; i file che non possono partire sono elencati con il
+  motivo e gli altri passano (exit 2). Ctrl-C non lascia nulla (l'upload
+  multipart viene abortito). Il motore sa anche mettere in pausa un upload e
+  completarlo (`ListParts` fa fede), per la futura ripresa dei job.
+- **Operazioni native** (`dialga restore`, `export`, `finish`, `cancel`,
+  `drop`): anteprima per default con controlli preliminari e T-SQL esatto,
+  `--apply` per eseguire, conferma da riscrivere (nome del target se
+  protetto, nome del database per `drop`, `--confirm` senza terminale),
+  impronta del piano, `--norecovery` e `--differential`, `--no-wait`, attesa
+  del task nativo. Ctrl-C ferma l'attesa, mai il task. Exit code 2 se un
+  controllo preliminare fallisce (nulla parte), 3 se il task finisce in
+  `ERROR` o `CANCELLED`.
+- **Report dopo il restore** (`dialga post`): proprietà, file, accesso del
+  login, utenti SQL orfani con i comandi per ricrearne il login, utenti
+  Windows, oggetti per tipo.
+- **Primo avvio**: `dialga config init` (guidato: profilo, regione, istanza
+  trovata nell'account, bucket verificato con `HeadBucket`, login, origine
+  della password, modalità), `config add-target` e `config remove-target`;
+  scritture atomiche con permessi `0600`, versione precedente in `.bak`,
+  mai una password nel file. `dialga doctor` controlla plugin SSM, runtime
+  container, profili AWS e configurazione, senza chiamate AWS, e indica il
+  comando di installazione per la distribuzione.
+- **Tunnel condiviso**: un solo tunnel SSM per target, usato dall'app per
+  panoramica, check, database e operazioni; aperto dall'uso si chiude dopo
+  10 minuti senza utilizzatori, aperto con *Connect* resta aperto fino a
+  *Disconnect*. Un comando singolo della CLI usa sempre una porta libera;
+  `connect.local_port` vale per `dialga tunnel` e per il tunnel dell'app.
+  L'app ferma l'engine con garbo all'uscita, così i tunnel chiudono le
+  sessioni SSM.
+- **App desktop**: azioni sui database (*Export*, *Report*, *Finish
+  restore*, *Drop*) e *Restore from S3*; finestra del piano con anteprima,
+  T-SQL esatto, conferma e avanzamento del task dal vivo; *Cancel* sui task
+  in corso; *Add instance* con ricerca delle istanze; schede
+  *Prerequisites* e *Targets* in Settings; indicatore del tunnel sulla
+  scheda e riepilogo nella barra laterale.
+- **Job e API**: motore dei job multi-database con scheduler, eventi e
+  journal; API per elenco, dettaglio, flusso di eventi e annullamento dei
+  job, per anteprima ed esecuzione dei piani e per i trasferimenti. Non
+  hanno ancora un'interfaccia: la schermata Activity arriva dopo.
+- **Accessibilità**: revisione WCAG 2.2 AA dell'app (finestre, schede di
+  Settings, focus, annunci per gli screen reader) e suggerimenti su cosa
+  fare negli errori.
+
+### Corretto
+
+- **`SIGPIPE` e `SIGTERM` fermano un comando come Ctrl-C** (come `SIGHUP`):
+  la pulizia (tunnel, sessione SSM, upload multipart) avviene anche con una
+  pipe chiusa (`| head`) o con un `kill`.
+- **Avviso sullo spazio libero nel restore**: se il backup occupa più dell'80%
+  dello spazio libero dell'istanza (o più di tutto) il restore avverte che
+  il database ripristinato occupa la somma dei suoi file, non la dimensione
+  del `.bak`.
+
+### Limiti noti
+
+- I trasferimenti sono stati provati solo su MinIO, mai su S3 reale.
+- Il limite di database per classe di istanza non viene controllato.
+- I pacchetti non sono firmati: il checksum protegge solo da un download
+  danneggiato.
+- Upload in pausa e ripresa: nessun comando o pulsante nella v0.2.0.
