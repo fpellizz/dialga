@@ -66,7 +66,8 @@ describe("PlanDialog", () => {
     expect(
       screen.getByText("This drops sales on dev-sql for good: it cannot be undone."),
     ).toBeInTheDocument();
-    expect(confirm).toHaveFocus();
+    // Focused by an effect after the preview renders.
+    await waitFor(() => expect(confirm).toHaveFocus());
     expect(confirm).toHaveAccessibleDescription(
       "This drops sales on dev-sql for good: it cannot be undone.",
     );

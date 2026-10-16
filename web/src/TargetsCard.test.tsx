@@ -101,7 +101,7 @@ describe("TargetsCard", () => {
     ]);
     expect(form).not.toBeInTheDocument();
     expect(screen.queryByText("dev-sql")).toBeNull();
-    expect(screen.getByRole("heading", { name: "Targets" })).toHaveFocus();
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Targets" })).toHaveFocus());
   });
 
   it.each([

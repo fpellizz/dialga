@@ -79,7 +79,7 @@ describe("AddInstanceDialog", () => {
     expect(screen.getByRole("button", { name: "Discover instances" })).toBeDisabled();
     const profile = await within(dialog()).findByRole("combobox", { name: "AWS profile" });
     await waitFor(() => expect(profile).toHaveValue("default"));
-    expect(profile).toHaveFocus();
+    await waitFor(() => expect(profile).toHaveFocus());
     expect(screen.getByRole("button", { name: "Discover instances" })).toBeEnabled();
     expect(
       within(profile)
