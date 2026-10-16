@@ -64,9 +64,6 @@ func (a *app) targetDatabases(ctx context.Context, target string) (string, confi
 	if err != nil {
 		return "", config.Target{}, nil, nil, err
 	}
-	if t.Connect.Mode == config.ModeTunnel {
-		return "", config.Target{}, nil, nil, config.ErrTunnelNotYet
-	}
 	password, err := a.sqlPassword(t)
 	if err != nil {
 		return "", config.Target{}, nil, nil, fmt.Errorf("SQL password: %w", err)

@@ -46,6 +46,8 @@ func TestParseErrors(t *testing.T) {
 		{"missing account", strings.Replace(validDoc, `account_id: "123456789012"`, `account_id: ""`, 1), "account_id"},
 		{"bad mode", strings.Replace(validDoc, "mode: external", "mode: vpn", 1), "connect.mode"},
 		{"external without port", strings.Replace(validDoc, ", local_port: 11433", "", 1), "local_port"},
+		{"bad bridge tag", strings.Replace(validDoc, "mode: external, local_port: 11433", `mode: tunnel, bridge_tag: "a,b"`, 1), "connect.bridge_tag"},
+		{"tunnel bad port", strings.Replace(validDoc, "mode: external, local_port: 11433", "mode: tunnel, local_port: -1", 1), "connect.local_port"},
 		{"bad password source", strings.Replace(validDoc, "user: admin", "user: admin, password: hunter2", 1), "sql.password"},
 		{"upper case name", strings.Replace(validDoc, "dev-sql:", "Dev:", 1), "name must be"},
 		{"bad bucket", strings.Replace(validDoc, "dev-sqlserver-backups", "Bad_Bucket", 1), "bucket"},
@@ -58,6 +60,15 @@ func TestParseErrors(t *testing.T) {
 				t.Fatalf("Parse() error = %v, want it to mention %q", err, tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestParseTunnelMode(t *testing.T) {
+	for _, connect := range []string{"mode: tunnel", "mode: tunnel, local_port: 41433, bridge_tag: my-bridge"} {
+		doc := strings.Replace(validDoc, "mode: external, local_port: 11433", connect, 1)
+		if _, err := Parse([]byte(doc)); err != nil {
+			t.Fatalf("connect { %s }: %v", connect, err)
+		}
 	}
 }
 

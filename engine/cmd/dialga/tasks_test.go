@@ -134,10 +134,13 @@ func TestWaitBadArguments(t *testing.T) {
 			t.Fatalf("%v: code %d, opened %v", args, code, *opened)
 		}
 	}
-	tunnel, _, _ := testApp(t, strings.Replace(testConfig, "mode: external", "mode: tunnel", 1))
-	withTasks(tunnel, &fakeTasks{})
-	if code, _, errOut := run(tunnel, "wait", "5"); code != exitFailure || !strings.Contains(errOut, "v0.4") {
-		t.Fatalf("tunnel: code %d, stderr %q", code, errOut)
+}
+
+func TestStatusTunnelMode(t *testing.T) {
+	a, _, _ := testApp(t, strings.Replace(testConfig, "mode: external", "mode: tunnel", 1))
+	opened, password := withTasks(a, &fakeTasks{list: sampleTasks})
+	if code, out, _ := run(a, "status"); code != 0 || !*opened || *password != "s3cret" || !strings.Contains(out, "RESTORE_DB") {
+		t.Fatalf("code %d, opened %v, out %q", code, *opened, out)
 	}
 }
 

@@ -117,7 +117,7 @@ func TestListDatabasesErrors(t *testing.T) {
 		{"unknown target", &doc, env, &fakeDatabases{}, "/api/v1/targets/nope/databases", http.StatusNotFound},
 		{"missing config", nil, env, &fakeDatabases{}, "/api/v1/targets/dev-sql/databases", http.StatusConflict},
 		{"no password", &doc, nil, &fakeDatabases{}, "/api/v1/targets/dev-sql/databases", http.StatusUnprocessableEntity},
-		{"tunnel mode", &tunnel, env, &fakeDatabases{}, "/api/v1/targets/dev-sql/databases", http.StatusUnprocessableEntity},
+		{"tunnel mode", &tunnel, env, &fakeDatabases{}, "/api/v1/targets/dev-sql/databases", http.StatusOK},
 		{"session fails", &doc, env, &fakeDatabases{openErr: errors.New("nothing listening")}, "/api/v1/targets/dev-sql/databases", http.StatusBadGateway},
 		{"query fails", &doc, env, &fakeDatabases{queryErr: errors.New("permission denied")}, "/api/v1/targets/dev-sql/databases", http.StatusBadGateway},
 	}
@@ -182,9 +182,10 @@ func TestOverviewWithoutPasswordIsPartial(t *testing.T) {
 
 func TestOverviewSQLSkippedOrFailed(t *testing.T) {
 	env := map[string]string{"TEST_SQL_PASSWORD": "s3cret"}
+	// connect.mode tunnel reads SQL through the integrated tunnel like the others.
 	tunnel := strings.Replace(testConfig, "mode: external", "mode: tunnel", 1)
 	h := newDatabasesServer(t, &tunnel, env, &fakeDatabases{}, fakeDescribe{info: sampleInstance})
-	if o, _ := getOverview(t, h); o.SQL != overviewSQLSkipped || !strings.Contains(o.SQLDetail, "v0.4") {
+	if o, _ := getOverview(t, h); o.SQL != "ok" {
 		t.Fatalf("tunnel: %+v", o)
 	}
 	doc := testConfig

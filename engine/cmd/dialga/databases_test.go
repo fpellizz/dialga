@@ -107,9 +107,10 @@ func TestDatabasesEmptyAndErrors(t *testing.T) {
 	if code, _, _ := run(unknown, "databases", "nope"); code != exitFailure || *opened {
 		t.Fatalf("unknown target: code %d, opened %v", code, *opened)
 	}
+	// connect.mode tunnel opens the integrated tunnel through the session.
 	tunnel, _, _ := testApp(t, strings.Replace(testConfig, "mode: external", "mode: tunnel", 1))
 	opened, _ = withCatalog(tunnel, fakeCatalog{})
-	if code, _, errOut := run(tunnel, "databases"); code != exitFailure || *opened || !strings.Contains(errOut, "v0.4") {
+	if code, _, errOut := run(tunnel, "databases"); code != 0 || !*opened {
 		t.Fatalf("tunnel: code %d, opened %v, stderr %q", code, *opened, errOut)
 	}
 }

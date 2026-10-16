@@ -81,14 +81,16 @@ paths:
         "404": { $ref: "#/components/responses/UnknownTarget" }
         "409": { $ref: "#/components/responses/NoConfiguration" }
         "422":
-          description: The target cannot be checked yet (connect.mode tunnel).
+          description: The target cannot be checked (invalid connection values).
           content:
             text/plain:
               schema: { type: string }
   /api/v1/targets/{name}/tasks:
     get:
       summary: The native backup/restore tasks of a target, newest first
-      description: Each call opens its own SQL session; RDS keeps 36 days of history.
+      description: |
+        Each call opens its own SQL session (with connect.mode tunnel, its own
+        SSM tunnel too); RDS keeps 36 days of history.
       parameters:
         - $ref: "#/components/parameters/TargetName"
         - name: db
@@ -115,7 +117,7 @@ paths:
         "404": { $ref: "#/components/responses/UnknownTarget" }
         "409": { $ref: "#/components/responses/NoConfiguration" }
         "422":
-          description: No SQL password in the engine environment, or connect.mode tunnel.
+          description: No SQL password in the engine environment.
           content:
             text/plain:
               schema: { type: string }
@@ -144,7 +146,7 @@ paths:
         "404": { $ref: "#/components/responses/UnknownTarget" }
         "409": { $ref: "#/components/responses/NoConfiguration" }
         "422":
-          description: No SQL password in the engine environment, or connect.mode tunnel.
+          description: No SQL password in the engine environment.
           content:
             text/plain:
               schema: { type: string }
@@ -160,7 +162,7 @@ paths:
         The instance as AWS describes it (status, engine, class, storage, free
         space from CloudWatch) and, when a SQL session opens, its user
         databases and unfinished native tasks. The AWS part needs no SQL
-        password: without one (or with connect.mode tunnel) sql is "skipped",
+        password: without one sql is "skipped",
         and a SQL failure comes back as sql "failed", both with sqlDetail.
       parameters:
         - $ref: "#/components/parameters/TargetName"
@@ -233,7 +235,7 @@ components:
         bucket: { type: string }
         sqlUser: { type: string }
         connectMode: { type: string, enum: [external, direct, tunnel] }
-        localPort: { type: integer, description: Port of the open tunnel (external mode). }
+        localPort: { type: integer, description: "Port of the open tunnel (external mode), or of the integrated one (tunnel mode; absent: a free port)." }
         protected: { type: boolean, description: Every change asks to retype the target name. }
     TargetList:
       type: object
@@ -334,7 +336,7 @@ components:
         sql:
           type: string
           enum: [ok, skipped, failed]
-          description: skipped without a SQL password or with connect.mode tunnel.
+          description: skipped without a SQL password in the engine environment.
         sqlDetail: { type: string, description: Why the SQL part is skipped or failed. }
         userDatabases: { type: integer, description: Present when sql is ok. }
         activeTasks: { type: integer, description: Native tasks queued, running or being cancelled; present when sql is ok. }

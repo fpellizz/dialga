@@ -29,7 +29,7 @@ type DatabaseList struct {
 // What the SQL part of an overview did.
 const (
 	overviewSQLOK      = "ok"
-	overviewSQLSkipped = "skipped" // no password, or connect.mode tunnel
+	overviewSQLSkipped = "skipped" // no SQL password in the engine environment
 	overviewSQLFailed  = "failed"  // the session or the query failed
 )
 
@@ -84,10 +84,6 @@ func (s *Server) databaseTarget(w http.ResponseWriter, r *http.Request) (string,
 func (s *Server) listDatabases(w http.ResponseWriter, r *http.Request) {
 	name, t, ok := s.databaseTarget(w, r)
 	if !ok {
-		return
-	}
-	if t.Connect.Mode == config.ModeTunnel {
-		http.Error(w, config.ErrTunnelNotYet.Error(), http.StatusUnprocessableEntity)
 		return
 	}
 	password, err := session.PasswordFromEnv(t, s.opts.Getenv)
@@ -152,9 +148,6 @@ func (s *Server) targetOverview(w http.ResponseWriter, r *http.Request) {
 
 // overviewSQL fills the SQL fields of an overview.
 func (s *Server) overviewSQL(ctx context.Context, name string, t config.Target) Overview {
-	if t.Connect.Mode == config.ModeTunnel {
-		return Overview{SQL: overviewSQLSkipped, SQLDetail: config.ErrTunnelNotYet.Error()}
-	}
 	password, err := session.PasswordFromEnv(t, s.opts.Getenv)
 	if err != nil {
 		return Overview{SQL: overviewSQLSkipped, SQLDetail: "SQL password: " + err.Error()}

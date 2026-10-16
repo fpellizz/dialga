@@ -19,8 +19,9 @@ func (a *app) checkCmd() *cobra.Command {
 		Use:   "check [target]",
 		Short: "Run the read-only pre-flight checks of a target",
 		Long: `Run the read-only pre-flight checks of a target: AWS credentials and
-account, RDS instance, connection (tunnel or direct), SQL Server login with
-the certificate verified, databases and native backup tasks.
+account, RDS instance, connection (open tunnel, integrated SSM tunnel or
+direct), SQL Server login with the certificate verified, databases and
+native backup tasks.
 
 Exit status: 0 all checks passed, 2 some check failed, 1 error.`,
 		Args: cobra.MaximumNArgs(1),

@@ -49,6 +49,7 @@ type app struct {
 	runCheck         func(context.Context, check.Request, string, check.Emitter) bool
 	openTasks        func(context.Context, config.Target, string) (mssql.TaskReader, func(), error)
 	openDatabases    func(context.Context, config.Target, string) (mssql.DatabaseReader, func(), error)
+	openTunnel       tunnelOpener // nil: openTunnel
 }
 
 func main() {

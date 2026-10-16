@@ -65,6 +65,8 @@ type Instance struct {
 	BackupWindow string
 	// Class is the DB instance class (db.m6i.large).
 	Class string
+	// VPC of the instance (its DB subnet group): the tunnel bridge is there.
+	VPC string
 }
 
 // DescribeInstance looks up an RDS DB instance by identifier.
@@ -92,6 +94,9 @@ func DescribeInstance(ctx context.Context, cfg aws.Config, id string) (Instance,
 	}
 	if inst.Port == 0 {
 		inst.Port = 1433
+	}
+	if db.DBSubnetGroup != nil {
+		inst.VPC = aws.ToString(db.DBSubnetGroup.VpcId)
 	}
 	if len(db.OptionGroupMemberships) > 0 {
 		inst.OptionGroup = aws.ToString(db.OptionGroupMemberships[0].OptionGroupName)

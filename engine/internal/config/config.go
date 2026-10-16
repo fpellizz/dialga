@@ -14,6 +14,7 @@
 //	    max_tasks: 2
 //	    sql: { user: admin, password: prompt }   # prompt | env:VAR | keyring | secretsmanager:<arn>
 //	    connect: { mode: external, local_port: 11433 }  # external | direct | tunnel
+//	    # tunnel: { mode: tunnel, local_port: 0, bridge_tag: ssm-bridge }  (0: a free port)
 //
 // Unknown keys are errors, so a typo never silently falls back to a default.
 // Passwords are never stored here, only where to find them.
@@ -43,12 +44,10 @@ const (
 	ModeExternal = "external"
 	// ModeDirect connects to the RDS endpoint itself (inside the VPC).
 	ModeDirect = "direct"
-	// ModeTunnel opens the SSM tunnel from the engine (v0.4).
+	// ModeTunnel opens the SSM tunnel from the engine, through the instance
+	// tagged Name=bridge_tag (default ssm-bridge) in the VPC of the target.
 	ModeTunnel = "tunnel"
 )
-
-// ErrTunnelNotYet rejects ModeTunnel until the engine opens the tunnel itself.
-var ErrTunnelNotYet = errors.New("connect.mode tunnel arrives in v0.4: open the tunnel yourself and use mode external")
 
 // Password source kinds (see SQL.Password).
 const (
@@ -115,6 +114,7 @@ var (
 	loginPattern      = regexp.MustCompile(`^[A-Za-z0-9._@-]{1,128}$`)
 	envNamePattern    = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	secretARNPattern  = regexp.MustCompile(`^arn:aws[a-z-]*:secretsmanager:[a-z0-9-]+:[0-9]{12}:secret:[A-Za-z0-9/_+=.@-]+$`)
+	bridgeTagPattern  = regexp.MustCompile(`^[A-Za-z0-9 _.:/=+@-]{1,255}$`)
 )
 
 // DefaultPath is <user config dir>/dialga/config.yaml:
@@ -259,6 +259,8 @@ func (t *Target) validate() error {
 	case ModeDirect:
 	case ModeTunnel:
 		check(t.Connect.LocalPort >= 0 && t.Connect.LocalPort <= 65535, "invalid connect.local_port %d", t.Connect.LocalPort)
+		check(t.Connect.BridgeTag == "" || bridgeTagPattern.MatchString(t.Connect.BridgeTag),
+			"invalid connect.bridge_tag %q (the Name tag of the bridge instance)", t.Connect.BridgeTag)
 	default:
 		errs = append(errs, fmt.Errorf("connect.mode must be external, direct or tunnel (got %q)", t.Connect.Mode))
 	}
