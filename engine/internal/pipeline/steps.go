@@ -14,6 +14,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 
 	"github.com/decisyon/dialga/engine/internal/check"
+	"github.com/decisyon/dialga/engine/internal/core"
 	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/ops"
@@ -116,6 +117,18 @@ func (p UploadParams) step(env Env, title string, from *jobs.UploadState) jobs.S
 // (jobs, Item.Checksum): the transfer steps fill it when it is there.
 type checksummer interface {
 	Checksum(algorithm, value string, verified bool, note string)
+}
+
+// replacer is a Reporter that records the outcome of a replace on the item
+// (jobs.Item.Replace).
+type replacer interface {
+	Replace(core.ReplaceOutcome)
+}
+
+func reportReplace(r jobs.Reporter, o *core.ReplaceOutcome) {
+	if rr, ok := r.(replacer); ok && o != nil {
+		rr.Replace(*o)
+	}
 }
 
 func reportChecksum(r jobs.Reporter, res transfer.Result) {
@@ -263,6 +276,9 @@ type SQLParams struct {
 	// to To when it fails (see ops.Session.Rename).
 	To       string `json:"to,omitempty"`
 	Fallback string `json:"fallback,omitempty"`
+	// Outcome is what the item has kept once the step succeeded; it only
+	// reaches the item (jobs.Item.Replace), it changes no statement.
+	Outcome *core.ReplaceOutcome `json:"outcome,omitempty"`
 }
 
 // expected is the statement the parameters build, for a resume to compare.
@@ -288,17 +304,23 @@ func (p SQLParams) Step(env Env, id, title string) jobs.Step {
 			return "", err
 		}
 		defer closeOps()
+		var detail string
 		switch p.Op {
 		case ops.StepDrop:
-			return sess.DropExisting(ctx, p.Database)
+			detail, err = sess.DropExisting(ctx, p.Database)
 		case ops.StepSingleUser:
-			return sess.SingleUser(ctx, p.Database)
+			detail, err = sess.SingleUser(ctx, p.Database)
 		case ops.StepMultiUser:
-			return sess.MultiUser(ctx, p.Database)
+			detail, err = sess.MultiUser(ctx, p.Database)
 		case ops.StepRename:
-			return sess.Rename(ctx, p.Database, p.To, p.Fallback)
+			detail, err = sess.Rename(ctx, p.Database, p.To, p.Fallback)
+		default:
+			err = fmt.Errorf("unknown statement step %q", p.Op)
 		}
-		return "", fmt.Errorf("unknown statement step %q", p.Op)
+		if err == nil {
+			reportReplace(r, p.Outcome)
+		}
+		return detail, err
 	}), KindSQL, p)
 }
 
@@ -308,6 +330,8 @@ type PostParams struct {
 	// Note, for a replace, is what it kept (the old database, the backup):
 	// it goes in the result of the item.
 	Note string `json:"note,omitempty"`
+	// Outcome is what the replace kept, for jobs.Item.Replace.
+	Outcome *core.ReplaceOutcome `json:"outcome,omitempty"`
 }
 
 // Step reads the report: a failed finding (not online, the login cannot
@@ -346,6 +370,7 @@ func (p PostParams) Step(env Env) jobs.Step {
 		if p.Note != "" {
 			result += ". " + p.Note
 		}
+		reportReplace(r, p.Outcome)
 		r.Result(result)
 		return detail, nil
 	}), KindPost, p)

@@ -1375,6 +1375,14 @@ components:
         preview: { type: string, description: The dry-run text, as the CLI prints it. }
         request: { $ref: "#/components/schemas/PlanRequest" }
         replace: { $ref: "#/components/schemas/Replacement" }
+    ReplaceOutcome:
+      type: object
+      description: What a restore over an existing database did or kept, as far as it got (also on jobs.Item as replace).
+      required: [strategy]
+      properties:
+        strategy: { type: string, enum: [swap, drop] }
+        oldDatabase: { type: string, description: Swap - the old database kept, <db>_old_<stamp>; set once the rename is done. }
+        backupKey: { type: string, description: Drop with backup - the S3 key of the safety backup; set once it is done. }
     Replacement:
       type: object
       description: |
@@ -1399,6 +1407,7 @@ components:
         error: { type: string }
         task: { $ref: "#/components/schemas/Task" }
         result: { type: string, description: What a replace kept - the old database or the safety backup. }
+        replace: { $ref: "#/components/schemas/ReplaceOutcome" }
     DatabaseInfo:
       type: object
       required: [name, state, recoveryModel, compatibilityLevel, userAccess, readOnly]
@@ -1624,6 +1633,7 @@ components:
           description: The database stopped (cancel, interrupt) while its native task still ran on the instance.
         upload: { $ref: "#/components/schemas/MultipartUpload" }
         checksum: { $ref: "#/components/schemas/JobChecksum" }
+        replace: { $ref: "#/components/schemas/ReplaceOutcome" }
         error: { type: string }
         result: { type: string }
     JobChecksum:
@@ -1893,6 +1903,7 @@ components:
         actions:
           type: array
           items: { $ref: "#/components/schemas/PlanAction" }
+        replace: { $ref: "#/components/schemas/Replacement" }
         uploads:
           type: array
           description: Import - the files as the upload plans them.

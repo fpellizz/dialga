@@ -275,6 +275,9 @@ func TestExecuteSwap(t *testing.T) {
 	if f.states["sales"] != "ONLINE" || f.states["sales_old_20261016091500"] != "ONLINE" || f.states["sales_dialga_new_20261016091500"] != "" {
 		t.Fatalf("states %v", f.states)
 	}
+	if o := p.Outcome(); o == nil || o.Strategy != "swap" || o.OldDatabase != "sales_old_20261016091500" || o.BackupKey != "" {
+		t.Fatalf("outcome %+v", o)
+	}
 	if !strings.Contains(p.Result(), "kept as sales_old_20261016091500") {
 		t.Fatalf("result %q", p.Result())
 	}

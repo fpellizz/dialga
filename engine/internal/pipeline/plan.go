@@ -95,6 +95,9 @@ type ItemPlan struct {
 	Skipped bool          `json:"skipped,omitempty"`
 	Checks  []check.Event `json:"checks"`
 	Actions []core.Action `json:"actions"`
+	// Replace says how the item replaces the existing database (strategy,
+	// names, the safety backup); absent otherwise.
+	Replace *ops.Replacement `json:"replace,omitempty"`
 	// Uploads are the files of an import as the upload plans them, and
 	// Rejected those it refuses, with the reason.
 	Uploads  []transfer.Item      `json:"uploads,omitempty"`
@@ -310,6 +313,7 @@ func (b *builder) importItem(ctx context.Context, in ImportItem) error {
 // the upload: the ones ops planned, as actions and as job steps.
 func (b *builder) replaceItem(it *ItemPlan, upload UploadParams, prep *ops.Prepared) {
 	r := prep.Replace
+	it.Replace = r
 	b.plan.Stamp = r.Stamp
 	it.replaceDB = append(it.replaceDB, prep.Params.Database)
 	if len(upload.Files) > 0 {
@@ -329,9 +333,18 @@ func (b *builder) replaceItem(it *ItemPlan, upload UploadParams, prep *ops.Prepa
 			a.ID = st.ID
 			step = WaitParams{What: st.What, ID: st.ID}.Step(b.env)
 		case ops.StepPost:
-			step = PostParams{Database: st.Database, Note: r.Result}.Step(b.env)
+			step = PostParams{Database: st.Database, Note: r.Result, Outcome: &core.ReplaceOutcome{
+				Strategy: r.Strategy, OldDatabase: r.Old, BackupKey: r.BackupKey}}.Step(b.env)
 		default:
-			step = SQLParams{Op: st.Op, Statement: st.Statement, Database: st.Database, To: st.To, Fallback: st.Fallback}.Step(b.env, st.ID, st.Title)
+			sp := SQLParams{Op: st.Op, Statement: st.Statement, Database: st.Database, To: st.To, Fallback: st.Fallback}
+			// the step that keeps something says so as soon as it succeeds
+			switch st.ID {
+			case "rename-old":
+				sp.Outcome = &core.ReplaceOutcome{Strategy: r.Strategy, OldDatabase: r.Old}
+			case "drop":
+				sp.Outcome = &core.ReplaceOutcome{Strategy: r.Strategy, BackupKey: r.BackupKey}
+			}
+			step = sp.Step(b.env, st.ID, st.Title)
 		}
 		it.Actions = append(it.Actions, a)
 		it.steps = append(it.steps, step)

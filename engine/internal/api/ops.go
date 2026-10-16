@@ -108,6 +108,9 @@ type PlanDone struct {
 	Task *mssql.Task `json:"task,omitempty"`
 	// Result is what a replace kept: the old database or the safety backup.
 	Result string `json:"result,omitempty"`
+	// Replace is the structured outcome of a replace: strategy, the old
+	// database a swap kept, the safety backup a drop took (as far as it got).
+	Replace *core.ReplaceOutcome `json:"replace,omitempty"`
 }
 
 // readBody decodes a small JSON body, rejecting unknown fields.
@@ -282,7 +285,7 @@ func (s *Server) executePlan(w http.ResponseWriter, r *http.Request) {
 			s.opts.Log.Warn("plan: reading the task failed, retrying", "target", name, "err", err)
 		},
 	})
-	done := PlanDone{OK: err == nil, Task: task}
+	done := PlanDone{OK: err == nil, Task: task, Replace: prep.Outcome()}
 	if err != nil {
 		done.Error = err.Error()
 	} else if task != nil && !req.NoWait && task.Lifecycle != mssql.Success {

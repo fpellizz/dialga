@@ -222,6 +222,8 @@ type Prepared struct {
 	exec    ExecOptions
 	waitCtx context.Context
 	dropped bool
+	// keptOld and backedUp say what the replace has kept so far (Outcome).
+	keptOld, backedUp bool
 }
 
 // Result is the line to show once the plan ran: what a replace kept (the old
