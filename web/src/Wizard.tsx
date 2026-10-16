@@ -42,7 +42,7 @@ export function Wizard({
   /** The earlier steps cannot be reopened (while something runs). */
   locked?: boolean;
   busy?: boolean;
-  titleRef?: RefObject<HTMLHeadingElement | null>;
+  titleRef?: RefObject<HTMLHeadingElement>;
   footer?: ReactNode;
   children: ReactNode;
 }) {

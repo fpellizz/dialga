@@ -1147,69 +1147,7 @@ th[aria-sort] .sort {
 
 /* Import wizard */
 .import-target {
-  min-width: 240px;
-}
-.wizard {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.wizard-steps {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 16px;
-  margin: 0;
-  padding: 0 0 12px;
-  border-bottom: 1px solid var(--border);
-  list-style: none;
-  counter-reset: none;
-}
-.wizard-steps li {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--muted-foreground);
-  font-weight: 500;
-}
-.wizard-steps li.current {
-  color: var(--foreground);
-}
-.wizard-dot {
-  display: inline-grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-full);
-  font-size: 11px;
-}
-.wizard-steps li.current .wizard-dot {
-  border-color: var(--primary);
-  background: var(--primary);
-  color: var(--primary-foreground);
-}
-.wizard-steps li.done .wizard-dot {
-  border-color: var(--primary);
-  color: var(--primary);
-}
-.wizard-title:focus {
-  outline: none;
-}
-.wizard-body {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.wizard-nav {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-.wizard-nav .btn-primary {
-  order: 10;
+  max-width: 420px;
 }
 .dropzone {
   display: flex;

@@ -19,7 +19,7 @@ test("walks the import wizard up to the first error: a file that is not there", 
   await expect(page.getByLabel("Instance")).toHaveValue("e2e-fake");
 
   // 1. Files: a relative path is refused in the page, before the engine.
-  await expect(page.getByRole("heading", { level: 2, name: "Files" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 2, name: "Step 1 of 6: Files" })).toBeVisible();
   const next = page.getByRole("button", { name: "Next" });
   await expect(next).toBeDisabled();
   const paths = page.getByLabel("File paths");
@@ -34,7 +34,7 @@ test("walks the import wizard up to the first error: a file that is not there", 
 
   // 2. Verify: the engine checks the path before starting any container.
   await next.click();
-  const verify = page.getByRole("heading", { level: 2, name: "Verify" });
+  const verify = page.getByRole("heading", { level: 2, name: "Step 2 of 6: Verify" });
   await expect(verify).toBeVisible();
   await expect(verify).toBeFocused();
   await expect(page.getByRole("alert")).toContainText(
@@ -44,7 +44,7 @@ test("walks the import wizard up to the first error: a file that is not there", 
   await expect(page.getByRole("button", { name: "Next" })).toBeDisabled();
 
   // Back to the files, the list is still there.
-  await page.getByRole("button", { name: "Back" }).click();
-  await expect(page.getByRole("heading", { level: 2, name: "Files" })).toBeFocused();
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 2, name: "Step 1 of 6: Files" })).toBeFocused();
   await expect(page.getByText("/nonexistent/dialga-e2e/app_db.bak")).toBeVisible();
 });
