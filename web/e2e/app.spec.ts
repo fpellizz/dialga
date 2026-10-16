@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import { BROKEN, configPath, FAKE_TARGET, removeConfig, TWO_TARGETS, writeConfig } from "./config";
 import { expect, test } from "./fixtures";
 
@@ -176,4 +177,67 @@ test("shows why the databases cannot be listed, per target", async ({ page }) =>
   await page.reload();
   await expect(target).toHaveValue("e2e-env");
   await expect(banner.locator(".banner-text")).toHaveText(/dialga-e2e-missing/);
+});
+
+test("starts the first target from the empty state, as far as AWS lets it", async ({ page }) => {
+  await page.goto("/");
+  const empty = page.getByRole("status").filter({ hasText: "No instances yet" });
+  await empty.getByRole("button", { name: "Add instance" }).click();
+  const dialog = page.getByRole("dialog", { name: "Add instance" });
+  await expect(dialog).toBeVisible();
+
+  // The engine's AWS configuration is empty: no profiles to choose from.
+  const profile = dialog.getByRole("textbox", { name: "AWS profile" });
+  await expect(profile).toBeEnabled();
+  await expect(profile).toBeFocused();
+  await expect(dialog.getByText(/No AWS profiles on this computer/)).toBeVisible();
+
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(dialog.getByText("Choose an AWS profile.")).toBeVisible();
+  await expect(dialog.getByText("Check the highlighted fields.")).toBeVisible();
+
+  await profile.fill("dialga-e2e-missing");
+  await dialog.getByRole("button", { name: "Discover instances" }).click();
+  await expect(dialog.getByRole("alert").first()).toContainText("dialga-e2e-missing");
+
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(empty.getByRole("button", { name: "Add instance" })).toBeFocused();
+});
+
+test("checks the prerequisites and removes a target after its name is retyped", async ({
+  page,
+}) => {
+  await writeConfig(TWO_TARGETS);
+  await page.goto("/#settings");
+  // What is installed depends on the machine: two programs, each found or not.
+  const prereqs = page.getByRole("region", { name: "Prerequisites" });
+  await expect(prereqs.getByRole("listitem")).toHaveCount(2);
+  await expect(prereqs.locator(".badge")).toHaveCount(2);
+
+  const targets = page.getByRole("region", { name: "Targets" });
+  await expect(targets.getByRole("listitem")).toHaveCount(2);
+
+  // Escape gives the focus back to the button that asked.
+  const removeFake = targets.getByRole("button", { name: "Remove e2e-fake" });
+  await removeFake.click();
+  await expect(targets.getByRole("textbox", { name: "Target name" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(targets.getByRole("form")).toHaveCount(0);
+  await expect(removeFake).toBeFocused();
+
+  await targets.getByRole("button", { name: "Remove e2e-env" }).click();
+  const confirm = targets.getByRole("button", { name: "Remove target" });
+  await targets.getByRole("textbox", { name: "Target name" }).fill("e2e-en");
+  await expect(confirm).toBeDisabled();
+  await targets.getByRole("textbox", { name: "Target name" }).fill("e2e-env");
+  await confirm.click();
+
+  await expect(targets.getByRole("status")).toHaveText("Target e2e-env removed.");
+  await expect(targets.getByRole("listitem")).toHaveCount(1);
+  await expect(targets.getByRole("heading", { name: "Targets" })).toBeFocused();
+  // The engine rewrote the file: e2e-fake stays, e2e-env is gone.
+  const text = await readFile(configPath(), "utf8");
+  expect(text).toContain("e2e-fake:");
+  expect(text).not.toContain("e2e-env:");
 });

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { TargetList } from "./api";
 import { InstancesPage } from "./InstancesPage";
-import { CONFIG_PATH, DEV, LAB, overview, PROD, renderI18n } from "./test/fixtures";
+import { CONFIG_PATH, DEV, discovered, LAB, overview, PROD, renderI18n } from "./test/fixtures";
 import { ENGINE, json, mockFetch, requestsTo, sseStream, text } from "./test/http";
 
 const TARGETS = "GET /api/v1/targets";
@@ -250,5 +250,73 @@ describe("InstancesPage", () => {
     await waitFor(() =>
       expect(within(dev).queryByText("No native tasks in the last 36 days.")).toBeNull(),
     );
+  });
+
+  describe("add instance", () => {
+    /** The first run: no targets, then the one the dialog saves. */
+    function firstRun() {
+      return mockFetch({
+        [TARGETS]: (_req, call) =>
+          json({ configPath: CONFIG_PATH, targets: call === 0 ? [] : [DEV] }),
+        "GET /api/v1/discovery/profiles": () => json({ profiles: [{ name: "default" }] }),
+        "GET /api/v1/discovery/instances": () =>
+          json({
+            profile: "default",
+            region: "us-east-1",
+            accountId: DEV.accountId,
+            instances: [discovered("dev-sql")],
+          }),
+        "POST /api/v1/config/targets": () => json(DEV, 201),
+        ...OVERVIEWS,
+      });
+    }
+
+    it("saves the first target from the empty state and shows its card", async () => {
+      const fetch = firstRun();
+      renderI18n(<InstancesPage engine={ENGINE} engineError="" />);
+      const empty = await screen.findByRole("status");
+      // The header offers Add only once there is a list to add to.
+      expect(
+        within(screen.getByRole("banner")).queryByRole("button", { name: "Add instance" }),
+      ).toBeNull();
+
+      await userEvent.click(within(empty).getByRole("button", { name: "Add instance" }));
+      const dialog = screen.getByRole("dialog", { name: "Add instance" });
+      await within(dialog).findByRole("combobox", { name: "AWS profile" });
+      await userEvent.click(within(dialog).getByRole("button", { name: "Discover instances" }));
+      await userEvent.type(
+        await within(dialog).findByRole("textbox", { name: "S3 bucket" }),
+        DEV.bucket,
+      );
+      await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+      const confirmation = await screen.findByText("Target dev-sql saved. Run check to verify it.");
+      expect(confirmation).toHaveFocus();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(await screen.findByRole("region", { name: "dev-sql" })).toBeInTheDocument();
+      expect(requestsTo(fetch, TARGETS)).toHaveLength(2);
+      expect(screen.queryByText("No instances yet")).toBeNull();
+      expect(
+        within(screen.getByRole("banner")).getByRole("button", { name: "Add instance" }),
+      ).toBeEnabled();
+    });
+
+    it("closes the dialog without saving", async () => {
+      const fetch = firstRun();
+      renderI18n(<InstancesPage engine={ENGINE} engineError="" />);
+      const add = within(await screen.findByRole("status")).getByRole("button", {
+        name: "Add instance",
+      });
+      await userEvent.click(add);
+      const dialog = screen.getByRole("dialog", { name: "Add instance" });
+      await within(dialog).findByRole("combobox", { name: "AWS profile" });
+
+      await userEvent.click(within(dialog).getAllByRole("button", { name: "Cancel" })[1]);
+      expect(screen.queryByRole("dialog")).toBeNull();
+      // The focus goes back to the button that opened the dialog.
+      expect(add).toHaveFocus();
+      expect(requestsTo(fetch, TARGETS)).toHaveLength(1);
+      expect(requestsTo(fetch, "POST /api/v1/config/targets")).toHaveLength(0);
+    });
   });
 });
