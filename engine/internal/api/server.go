@@ -142,14 +142,24 @@ type route struct {
 // routes is the single list of endpoints: the mux serves it and the contract
 // test compares it with openapi.yaml.
 func (s *Server) routes() []route {
-	return []route{
+	list := []route{
 		{http.MethodGet, "/api/v1/health", s.health},
 		{http.MethodGet, "/api/v1/openapi.yaml", s.openAPI},
 		{http.MethodGet, "/api/v1/targets", s.listTargets},
 		{http.MethodPost, "/api/v1/targets/{name}/checks", s.checkTarget},
 		{http.MethodGet, "/api/v1/targets/{name}/tasks", s.listTasks},
 	}
+	for _, more := range extraRoutes {
+		list = append(list, more(s)...)
+	}
+	return list
 }
+
+// extraRoutes are the endpoints defined in their own files: each one adds
+// its routes from init(), so a new endpoint never edits the list above.
+//
+//	func init() { extraRoutes = append(extraRoutes, (*Server).uploadRoutes) }
+var extraRoutes []func(*Server) []route
 
 // Handler returns the guarded handler.
 func (s *Server) Handler() http.Handler { return s.guard(s.mux) }

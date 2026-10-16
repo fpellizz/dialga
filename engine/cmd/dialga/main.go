@@ -100,8 +100,17 @@ func (a *app) rootCmd() *cobra.Command {
 		"configuration file (default: <user config dir>/dialga/config.yaml)")
 	root.PersistentFlags().StringVarP(&a.output, "output", "o", "text", "output format: text or json")
 	root.AddCommand(a.versionCmd(), a.serveCmd(), a.checkCmd(), a.statusCmd(), a.waitCmd(), a.configCmd())
+	for _, c := range commands {
+		root.AddCommand(c(a))
+	}
 	return root
 }
+
+// commands are the subcommands defined in their own files: each cmd_*.go
+// adds its constructor from init(), so a new command never edits this file.
+//
+//	func init() { commands = append(commands, (*app).uploadCmd) }
+var commands []func(*app) *cobra.Command
 
 func (a *app) versionCmd() *cobra.Command {
 	return &cobra.Command{
