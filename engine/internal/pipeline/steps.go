@@ -246,8 +246,14 @@ func (p WaitParams) Step(env Env) jobs.Step {
 		defer closeOps()
 		task, err := mssql.Wait(ctx, sess.SQL, id, mssql.WaitOptions{
 			Interval: env.interval(),
-			OnChange: func(t mssql.Task) { r.Task(taskStatus(t)) },
-			OnRetry:  func(err error) { r.Log(jobs.Warn, fmt.Sprintf("reading task %d failed, retrying: %v", id, err)) },
+			OnChange: func(t mssql.Task) {
+				// First: the event of the job tells the caller to read it.
+				if env.OnTask != nil {
+					env.OnTask(t)
+				}
+				r.Task(taskStatus(t))
+			},
+			OnRetry: func(err error) { r.Log(jobs.Warn, fmt.Sprintf("reading task %d failed, retrying: %v", id, err)) },
 		})
 		if err != nil {
 			return "", err
@@ -262,8 +268,9 @@ func (p WaitParams) Step(env Env) jobs.Step {
 	}), KindWait, p)
 }
 
-// SQLParams are a statement of a replace that queues no task: drop, close to
-// other sessions (single-user), open again (multi-user) or rename a database.
+// SQLParams are a statement that queues no task: drop, close to other
+// sessions (single-user), open again (multi-user) or rename a database, in a
+// replace; finish or cancel in a single operation.
 // The steps look at the instance before they act, so a resumed job does not
 // repeat what was done (ops.Session.DropExisting, SingleUser, MultiUser,
 // Rename).
@@ -279,6 +286,11 @@ type SQLParams struct {
 	// Outcome is what the item has kept once the step succeeded; it only
 	// reaches the item (jobs.Item.Replace), it changes no statement.
 	Outcome *core.ReplaceOutcome `json:"outcome,omitempty"`
+	// TaskID is the native task a cancel (ops.StepCancel) is for.
+	TaskID int `json:"taskId,omitempty"`
+	// Result, when set, is the result line of the item once the step
+	// succeeded (a single operation that ends with it).
+	Result string `json:"result,omitempty"`
 }
 
 // expected is the statement the parameters build, for a resume to compare.
@@ -292,6 +304,10 @@ func (p SQLParams) expected() (string, error) {
 		return mssql.SetMultiUser(p.Database), nil
 	case ops.StepRename:
 		return mssql.RenameDatabase(p.Database, p.To), nil
+	case ops.StepFinish:
+		return mssql.FinishRestore(p.Database), nil
+	case ops.StepCancel:
+		return mssql.CancelTask(p.TaskID), nil
 	}
 	return "", fmt.Errorf("unknown statement step %q", p.Op)
 }
@@ -314,11 +330,18 @@ func (p SQLParams) Step(env Env, id, title string) jobs.Step {
 			detail, err = sess.MultiUser(ctx, p.Database)
 		case ops.StepRename:
 			detail, err = sess.Rename(ctx, p.Database, p.To, p.Fallback)
+		case ops.StepFinish:
+			detail, err = sess.FinishRestore(ctx, p.Database)
+		case ops.StepCancel:
+			detail, err = sess.CancelTask(ctx, p.TaskID)
 		default:
 			err = fmt.Errorf("unknown statement step %q", p.Op)
 		}
 		if err == nil {
 			reportReplace(r, p.Outcome)
+			if p.Result != "" {
+				r.Result(p.Result)
+			}
 		}
 		return detail, err
 	}), KindSQL, p)
@@ -348,23 +371,12 @@ func (p PostParams) Step(env Env) jobs.Step {
 		if err != nil {
 			return "", err
 		}
-		var failed []string
-		warnings := 0
-		for _, f := range rep.Findings {
-			switch f.Status {
-			case check.Failed:
-				failed = append(failed, f.Label+": "+f.Detail)
-			case check.Warning:
-				warnings++
-				r.Log(jobs.Warn, f.Label+": "+f.Detail)
-			}
+		detail, failed, warnings := ReportVerdict(rep)
+		for _, w := range warnings {
+			r.Log(jobs.Warn, w)
 		}
 		if len(failed) > 0 {
 			return "", errors.New(strings.Join(failed, "; "))
-		}
-		detail := fmt.Sprintf("%s, compatibility level %d", rep.Database.State, rep.Database.CompatibilityLevel)
-		if warnings > 0 {
-			detail += fmt.Sprintf(", %d warning(s)", warnings)
 		}
 		result := db + " restored: " + detail
 		if p.Note != "" {
@@ -399,4 +411,22 @@ func (p DownloadParams) Step(env Env, title string) jobs.Step {
 		r.Result(fmt.Sprintf("%s exported to %s", p.Database, p.Path))
 		return res.Summary(), nil
 	}), KindDownload, p)
+}
+
+// ReportVerdict reads the findings of a post-restore report: the failed ones
+// and the warnings, as "label: detail", and the line that sums it up.
+func ReportVerdict(rep ops.Report) (detail string, failed, warnings []string) {
+	for _, f := range rep.Findings {
+		switch f.Status {
+		case check.Failed:
+			failed = append(failed, f.Label+": "+f.Detail)
+		case check.Warning:
+			warnings = append(warnings, f.Label+": "+f.Detail)
+		}
+	}
+	detail = fmt.Sprintf("%s, compatibility level %d", rep.Database.State, rep.Database.CompatibilityLevel)
+	if n := len(warnings); n > 0 {
+		detail += fmt.Sprintf(", %d warning(s)", n)
+	}
+	return detail, failed, warnings
 }

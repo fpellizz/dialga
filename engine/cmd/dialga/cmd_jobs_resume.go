@@ -46,8 +46,9 @@ continues its multipart upload, a native task already queued is followed, not
 queued again). The job keeps its id and runs in this process until it ends,
 printing its events.
 
-The journal belongs to one engine at a time: while the desktop app runs,
-resume the job from its Activity page instead. A protected target asks to
+A job runs in one process at a time: if the desktop app (or another dialga)
+is running or resuming this job, this command refuses and the job goes on
+there (its Activity page). A protected target asks to
 retype its name (or --confirm <target>). Ctrl-C interrupts the job again: it
 can be resumed later.
 
@@ -77,9 +78,6 @@ func (a *app) resumeJob(cmd *cobra.Command, dir, id, confirm string) error {
 		Registry: a.jobRegistry,
 		Log:      slog.New(slog.NewTextHandler(cmd.ErrOrStderr(), &slog.HandlerOptions{Level: slog.LevelWarn})),
 	})
-	if errors.Is(err, jobs.ErrLocked) {
-		return fmt.Errorf("%w: resume the job from the Activity page of the desktop app, or close it and run this again", err)
-	}
 	if err != nil {
 		return err
 	}
@@ -134,6 +132,9 @@ func (a *app) resumeJob(cmd *cobra.Command, dir, id, confirm string) error {
 	}
 	defer closeEnv()
 	snap, err := m.Resume(id, jobs.ResumeOptions{Env: env, InstanceKey: api.InstanceKey(t)})
+	if errors.Is(err, jobs.ErrLocked) {
+		return fmt.Errorf("%w: the desktop app (or another dialga) is running or resuming it: use its Activity page, or wait until it ends", err)
+	}
 	if err != nil {
 		return err
 	}

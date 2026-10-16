@@ -126,6 +126,18 @@ func (s *Server) startJob(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
+	// From here a refused request leaves a failed job (refusals.go). A dry
+	// run is a preview: it never does.
+	rw := &refusalWriter{ResponseWriter: w}
+	ref := &refused{kind: jobs.Kind(body.Kind), target: name, instance: t.Instance}
+	if body.DryRun {
+		ref.done = true
+	}
+	for _, it := range body.Items {
+		ref.items = append(ref.items, it.Database)
+	}
+	defer s.recordRefusal(rw, ref)
+	w = rw
 	password, ok := s.sqlPassword(r.Context(), w, name, t)
 	if !ok {
 		return
@@ -150,10 +162,10 @@ func (s *Server) startJob(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, plan)
 		return
 	case !plan.Ready:
-		refuse(w, "pre-flight failed, nothing was started: "+strings.Join(plan.Failed(), "; "), plan)
+		refuse(rw, "pre-flight failed, nothing was started: "+strings.Join(plan.Failed(), "; "), plan)
 		return
 	case body.Digest != "" && body.Digest != plan.Digest:
-		refuse(w, "the plan changed since the preview: preview it again", plan)
+		refuse(rw, "the plan changed since the preview: preview it again", plan)
 		return
 	case plan.Confirmation != "" && body.Confirm != plan.Confirmation:
 		http.Error(w, fmt.Sprintf("not confirmed: this %s asks to retype %q in confirm", plan.Kind, plan.Confirmation),
@@ -195,7 +207,16 @@ func (s *Server) pipelineEnv(ctx context.Context, name string, t config.Target, 
 	}, nil
 }
 
-func refuse(w http.ResponseWriter, reason string, plan *pipeline.Plan) {
+// refuse answers 412 with the plan; the job it leaves keeps the reason and
+// the checks that are not ok, with the database in front of their label.
+func refuse(w *refusalWriter, reason string, plan *pipeline.Plan) {
+	w.reason = reason
+	for _, it := range plan.Items {
+		for _, c := range nonOK(it.Checks) {
+			c.Label = it.Database + ": " + c.Label
+			w.checks = append(w.checks, c)
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusPreconditionFailed)
 	_ = json.NewEncoder(w).Encode(JobRefused{Reason: reason, Plan: *plan})

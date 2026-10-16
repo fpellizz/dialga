@@ -42,6 +42,10 @@ type Env struct {
 	// Now dates the names of a replace when the request gives no stamp
 	// (default time.Now).
 	Now func() time.Time
+	// OnTask, when set, receives the native task a wait step follows, in
+	// full, at every change, just before the job reports it (task.status):
+	// a single operation streams it to its caller.
+	OnTask func(mssql.Task)
 }
 
 func (e Env) interval() time.Duration {
@@ -322,29 +326,10 @@ func (b *builder) replaceItem(it *ItemPlan, upload UploadParams, prep *ops.Prepa
 	for i, st := range r.Steps {
 		a := prep.Plan.Actions[i]
 		a.Run = nil
-		var step jobs.Step
-		switch st.Op {
-		case ops.StepBackup:
-			step = TaskParams{Statement: st.Statement, Database: st.Database, Key: st.Key}.Step(b.env, st.ID, st.Title)
-		case ops.StepRestore:
-			step = TaskParams{Statement: st.Statement, Database: st.Database, Key: st.Key}.Step(b.env, st.ID, st.Title)
-		case ops.StepWait:
+		step := replaceStep(b.env, r, st)
+		if st.Op == ops.StepWait {
 			a = waitAction(st.What, b.env.interval())
 			a.ID = st.ID
-			step = WaitParams{What: st.What, ID: st.ID}.Step(b.env)
-		case ops.StepPost:
-			step = PostParams{Database: st.Database, Note: r.Result, Outcome: &core.ReplaceOutcome{
-				Strategy: r.Strategy, OldDatabase: r.Old, BackupKey: r.BackupKey}}.Step(b.env)
-		default:
-			sp := SQLParams{Op: st.Op, Statement: st.Statement, Database: st.Database, To: st.To, Fallback: st.Fallback}
-			// the step that keeps something says so as soon as it succeeds
-			switch st.ID {
-			case "rename-old":
-				sp.Outcome = &core.ReplaceOutcome{Strategy: r.Strategy, OldDatabase: r.Old}
-			case "drop":
-				sp.Outcome = &core.ReplaceOutcome{Strategy: r.Strategy, BackupKey: r.BackupKey}
-			}
-			step = sp.Step(b.env, st.ID, st.Title)
 		}
 		it.Actions = append(it.Actions, a)
 		it.steps = append(it.steps, step)
@@ -633,4 +618,26 @@ func (p *Plan) preview() string {
 		fmt.Fprintf(&b, "\nStarting it asks to retype %q.\n", p.Confirmation)
 	}
 	return b.String()
+}
+
+// replaceStep is the job step of one step of a replace.
+func replaceStep(env Env, r *ops.Replacement, st ops.ReplaceStep) jobs.Step {
+	switch st.Op {
+	case ops.StepBackup, ops.StepRestore:
+		return TaskParams{Statement: st.Statement, Database: st.Database, Key: st.Key}.Step(env, st.ID, st.Title)
+	case ops.StepWait:
+		return WaitParams{What: st.What, ID: st.ID}.Step(env)
+	case ops.StepPost:
+		return PostParams{Database: st.Database, Note: r.Result, Outcome: &core.ReplaceOutcome{
+			Strategy: r.Strategy, OldDatabase: r.Old, BackupKey: r.BackupKey}}.Step(env)
+	}
+	sp := SQLParams{Op: st.Op, Statement: st.Statement, Database: st.Database, To: st.To, Fallback: st.Fallback}
+	// the step that keeps something says so as soon as it succeeds
+	switch st.ID {
+	case "rename-old":
+		sp.Outcome = &core.ReplaceOutcome{Strategy: r.Strategy, OldDatabase: r.Old}
+	case "drop":
+		sp.Outcome = &core.ReplaceOutcome{Strategy: r.Strategy, BackupKey: r.BackupKey}
+	}
+	return sp.Step(env, st.ID, st.Title)
 }

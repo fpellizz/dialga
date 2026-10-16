@@ -360,12 +360,19 @@ paths:
       description: |
         Builds the plan again, refuses it when a pre-flight check fails, when
         digest is set and differs from the plan (it changed since the
-        preview) or when confirm differs from the confirmation; then streams
-        Server-Sent Events: "notice" (Notice) for the pre-flight warnings,
+        preview) or when confirm differs from the confirmation; then runs it
+        as a job (kind operation, operation = the path) and streams
+        Server-Sent Events: "job" (JobRef) first, with the id of the job,
+        "notice" (Notice) for the pre-flight warnings,
         "step" (StepEvent) when an action, or the wait for the task, starts
         or ends, "task" (Task) for every change of the followed task, then
-        one "done" (PlanDone). Closing the stream stops the wait, never the
-        task on the instance.
+        one "done" (PlanDone, with jobId). The job goes on when the stream
+        is closed (the wait and the task too): follow it on
+        /api/v1/jobs/{id}/events, stop it with /api/v1/jobs/{id}/cancel (a
+        native task already running keeps running).
+
+        A request that is refused (412, 422, 428, 502 below) leaves a failed
+        job with its refusal in the journal: Activity shows it.
       parameters:
         - $ref: "#/components/parameters/TargetName"
         - name: operation
@@ -415,7 +422,7 @@ paths:
   /api/v1/targets/{name}/databases/{db}/report:
     get:
       summary: Post-restore report of a database (read-only)
-      description: Properties, files, login access, orphaned SQL users, Windows principals and objects by type.
+      description: "Properties, files, login access, orphaned SQL users, Windows principals and objects by type. A read-only view: it leaves no job."
       parameters:
         - $ref: "#/components/parameters/TargetName"
         - name: db
@@ -777,7 +784,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/UnknownJob" }
         "409":
-          description: The job already ended.
+          description: The job already ended, or it runs in another process (a CLI run) and only that one can stop it.
           content:
             text/plain:
               schema: { type: string }
@@ -813,7 +820,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/UnknownJob" }
         "409":
-          description: The job is not interrupted, or the configuration file is missing or invalid.
+          description: The job is not interrupted, another process runs or resumes it, or the configuration file is missing or invalid.
           content:
             text/plain:
               schema: { type: string }
@@ -1439,12 +1446,19 @@ components:
         old: { type: string, description: Swap - where the current database is kept, <db>_old_<stamp>. }
         backupKey: { type: string, description: Drop with backup - the S3 key of the safety backup, <export prefix>/<db>_before_replace_<stamp>.bak. }
         result: { type: string, description: What the user keeps once done (the old database or the backup). }
+    JobRef:
+      type: object
+      description: The data of the first event of an execution ("job").
+      required: [id]
+      properties:
+        id: { type: string }
     PlanDone:
       type: object
       required: [ok]
       properties:
         ok: { type: boolean, description: Every action ran and the followed task ended in SUCCESS. }
         error: { type: string }
+        jobId: { type: string, description: The job the operation ran as (Activity). }
         task: { $ref: "#/components/schemas/Task" }
         result: { type: string, description: What a replace kept - the old database or the safety backup. }
         replace: { $ref: "#/components/schemas/ReplaceOutcome" }
@@ -1618,10 +1632,19 @@ components:
     JobSummary:
       type: object
       description: A job in a list.
-      required: [id, kind, target, instance, state, createdAt, updatedAt, databases, succeeded, failed]
+      required: [id, kind, origin, target, instance, state, createdAt, updatedAt, databases, succeeded, failed]
       properties:
         id: { type: string }
-        kind: { type: string, examples: [import, export] }
+        kind: { type: string, enum: [import, export, operation] }
+        operation:
+          type: string
+          enum: [restore, export, drop, finish, cancel, post]
+          description: The native operation of a job of kind operation; absent for import and export.
+        origin:
+          type: string
+          enum: [app, cli]
+          description: The process that ran the job - the app engine or a command line run (journals of older versions read as app). The list (JobSummary) has kind, operation, origin and refusal too, the refusal without its checks (detail only).
+        refusal: { $ref: "#/components/schemas/Refusal" }
         target: { type: string }
         instance: { type: string, description: RDS DB instance identifier. }
         state:
@@ -1637,10 +1660,19 @@ components:
         failed: { type: integer, description: Databases failed. }
     Job:
       type: object
-      required: [id, kind, target, instance, maxTasks, state, createdAt, updatedAt, items, events]
+      required: [id, kind, origin, target, instance, maxTasks, state, createdAt, updatedAt, items, events]
       properties:
         id: { type: string }
-        kind: { type: string, examples: [import, export] }
+        kind: { type: string, enum: [import, export, operation] }
+        operation:
+          type: string
+          enum: [restore, export, drop, finish, cancel, post]
+          description: The native operation of a job of kind operation; absent for import and export.
+        origin:
+          type: string
+          enum: [app, cli]
+          description: The process that ran the job - the app engine or a command line run (journals of older versions read as app). The list (JobSummary) has kind, operation, origin and refusal too, the refusal without its checks (detail only).
+        refusal: { $ref: "#/components/schemas/Refusal" }
         target: { type: string }
         instance: { type: string, description: RDS DB instance identifier. }
         instanceKey: { type: string, description: "account/region/instance of the RDS instance; a resume refuses another one." }
@@ -1661,6 +1693,20 @@ components:
           type: array
           description: The log; upload.progress and the task percentages are live only.
           items: { $ref: "#/components/schemas/JobEvent" }
+    Refusal:
+      type: object
+      description: |
+        Why a request to run something was turned down. The job it leaves is
+        failed, has no steps and ran nothing; its items name the databases
+        of the request.
+      required: [status, reason]
+      properties:
+        status: { type: integer, enum: [412, 422, 428, 502], description: The HTTP status the request got. }
+        reason: { type: string }
+        checks:
+          type: array
+          description: The pre-flight checks that failed or warn (412).
+          items: { $ref: "#/components/schemas/StepEvent" }
     JobItem:
       type: object
       description: One database of a job.

@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"context"
-	"errors"
 	"io"
 	"path/filepath"
 	"strings"
@@ -55,9 +54,14 @@ func TestServeKeepsTheJobJournal(t *testing.T) {
 		t.Fatalf("ready line %q, %v", line, err)
 	}
 	dir := filepath.Join(state, "dialga", "jobs")
-	// While the engine runs, it owns the journal.
-	if _, err := jobs.Open(dir, jobs.Options{}); !errors.Is(err, jobs.ErrLocked) {
+	// A CLI run opens the same journal while the engine serves: no lock of
+	// the directory, only one per running job.
+	cli, err := jobs.Open(dir, jobs.Options{Origin: jobs.OriginCLI})
+	if err != nil {
 		t.Fatalf("journal while serving: %v", err)
+	}
+	if err := cli.Close(context.Background()); err != nil {
+		t.Fatal(err)
 	}
 	_ = stdinW.Close() // the shell is gone
 	select {
