@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import symbolUrl from "./assets/decisyon-symbol.svg";
 import type { EngineInfo } from "./engine";
 import { type MessageKey, useI18n } from "./i18n";
+import { TunnelSummary } from "./TunnelIndicator";
 
 export type Page = "instances" | "databases" | "settings";
 
@@ -89,6 +90,7 @@ export function Sidebar({
         <span className={dot} />
         {status}
       </div>
+      <TunnelSummary engine={engine} />
     </aside>
   );
 }

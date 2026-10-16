@@ -584,6 +584,102 @@ paths:
           content:
             text/plain:
               schema: { type: string }
+  /api/v1/tunnels:
+    get:
+      summary: The shared tunnels of the tunnel-mode targets
+      description: |
+        One entry per target with connect.mode tunnel, in name order, open or
+        not. A missing configuration file gives an empty list.
+      responses:
+        "200":
+          description: The tunnels.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TunnelList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+  /api/v1/targets/{name}/tunnel:
+    parameters:
+      - $ref: "#/components/parameters/TargetName"
+    get:
+      summary: The shared tunnel of a target
+      description: |
+        The engine keeps one SSM tunnel per tunnel-mode target, shared by all
+        its SQL sessions. One opened by use closes after 10 minutes without
+        users; it reconnects by itself while open.
+      responses:
+        "200":
+          description: The state of the tunnel.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TunnelState" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "422": { $ref: "#/components/responses/NotTunnelMode" }
+    post:
+      summary: Open the tunnel now and keep it open
+      description: |
+        Answers once the tunnel is ready; the events show the way there. A
+        tunnel opened this way has no idle close: it stays until DELETE or
+        until the engine stops.
+      responses:
+        "200":
+          description: The tunnel is ready.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TunnelState" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "422": { $ref: "#/components/responses/NotTunnelMode" }
+        "502":
+          description: The tunnel did not open (credentials, bridge, plugin, timeout).
+          content:
+            text/plain:
+              schema: { type: string }
+        "503":
+          description: The engine is stopping.
+          content:
+            text/plain:
+              schema: { type: string }
+    delete:
+      summary: Close the tunnel now
+      description: Closes it even with users, whose sessions fail; the next session opens a new one.
+      responses:
+        "200":
+          description: The tunnel is closed.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TunnelState" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "422": { $ref: "#/components/responses/NotTunnelMode" }
+  /api/v1/targets/{name}/tunnel/events:
+    get:
+      summary: The changes of state of the tunnel
+      description: |
+        Server-Sent Events: a "state" event (TunnelState) with the current
+        state, then one per change (including the number of users), and a
+        comment every 20 seconds. The stream ends when the engine stops.
+      parameters:
+        - $ref: "#/components/parameters/TargetName"
+      responses:
+        "200":
+          description: The event stream.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "422": { $ref: "#/components/responses/NotTunnelMode" }
 components:
   securitySchemes:
     bearer:
@@ -604,6 +700,11 @@ components:
       description: Target name from the configuration.
       schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,62}$" }
   responses:
+    NotTunnelMode:
+      description: The target is not in connect.mode tunnel.
+      content:
+        text/plain:
+          schema: { type: string }
     UnknownJob:
       description: No job with that id (or removed by the retention).
       content:
@@ -1218,3 +1319,25 @@ components:
         size: { type: integer }
         partSize: { type: integer }
         partsDone: { type: array, items: { type: integer } }
+    TunnelState:
+      type: object
+      description: The shared tunnel of a tunnel-mode target.
+      required: [target, status, users, keepOpen]
+      properties:
+        target: { type: string }
+        status: { type: string, enum: [connecting, ready, reconnecting, closed] }
+        localPort: { type: integer, description: Port on 127.0.0.1. }
+        endpoint: { type: string, description: "host:port of the RDS instance." }
+        bridge: { type: string, description: Instance id of the bridge of the session. }
+        detail: { type: string, description: "Why: the bridge and endpoint when ready, the failure when reconnecting or closed." }
+        since: { type: string, format: date-time, description: When status began; absent for a tunnel this engine never opened. }
+        users: { type: integer, minimum: 0, description: SQL sessions going through it now. }
+        keepOpen: { type: boolean, description: Opened on request; no idle close. }
+        failed: { type: boolean, description: Closed because the last attempt to open it failed (see detail). }
+    TunnelList:
+      type: object
+      required: [tunnels]
+      properties:
+        tunnels:
+          type: array
+          items: { $ref: "#/components/schemas/TunnelState" }

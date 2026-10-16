@@ -166,6 +166,9 @@ body {
 .dot-off {
   background: var(--destructive);
 }
+.dot-idle {
+  background: var(--muted-foreground);
+}
 
 /* Cards */
 .cards {
@@ -610,6 +613,49 @@ h3 {
   margin: 0;
   font-size: 12px;
   color: var(--muted-foreground);
+}
+
+/* Shared tunnel indicator (tunnel-mode cards) */
+.tunnel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.tunnel-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.tunnel-row > .dot {
+  flex-shrink: 0;
+}
+.tunnel-text {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+.tunnel-text .mono {
+  font-size: 12px;
+  white-space: nowrap;
+}
+.tunnel-status {
+  font-weight: 500;
+}
+.tunnel-detail {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.tunnel-skeleton {
+  margin: 4px 0;
 }
 
 @media (max-width: 720px) {
