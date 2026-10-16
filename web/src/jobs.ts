@@ -163,6 +163,22 @@ export async function cancelJob(engine: EngineInfo, id: string): Promise<JobSumm
   return (await response.json()) as JobSummary;
 }
 
+/**
+ * Resumes an interrupted job (same id): the answer is the job queued again,
+ * to follow with followJob. confirm is the target name of a protected target.
+ */
+export async function resumeJob(engine: EngineInfo, id: string, confirm?: string): Promise<Job> {
+  const response = await fetch(`${engine.url}${path(id)}/resume`, {
+    method: "POST",
+    headers: headers(engine, { "Content-Type": "application/json" }),
+    body: JSON.stringify(confirm ? { confirm } : {}),
+  });
+  if (!response.ok) {
+    throw await failure(response);
+  }
+  return (await response.json()) as Job;
+}
+
 const FINAL = new Set(["job.succeeded", "job.failed", "job.cancelled", "job.interrupted"]);
 
 /** The event that ends a job (and its event stream). */

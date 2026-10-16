@@ -156,7 +156,7 @@ func TestJobsShow(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Job 20261016T090000Z-0000abcd: import on dev-sql (instance dev-sqlserver)",
-		"interrupted (the engine stopped while it ran; resuming comes in a later version)",
+		"interrupted (the engine stopped while it ran: dialga jobs resume 20261016T090000Z-0000abcd continues it)",
 		"Created  " + localTime(&jobCreated, time.DateTime),
 		"Ended    " + localTime(&jobEnded, time.DateTime),
 		"sales  interrupted at step upload (40%)",

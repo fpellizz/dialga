@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ActivityPage, RECONNECT_MS } from "./ActivityPage";
 import { type Job, type JobSummary, logText } from "./jobs";
-import { renderI18n } from "./test/fixtures";
+import { CONFIG_PATH, DEV, renderI18n } from "./test/fixtures";
 import { ENGINE, json, mockFetch, requestsTo, sseStream, text } from "./test/http";
 import { at, event, interruptedJob, JOB_ID, runningJob, summary } from "./test/jobFixtures";
 
@@ -336,7 +336,7 @@ describe("ActivityPage detail", () => {
       name: "Interrupted: the engine stopped while this job was running.",
     });
     expect(
-      within(panel).getByText("Resuming comes in a later version. This is what a resume needs:"),
+      within(panel).getByText("Resume continues it from what the journal kept:"),
     ).toBeInTheDocument();
     expect([...panel.querySelectorAll("dl")].map((dl) => dl.getAttribute("aria-label"))).toEqual([
       "sales",
@@ -419,5 +419,151 @@ describe("ActivityPage detail", () => {
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copia il registro" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Tutti i job" })).toBeInTheDocument();
+  });
+});
+
+describe("ActivityPage resume", () => {
+  const TARGETS = "GET /api/v1/targets";
+  const RESUME = `POST /api/v1/jobs/${JOB_ID}/resume`;
+
+  /** The interrupted job queued again by the engine, with its job.resumed event. */
+  function resumed(): Job {
+    const job = interruptedJob();
+    return {
+      ...job,
+      state: "queued",
+      endedAt: undefined,
+      items: job.items.map((i) => ({ ...i, state: "queued", taskLeftRunning: false })),
+      events: [
+        ...job.events,
+        event(6, "job.resumed", {
+          message: "Resumed: 2 database(s) to finish, 0 kept as they were.",
+        }),
+      ],
+    };
+  }
+
+  function targets(isProtected: boolean) {
+    return () => json({ configPath: CONFIG_PATH, targets: [{ ...DEV, protected: isProtected }] });
+  }
+
+  it("resumes an interrupted job and follows it", async () => {
+    const user = userEvent.setup();
+    const stream = sseStream();
+    const fetch = mockFetch({
+      [JOB]: (_req, call) => json(call === 0 ? interruptedJob() : finished(resumed(), "succeeded")),
+      [TARGETS]: targets(false),
+      [RESUME]: () => json(resumed(), 202),
+      [EVENTS]: () => stream.response,
+    });
+    const refresh = renderDetail();
+    await user.click(await screen.findByRole("button", { name: "Resume" }));
+
+    const box = screen.getByRole("form", { name: "Resume this job?" });
+    expect(box).toHaveAccessibleDescription(
+      "Databases that ended stay as they are. Uploads continue from the parts already in S3, and a native task already queued on the instance is followed, not queued again.",
+    );
+    expect(within(box).getByRole("button", { name: "Not now" })).toHaveFocus();
+    expect(within(box).queryByRole("textbox")).toBeNull();
+    await user.click(within(box).getByRole("button", { name: "Resume" }));
+
+    expect(await screen.findByRole("button", { name: "Cancel job" })).toBeInTheDocument();
+    expect(requestsTo(fetch, RESUME)[0].body).toBe("{}");
+    expect(screen.getByRole("heading", { level: 1, name: "Import on dev-sql" })).toHaveFocus();
+    expect(screen.queryByRole("form", { name: "Resume this job?" })).toBeNull();
+    expect(
+      screen.getByText("Resumed: 2 database(s) to finish, 0 kept as they were."),
+    ).toBeInTheDocument();
+    expect(refresh).toHaveBeenCalled();
+    await waitFor(() => expect(requestsTo(fetch, EVENTS)).toHaveLength(1));
+    expect(requestsTo(fetch, EVENTS)[0].headers).toMatchObject({ "Last-Event-ID": "6" });
+
+    act(() => {
+      stream.send("job.succeeded", event(7, "job.succeeded"));
+      stream.close();
+    });
+    await waitFor(() => expect(announced("Import on dev-sql: Succeeded.")).toBe(true));
+  });
+
+  it("asks to retype the name of a protected target", async () => {
+    const user = userEvent.setup();
+    const fetch = mockFetch({
+      [JOB]: () => json(interruptedJob()),
+      [TARGETS]: targets(true),
+      [RESUME]: () => json(resumed(), 202),
+      [EVENTS]: () => sseStream().response,
+    });
+    renderDetail();
+    await user.click(await screen.findByRole("button", { name: "Resume" }));
+    const box = screen.getByRole("form", { name: "Resume this job?" });
+    const field = within(box).getByLabelText("Retype dev-sql to confirm: the target is protected");
+    expect(field).toHaveFocus();
+    const submit = within(box).getByRole("button", { name: "Resume" });
+    expect(submit).toBeDisabled();
+    await user.type(field, "dev-sq");
+    expect(submit).toBeDisabled();
+    await user.type(field, "l{Enter}");
+    await screen.findByRole("button", { name: "Cancel job" });
+    expect(requestsTo(fetch, RESUME)[0].body).toBe('{"confirm":"dev-sql"}');
+  });
+
+  it("shows why the resume failed and lets the user leave", async () => {
+    const user = userEvent.setup();
+    mockFetch({
+      [JOB]: () => json(interruptedJob()),
+      [TARGETS]: targets(false),
+      [RESUME]: () =>
+        text("resuming needs the import/export pipeline, which this engine does not have\n", 501),
+    });
+    renderDetail();
+    await user.click(await screen.findByRole("button", { name: "Resume" }));
+    await user.click(
+      within(screen.getByRole("form", { name: "Resume this job?" })).getByRole("button", {
+        name: "Resume",
+      }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "resuming needs the import/export pipeline, which this engine does not have",
+    );
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("form", { name: "Resume this job?" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Resume" })).toBeInTheDocument();
+  });
+
+  it("asks for the name when the engine says the target is protected", async () => {
+    const user = userEvent.setup();
+    mockFetch({
+      [JOB]: () => json(interruptedJob()),
+      [TARGETS]: () => text("configuration unreadable\n", 500),
+      [RESUME]: () => text('not confirmed: this import asks to retype "dev-sql" in confirm\n', 422),
+    });
+    renderDetail();
+    await user.click(await screen.findByRole("button", { name: "Resume" }));
+    const box = screen.getByRole("form", { name: "Resume this job?" });
+    await user.click(within(box).getByRole("button", { name: "Resume" }));
+    expect(await within(box).findByRole("alert")).toHaveTextContent("not confirmed");
+    expect(
+      within(box).getByLabelText("Retype dev-sql to confirm: the target is protected"),
+    ).toBeInTheDocument();
+  });
+
+  it("speaks Italian", async () => {
+    const user = userEvent.setup();
+    mockFetch({ [JOB]: () => json(interruptedJob()), [TARGETS]: targets(true) });
+    window.location.hash = `#activity/${JOB_ID}`;
+    renderI18n(
+      <ActivityPage
+        engine={ENGINE}
+        engineError=""
+        jobs={{ jobs: [], error: "", refresh: vi.fn() }}
+      />,
+      "it",
+    );
+    await user.click(await screen.findByRole("button", { name: "Riprendi" }));
+    const box = screen.getByRole("form", { name: "Riprendere questo job?" });
+    expect(
+      within(box).getByLabelText("Riscrivi dev-sql per confermare: il target è protetto"),
+    ).toBeInTheDocument();
+    expect(within(box).getByRole("button", { name: "Non ora" })).toBeInTheDocument();
   });
 });

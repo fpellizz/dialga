@@ -1302,3 +1302,17 @@ th[aria-sort] .sort {
 [data-theme="dark"] .job-log .tone-warning {
   color: var(--warning);
 }
+.confirm-resume {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.confirm-resume p {
+  margin: 0;
+}
+.job-head h1:focus {
+  outline: none;
+}

@@ -1,6 +1,6 @@
-import { Activity, ArrowLeft, Ban, ClipboardCopy, RefreshCw } from "lucide-react";
+import { Activity, ArrowLeft, Ban, ClipboardCopy, Play, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { errorText } from "./api";
+import { errorText, listTargets } from "./api";
 import { formatBytes } from "./databases";
 import type { EngineInfo } from "./engine";
 import { type Translate, useI18n } from "./i18n";
@@ -22,6 +22,7 @@ import {
   type JobSummary,
   lastSeq,
   logText,
+  resumeJob,
   resumeNeeds,
   sortJobs,
 } from "./jobs";
@@ -285,6 +286,13 @@ function JobDetail({
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState("");
   const [copied, setCopied] = useState<"" | "ok" | "failed">("");
+  const [resuming, setResuming] = useState(false);
+  const [resumeBusy, setResumeBusy] = useState(false);
+  const [resumeError, setResumeError] = useState("");
+  /** Whether the target asks to retype its name; null until known. */
+  const [protectedTarget, setProtectedTarget] = useState<boolean | null>(null);
+  const heading = useRef<HTMLHeadingElement>(null);
+  const [focusHeading, setFocusHeading] = useState(false);
   const cancellingBanner = useRef<HTMLDivElement>(null);
   const [focusBanner, setFocusBanner] = useState(false);
   // The end announcement is built from the latest language and title.
@@ -407,6 +415,59 @@ function JobDetail({
     }
   };
 
+  // Resume asks to retype the name of a protected target, as Start does.
+  const interrupted = job?.state === "interrupted";
+  const jobTarget = job?.target;
+  useEffect(() => {
+    if (!engine || !interrupted) {
+      return;
+    }
+    let live = true;
+    listTargets(engine).then(
+      (list) =>
+        live &&
+        setProtectedTarget(list.targets.find((x) => x.name === jobTarget)?.protected ?? false),
+      () => live && setProtectedTarget(false),
+    );
+    return () => {
+      live = false;
+    };
+  }, [engine, interrupted, jobTarget]);
+
+  const confirmResume = async (confirm: string) => {
+    if (!engine) {
+      return;
+    }
+    setResumeBusy(true);
+    setResumeError("");
+    try {
+      const snapshot = await resumeJob(engine, id, confirm || undefined);
+      setJob(snapshot);
+      setResuming(false);
+      setAnnouncement("");
+      setStart(lastSeq(snapshot));
+      onChange();
+      setFocusHeading(true);
+    } catch (e) {
+      // The targets could not be read, or the target became protected:
+      // the engine asks for the name, so ask for it here too.
+      if (e instanceof HttpError && e.status === 422 && e.message.startsWith("not confirmed")) {
+        setProtectedTarget(true);
+      }
+      setResumeError(errorText(e));
+    } finally {
+      setResumeBusy(false);
+    }
+  };
+
+  // The Resume button is gone: the focus goes to the title of the job.
+  useEffect(() => {
+    if (focusHeading) {
+      heading.current?.focus();
+      setFocusHeading(false);
+    }
+  }, [focusHeading]);
+
   // The Cancel button is gone: the focus goes to the banner that replaced it.
   useEffect(() => {
     if (focusBanner) {
@@ -460,9 +521,24 @@ function JobDetail({
       {back}
       <header className="page-head">
         <div className="job-head">
-          <h1>{title}</h1>
+          <h1 ref={heading} tabIndex={-1}>
+            {title}
+          </h1>
           <span className={`badge ${STATE_BADGE[job.state]}`}>{t(`jobState.${job.state}`)}</span>
         </div>
+        {job.state === "interrupted" && !resuming && (
+          <div className="toolbar">
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => setResuming(true)}
+              disabled={protectedTarget === null}
+            >
+              <Play size={16} aria-hidden="true" />
+              {t("activity.resume")}
+            </button>
+          </div>
+        )}
         {active && !job.cancelRequested && !confirming && (
           <div className="toolbar">
             <button type="button" className="btn btn-outline" onClick={() => setConfirming(true)}>
@@ -503,6 +579,19 @@ function JobDetail({
         <div className="banner banner-warn job-warn" ref={cancellingBanner} tabIndex={-1}>
           <span className="banner-text">{t("activity.cancelling")}</span>
         </div>
+      )}
+      {job.state === "interrupted" && resuming && (
+        <ResumeConfirm
+          target={job.target}
+          protectedTarget={protectedTarget === true}
+          busy={resumeBusy}
+          error={resumeError}
+          onConfirm={confirmResume}
+          onKeep={() => {
+            setResuming(false);
+            setResumeError("");
+          }}
+        />
       )}
       {job.state === "interrupted" && <ResumeNeedsPanel job={job} />}
 
@@ -606,6 +695,79 @@ function CancelConfirm({
         </button>
       </div>
     </section>
+  );
+}
+
+function ResumeConfirm({
+  target,
+  protectedTarget,
+  busy,
+  error,
+  onConfirm,
+  onKeep,
+}: {
+  target: string;
+  protectedTarget: boolean;
+  busy: boolean;
+  error: string;
+  onConfirm: (confirm: string) => void;
+  onKeep: () => void;
+}) {
+  const { t } = useI18n();
+  const [typed, setTyped] = useState("");
+  const ready = !protectedTarget || typed === target;
+  return (
+    <form
+      className="confirm-resume"
+      aria-labelledby="resume-confirm-title"
+      aria-describedby="resume-confirm-hint"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (ready && !busy) {
+          onConfirm(protectedTarget ? typed : "");
+        }
+      }}
+      onKeyDown={(e) => e.key === "Escape" && onKeep()}
+    >
+      <strong id="resume-confirm-title">{t("activity.resumeTitle")}</strong>
+      <p id="resume-confirm-hint" className="hint">
+        {t("activity.resumeHint")}
+      </p>
+      {protectedTarget && (
+        <div className="form-field">
+          <label htmlFor="resume-confirm">{t("activity.resumeConfirm", { target })}</label>
+          <input
+            id="resume-confirm"
+            className="input mono"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+            // biome-ignore lint/a11y/noAutofocus: the field appears on request and must take the focus
+            autoFocus
+          />
+        </div>
+      )}
+      {error && (
+        <div className="banner banner-fail" role="alert">
+          <span className="banner-text">{error}</span>
+        </div>
+      )}
+      <div className="actions actions-start">
+        <button type="submit" className="btn btn-primary" disabled={!ready || busy}>
+          {t("activity.resume")}
+        </button>
+        <button
+          type="button"
+          className="btn btn-outline"
+          onClick={onKeep}
+          // biome-ignore lint/a11y/noAutofocus: without a field to type in, the question takes the focus
+          autoFocus={!protectedTarget}
+        >
+          {t("activity.notNow")}
+        </button>
+      </div>
+    </form>
   );
 }
 

@@ -264,7 +264,13 @@ const en = {
   "activity.cancelling":
     "Cancelling: the running steps are stopping. Native RDS tasks already running on the instance are not stopped.",
   "activity.interrupted.title": "Interrupted: the engine stopped while this job was running.",
-  "activity.interrupted.hint": "Resuming comes in a later version. This is what a resume needs:",
+  "activity.interrupted.hint": "Resume continues it from what the journal kept:",
+  "activity.resume": "Resume",
+  "activity.resumeTitle": "Resume this job?",
+  "activity.resumeHint":
+    "Databases that ended stay as they are. Uploads continue from the parts already in S3, and a native task already queued on the instance is followed, not queued again.",
+  "activity.resumeConfirm": "Retype {target} to confirm: the target is protected",
+  "activity.notNow": "Not now",
   "activity.resume.item": "Database",
   "activity.resume.lastStep": "Last step",
   "activity.resume.pending": "Steps not done",
@@ -560,8 +566,13 @@ const it: Record<MessageKey, string> = {
   "activity.cancelling":
     "Annullamento: i passaggi in corso si stanno fermando. I task nativi RDS già in corso sull'istanza non vengono interrotti.",
   "activity.interrupted.title": "Interrotto: l'engine si è fermato mentre il job era in corso.",
-  "activity.interrupted.hint":
-    "La ripresa arriva in una versione successiva. Ecco cosa le servirà:",
+  "activity.interrupted.hint": "Riprendi lo fa continuare da ciò che il journal ha conservato:",
+  "activity.resume": "Riprendi",
+  "activity.resumeTitle": "Riprendere questo job?",
+  "activity.resumeHint":
+    "I database terminati restano come sono. Gli upload continuano dalle parti già in S3 e un task nativo già in coda sull'istanza viene seguito, non rimesso in coda.",
+  "activity.resumeConfirm": "Riscrivi {target} per confermare: il target è protetto",
+  "activity.notNow": "Non ora",
   "activity.resume.item": "Database",
   "activity.resume.lastStep": "Ultimo passaggio",
   "activity.resume.pending": "Passaggi da fare",

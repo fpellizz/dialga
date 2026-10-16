@@ -145,7 +145,7 @@ func printJob(w io.Writer, j jobs.Job, last int) error {
 	state := string(j.State)
 	switch {
 	case j.State == jobs.Interrupted:
-		state += " (the engine stopped while it ran; resuming comes in a later version)"
+		state += fmt.Sprintf(" (the engine stopped while it ran: dialga jobs resume %s continues it)", j.ID)
 	case j.CancelRequested && !j.State.Ended():
 		state += " (cancel requested)"
 	}
