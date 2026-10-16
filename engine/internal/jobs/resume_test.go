@@ -388,3 +388,24 @@ func TestRegistry(t *testing.T) {
 		t.Fatalf("last task %d", id)
 	}
 }
+
+func TestResumeRefusesAnotherInstance(t *testing.T) {
+	dir, id := interruptedJournal(t)
+	f := &fakeFactories{}
+	m := openT(t, dir, Options{Registry: f.registry()})
+	defer closeT(t, m)
+	// The journal remembers the instance key it was started with.
+	m.mu.Lock()
+	m.jobs[id].job.InstanceKey = "111111111111/eu-west-1/db1"
+	m.mu.Unlock()
+	_, err := m.Resume(id, ResumeOptions{Env: "e", InstanceKey: "222222222222/eu-west-1/db1"})
+	if !errors.Is(err, ErrNotResumable) || !strings.Contains(err.Error(), "111111111111/eu-west-1/db1") {
+		t.Fatalf("err %v", err)
+	}
+	if j, _ := m.Get(id); j.State != Interrupted {
+		t.Fatalf("job %s after a refused resume", j.State)
+	}
+	if _, err := m.Resume(id, ResumeOptions{Env: "e", InstanceKey: "111111111111/eu-west-1/db1"}); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -38,8 +38,8 @@ func TestFactoriesRebuildTheSteps(t *testing.T) {
 		res    jobs.Resource
 	}{
 		{KindUpload, jobs.StepInfo{ID: "upload", Title: "Upload sales.bak"}, UploadParams{Bucket: testBucket, Files: []UploadFile{{Path: "/x/sales.bak", Key: "import/sales.bak"}}}, jobs.ResourceTransfer},
-		{KindTask, jobs.StepInfo{ID: "restore", Title: "Restore sales"}, TaskParams{Statement: "exec msdb.dbo.rds_restore_database", Database: "sales"}, jobs.ResourceRDSTask},
-		{KindTask, jobs.StepInfo{ID: "export", Title: "Export sales"}, TaskParams{Statement: "exec msdb.dbo.rds_backup_database", Database: "sales"}, jobs.ResourceRDSTask},
+		{KindTask, jobs.StepInfo{ID: "restore", Title: "Restore sales"}, restoreParams("sales", "import/sales.bak"), jobs.ResourceRDSTask},
+		{KindTask, jobs.StepInfo{ID: "export", Title: "Export sales"}, exportParams("sales", "export/sales.bak"), jobs.ResourceRDSTask},
 		{KindWait, jobs.StepInfo{ID: "wait", Title: "Wait for the restore task"}, WaitParams{What: "restore"}, jobs.ResourceRDSTask},
 		{KindPost, jobs.StepInfo{ID: "post", Title: "Post-restore report of sales (read-only)"}, PostParams{Database: "sales"}, jobs.NoResource},
 		{KindDownload, jobs.StepInfo{ID: "download", Title: "Download sales.bak"}, DownloadParams{Database: "sales", Bucket: testBucket, Key: "export/sales.bak", Path: "/x/sales.bak"}, jobs.ResourceTransfer},
@@ -64,6 +64,50 @@ func TestFactoriesRebuildTheSteps(t *testing.T) {
 			}
 			if _, err := f(rebuildOf(t, env, tc.step, nil)); err == nil || !strings.Contains(err.Error(), "recorded no params") {
 				t.Fatalf("no params: %v", err)
+			}
+		})
+	}
+}
+
+// instanceKeyOf is the key api.InstanceKey gives the target of env.
+func instanceKeyOf(env Env) string {
+	return env.Target.AccountID + "/" + env.Target.Region + "/" + env.Target.Instance
+}
+
+func restoreParams(db, key string) TaskParams {
+	return TaskParams{Statement: mssql.RestoreDatabase(db, mssql.S3ARN(testBucket, key), mssql.RestoreOptions{}), Database: db, Key: key}
+}
+
+func exportParams(db, key string) TaskParams {
+	return TaskParams{Statement: mssql.BackupDatabase(db, mssql.S3ARN(testBucket, key)), Database: db, Key: key}
+}
+
+func TestFactoriesRefuseWhatTheJournalNoLongerSupports(t *testing.T) {
+	env, _, _ := testEnv(t, testTarget)
+	tampered := restoreParams("sales", "import/sales.bak")
+	tampered.Statement += "\nexec xp_cmdshell 'x'"
+	tests := []struct {
+		name   string
+		f      jobs.Factory
+		step   jobs.StepInfo
+		params any
+		want   string
+	}{
+		{"upload bucket", rebuildUpload, jobs.StepInfo{ID: "upload"}, UploadParams{Bucket: "other", Files: []UploadFile{{Path: "/x/a.bak", Key: "a.bak"}}}, "bucket other"},
+		{"upload key", rebuildUpload, jobs.StepInfo{ID: "upload"}, UploadParams{Bucket: testBucket, Files: []UploadFile{{Path: "/x/a.bak", Key: "../a.bak"}}}, "invalid S3 key"},
+		{"upload path", rebuildUpload, jobs.StepInfo{ID: "upload"}, UploadParams{Bucket: testBucket, Files: []UploadFile{{Path: "a.bak", Key: "a.bak"}}}, "not an absolute path"},
+		{"download bucket", rebuildDownload, jobs.StepInfo{ID: "download"}, DownloadParams{Database: "sales", Bucket: "other", Key: "k", Path: "/x/k"}, "bucket other"},
+		{"download database", rebuildDownload, jobs.StepInfo{ID: "download"}, DownloadParams{Database: "master", Bucket: testBucket, Key: "k", Path: "/x/k"}, "system database"},
+		{"download path", rebuildDownload, jobs.StepInfo{ID: "download"}, DownloadParams{Database: "sales", Bucket: testBucket, Key: "k", Path: "k"}, "not an absolute path"},
+		{"task statement", rebuildTask, jobs.StepInfo{ID: "restore"}, tampered, "not the one"},
+		{"task database", rebuildTask, jobs.StepInfo{ID: "restore"}, TaskParams{Statement: "x", Database: "a b", Key: "k"}, "invalid database name"},
+		{"task key", rebuildTask, jobs.StepInfo{ID: "export"}, TaskParams{Statement: "x", Database: "sales", Key: "a'b"}, "invalid S3 key"},
+		{"post database", rebuildPost, jobs.StepInfo{ID: "post"}, PostParams{Database: "a;b"}, "invalid database name"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := tc.f(rebuildOf(t, env, tc.step, tc.params)); err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error %v, want %q", err, tc.want)
 			}
 		})
 	}
@@ -145,7 +189,7 @@ func restartOn(t *testing.T, dir string, m *jobs.Manager) *jobs.Manager {
 
 func resumeAndWait(t *testing.T, m *jobs.Manager, id string, env Env) jobs.Job {
 	t.Helper()
-	if _, err := m.Resume(id, jobs.ResumeOptions{Env: env}); err != nil {
+	if _, err := m.Resume(id, jobs.ResumeOptions{Env: env, InstanceKey: instanceKeyOf(env)}); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

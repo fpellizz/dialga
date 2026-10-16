@@ -220,7 +220,7 @@ func (m *Manager) Start(spec Spec) (Job, error) {
 		done: make(chan struct{}), subs: map[*Subscription]struct{}{},
 		rates: make([]rate, len(spec.Items)),
 		job: Job{
-			Kind: spec.Kind, Target: spec.Target, Instance: spec.Instance, MaxTasks: spec.MaxTasks,
+			Kind: spec.Kind, Target: spec.Target, Instance: spec.Instance, InstanceKey: spec.InstanceKey, MaxTasks: spec.MaxTasks,
 			State: Queued, CreatedAt: now, UpdatedAt: now, Items: []Item{}, Events: []Event{},
 		},
 	}

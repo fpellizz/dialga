@@ -3,8 +3,10 @@ package pipeline
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 
 	"github.com/decisyon/dialga/engine/internal/jobs"
+	"github.com/decisyon/dialga/engine/internal/validate"
 )
 
 // The kinds the steps of the pipeline record in the journal (jobs.WithKind);
@@ -45,6 +47,19 @@ func rebuildUpload(rb jobs.Rebuild) (jobs.Step, error) {
 	if err := rb.Params(&p); err != nil {
 		return nil, err
 	}
+	// The journal is a file on disk: what a step rebuilt from it will touch
+	// is checked again, as for a new request.
+	if err := checkBucket(env, p.Bucket); err != nil {
+		return nil, err
+	}
+	for _, f := range p.Files {
+		if err := checkLocal(f.Path); err != nil {
+			return nil, err
+		}
+		if err := validate.S3Key(f.Key); err != nil {
+			return nil, err
+		}
+	}
 	return p.step(env, rb.Step.Title, rb.Item.Upload), nil
 }
 
@@ -65,6 +80,19 @@ func rebuildTask(rb jobs.Rebuild) (jobs.Step, error) {
 	}
 	if p.Statement == "" {
 		return nil, errors.New("the step recorded no statement")
+	}
+	if err := validate.DBName(p.Database); err != nil {
+		return nil, err
+	}
+	if err := validate.S3Key(p.Key); err != nil {
+		return nil, fmt.Errorf("%w (a job recorded by an older version cannot be resumed)", err)
+	}
+	want, err := p.expected(rb.Step.ID, env.Target.Bucket)
+	if err != nil {
+		return nil, err
+	}
+	if p.Statement != want {
+		return nil, errors.New("the statement the step recorded is not the one its parameters and the target's bucket build")
 	}
 	return p.Step(env, rb.Step.ID, rb.Step.Title), nil
 }
@@ -92,6 +120,9 @@ func rebuildPost(rb jobs.Rebuild) (jobs.Step, error) {
 	if err := rb.Params(&p); err != nil {
 		return nil, err
 	}
+	if err := validate.DBName(p.Database); err != nil {
+		return nil, err
+	}
 	return p.Step(env), nil
 }
 
@@ -106,5 +137,33 @@ func rebuildDownload(rb jobs.Rebuild) (jobs.Step, error) {
 	if err := rb.Params(&p); err != nil {
 		return nil, err
 	}
+	if err := checkBucket(env, p.Bucket); err != nil {
+		return nil, err
+	}
+	if err := validate.DBName(p.Database); err != nil {
+		return nil, err
+	}
+	if err := validate.S3Key(p.Key); err != nil {
+		return nil, err
+	}
+	if err := checkLocal(p.Path); err != nil {
+		return nil, err
+	}
 	return p.Step(env, rb.Step.Title), nil
+}
+
+// checkBucket refuses a step recorded for another bucket than the target's
+// now.
+func checkBucket(env Env, bucket string) error {
+	if bucket != env.Target.Bucket {
+		return fmt.Errorf("the step recorded bucket %s, the target uses %s now", bucket, env.Target.Bucket)
+	}
+	return nil
+}
+
+func checkLocal(path string) error {
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("the step recorded %q, which is not an absolute path", path)
+	}
+	return nil
 }

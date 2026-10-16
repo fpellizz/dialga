@@ -263,7 +263,7 @@ func (b *builder) importItem(ctx context.Context, in ImportItem) error {
 		it.steps = append(it.steps, upload.Step(b.env, it.Actions[0].Title))
 	}
 	it.steps = append(it.steps,
-		TaskParams{Statement: restore.Statement, Database: in.Database}.Step(b.env, "restore", restore.Title),
+		TaskParams{Statement: restore.Statement, Database: in.Database, Key: it.Key, Differential: in.Differential, NoRecovery: in.NoRecovery}.Step(b.env, "restore", restore.Title),
 		wait.Step(b.env))
 	if !in.NoRecovery {
 		post := PostParams{Database: in.Database}
@@ -367,7 +367,7 @@ func (b *builder) exportItem(ctx context.Context, in ExportItem) error {
 		wait.Result = in.Database + " exported to " + b.where(it.Key)
 	}
 	it.steps = []jobs.Step{
-		TaskParams{Statement: export.Statement, Database: in.Database}.Step(b.env, "export", export.Title),
+		TaskParams{Statement: export.Statement, Database: in.Database, Key: it.Key}.Step(b.env, "export", export.Title),
 		wait.Step(b.env),
 	}
 	if in.Destination != "" {

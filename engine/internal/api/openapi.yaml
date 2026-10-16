@@ -1426,6 +1426,7 @@ components:
         kind: { type: string, examples: [import, export] }
         target: { type: string }
         instance: { type: string, description: RDS DB instance identifier. }
+        instanceKey: { type: string, description: "account/region/instance of the RDS instance; a resume refuses another one." }
         maxTasks: { type: integer, minimum: 1, maximum: 2, description: Native tasks at once on the instance. }
         state:
           type: string
