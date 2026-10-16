@@ -15,3 +15,17 @@ minimumReleaseAgeExclude:
   - '@tauri-apps/cli-win32-ia32-msvc@2.12.3'
   - '@tauri-apps/cli-win32-x64-msvc@2.12.3'
   - '@tauri-apps/cli@2.12.3'
+# Transitive dependencies of the web test tooling (jsdom, Testing Library),
+# pinned on 2026-10-16 to the newest releases at least 14 days old. They can
+# go after 2026-10-28, when the versions they hold back are old enough too.
+overrides:
+  '@asamuzakjp/css-color': 7.1.2
+  '@asamuzakjp/dom-selector': 9.2.3
+  '@babel/runtime': 7.29.7
+  '@bramus/specificity': 2.4.2
+  '@csstools/css-calc': 3.4.2
+  '@csstools/css-color-parser': 4.2.5
+  tldts: 7.4.16
+  tldts-core: 7.4.16
+  undici: 8.11.2
+  whatwg-url@^17: 17.1.2
