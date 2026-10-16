@@ -88,8 +88,8 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 
 /**
  * The environment of the engine: no AWS credentials, profiles or metadata
- * service, and no SQL password, so nothing leaves this machine and the
- * checks stop at their first AWS step.
+ * service, and no DIALGA_SQL_PASSWORD, so nothing leaves this machine and
+ * the checks stop at their first AWS step.
  */
 function engineEnv(dir: string): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
@@ -109,6 +109,8 @@ function engineEnv(dir: string): NodeJS.ProcessEnv {
     AWS_CONFIG_FILE: awsConfig,
     AWS_SHARED_CREDENTIALS_FILE: awsCredentials,
     AWS_EC2_METADATA_DISABLED: "true",
+    // For the e2e-env target of e2e/config.ts: a placeholder, never checked.
+    E2E_SQL_PASSWORD: "e2e-".repeat(4),
   };
 }
 

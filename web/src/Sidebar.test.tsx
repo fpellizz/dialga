@@ -6,17 +6,24 @@ import { ENGINE } from "./test/http";
 
 describe("Sidebar", () => {
   it.each([
-    ["instances", "Instances", "Settings"],
-    ["settings", "Settings", "Instances"],
-  ] as [Page, string, string][])("marks %s as the current page", (page, current, other) => {
+    ["instances", "Instances"],
+    ["databases", "Databases"],
+    ["settings", "Settings"],
+  ] as [Page, string][])("marks %s as the current page", (page, current) => {
     renderI18n(<Sidebar page={page} engine={ENGINE} engineError="" />);
-    expect(screen.getByRole("link", { name: current })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("link", { name: other })).not.toHaveAttribute("aria-current");
+    for (const link of screen.getAllByRole("link")) {
+      if (link.textContent === current) {
+        expect(link).toHaveAttribute("aria-current", "page");
+      } else {
+        expect(link).not.toHaveAttribute("aria-current");
+      }
+    }
   });
 
   it("links the pages by hash", () => {
     renderI18n(<Sidebar page="instances" engine={ENGINE} engineError="" />);
     expect(screen.getByRole("link", { name: "Instances" })).toHaveAttribute("href", "#instances");
+    expect(screen.getByRole("link", { name: "Databases" })).toHaveAttribute("href", "#databases");
     expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "#settings");
   });
 
@@ -27,7 +34,7 @@ describe("Sidebar", () => {
       within(nav)
         .getAllByRole("link")
         .map((link) => link.textContent),
-    ).toEqual(["Instances"]);
+    ).toEqual(["Instances", "Databases"]);
     for (const name of ["Import", "Export", "Activity"]) {
       const item = within(nav).getByText(name);
       expect(item).toHaveAttribute("aria-disabled", "true");
@@ -56,6 +63,7 @@ describe("Sidebar", () => {
     renderI18n(<Sidebar page="settings" engine={null} engineError="" />, "it");
     expect(screen.getByRole("navigation", { name: "Navigazione principale" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Istanze" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Database" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Impostazioni" })).toHaveAttribute(
       "aria-current",
       "page",

@@ -10,7 +10,10 @@ import { installMatchMedia } from "./test/media";
 function devEngine() {
   vi.stubEnv("VITE_ENGINE_URL", ENGINE.url);
   vi.stubEnv("VITE_ENGINE_TOKEN", ENGINE.token);
-  return mockFetch({ "GET /api/v1/targets": () => json({ configPath: CONFIG_PATH, targets: [] }) });
+  return mockFetch({
+    "GET /api/v1/targets": () => json({ configPath: CONFIG_PATH, targets: [] }),
+    "GET /api/v1/prerequisites": () => json({ prerequisites: [] }),
+  });
 }
 
 function heading() {
@@ -47,6 +50,15 @@ describe("App", () => {
     expect(link("Settings")).toHaveAttribute("aria-current", "page");
   });
 
+  it.each(["#databases", "#databases/dev-sql"])("opens Databases from %s", async (hash) => {
+    window.location.hash = hash;
+    render(<App />);
+    expect(heading()).toHaveTextContent("Databases");
+    expect(link("Databases")).toHaveAttribute("aria-current", "page");
+    // The fake engine has no targets.
+    expect(await screen.findByText("No instances configured")).toBeInTheDocument();
+  });
+
   it("follows the hash as it changes", async () => {
     render(<App />);
     goTo("#settings");
@@ -54,6 +66,13 @@ describe("App", () => {
     expect(link("Instances")).not.toHaveAttribute("aria-current");
 
     goTo("#instances");
+    expect(await screen.findByRole("heading", { level: 1, name: "Instances" })).toBeInTheDocument();
+
+    goTo("#settings");
+    await screen.findByRole("heading", { level: 1, name: "Settings" });
+    goTo("#databases/prod-sql");
+    expect(await screen.findByRole("heading", { level: 1, name: "Databases" })).toBeInTheDocument();
+    goTo("#databasesx");
     expect(await screen.findByRole("heading", { level: 1, name: "Instances" })).toBeInTheDocument();
 
     goTo("#settings");
