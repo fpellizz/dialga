@@ -161,6 +161,15 @@ func TestCheckTargetStreams(t *testing.T) {
 	}
 }
 
+func TestCheckTargetTunnelMode(t *testing.T) {
+	tunnel := strings.Replace(testConfig, "mode: external, local_port: 11433", "mode: tunnel", 1)
+	h, fake := newTestServer(t, &tunnel, map[string]string{"TEST_SQL_PASSWORD": "s3cret"})
+	rec := do(h, http.MethodPost, "/api/v1/targets/dev-sql/checks")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"ok":true`) || !fake.req.Tunnel || fake.req.LocalPort != 0 {
+		t.Fatalf("status %d, request %+v, body %s", rec.Code, fake.req, rec.Body)
+	}
+}
+
 func TestCheckTargetNoticeWithoutPassword(t *testing.T) {
 	doc := testConfig
 	h, fake := newTestServer(t, &doc, nil)
@@ -175,11 +184,6 @@ func TestCheckTargetErrors(t *testing.T) {
 	h, _ := newTestServer(t, &doc, nil)
 	if rec := do(h, http.MethodPost, "/api/v1/targets/nope/checks"); rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown target: status %d", rec.Code)
-	}
-	tunnel := strings.Replace(testConfig, "mode: external", "mode: tunnel", 1)
-	h, _ = newTestServer(t, &tunnel, nil)
-	if rec := do(h, http.MethodPost, "/api/v1/targets/dev-sql/checks"); rec.Code != http.StatusUnprocessableEntity {
-		t.Fatalf("tunnel mode: status %d", rec.Code)
 	}
 	h, _ = newTestServer(t, nil, nil)
 	if rec := do(h, http.MethodPost, "/api/v1/targets/dev-sql/checks"); rec.Code != http.StatusConflict {
@@ -242,10 +246,18 @@ func TestListTasks(t *testing.T) {
 	}
 }
 
+func TestListTasksTunnelMode(t *testing.T) {
+	tunnel := strings.Replace(testConfig, "mode: external", "mode: tunnel", 1)
+	fake := &fakeTasks{}
+	h := newTasksServer(t, &tunnel, map[string]string{"TEST_SQL_PASSWORD": "s3cret"}, fake)
+	if rec := do(h, http.MethodGet, "/api/v1/targets/dev-sql/tasks"); rec.Code != http.StatusOK || fake.password != "s3cret" {
+		t.Fatalf("status %d, password %q, body %s", rec.Code, fake.password, rec.Body)
+	}
+}
+
 func TestListTasksErrors(t *testing.T) {
 	doc := testConfig
 	env := map[string]string{"TEST_SQL_PASSWORD": "s3cret"}
-	tunnel := strings.Replace(testConfig, "mode: external", "mode: tunnel", 1)
 	tests := []struct {
 		name string
 		doc  *string
@@ -258,7 +270,6 @@ func TestListTasksErrors(t *testing.T) {
 		{"bad database", &doc, env, &fakeTasks{}, "/api/v1/targets/dev-sql/tasks?db=x%27drop", http.StatusBadRequest},
 		{"bad limit", &doc, env, &fakeTasks{}, "/api/v1/targets/dev-sql/tasks?limit=500", http.StatusBadRequest},
 		{"no password", &doc, nil, &fakeTasks{}, "/api/v1/targets/dev-sql/tasks", http.StatusUnprocessableEntity},
-		{"tunnel mode", &tunnel, env, &fakeTasks{}, "/api/v1/targets/dev-sql/tasks", http.StatusUnprocessableEntity},
 		{"session fails", &doc, env, &fakeTasks{openErr: errors.New("nothing listening")}, "/api/v1/targets/dev-sql/tasks", http.StatusBadGateway},
 		{"missing config", nil, env, &fakeTasks{}, "/api/v1/targets/dev-sql/tasks", http.StatusConflict},
 	}

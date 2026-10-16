@@ -127,7 +127,8 @@ Exit status: 0 SUCCESS, 3 ERROR or CANCELLED, 1 error.`,
 	return cmd
 }
 
-// targetTasks opens a session on the target to read its native tasks; it
+// targetTasks opens a session on the target to read its native tasks (with
+// connect.mode tunnel, through a tunnel that closes with the session); it
 // asks for the SQL password on the terminal when the configuration says so.
 func (a *app) targetTasks(ctx context.Context, target string) (string, config.Target, mssql.TaskReader, func(), error) {
 	cfg, _, err := a.loadConfig()
@@ -137,9 +138,6 @@ func (a *app) targetTasks(ctx context.Context, target string) (string, config.Ta
 	name, t, err := cfg.Target(target)
 	if err != nil {
 		return "", config.Target{}, nil, nil, err
-	}
-	if t.Connect.Mode == config.ModeTunnel {
-		return "", config.Target{}, nil, nil, config.ErrTunnelNotYet
 	}
 	password, err := a.sqlPassword(t)
 	if err != nil {

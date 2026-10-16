@@ -118,3 +118,24 @@ func TestAddr(t *testing.T) {
 		t.Fatalf("direct addr %q", got)
 	}
 }
+
+type closeCounter struct{ n int }
+
+func (c *closeCounter) Close() error {
+	c.n++
+	return nil
+}
+
+func TestOpenWithClosesTheResourceWithThePool(t *testing.T) {
+	c := &closeCounter{}
+	db, err := OpenWith("127.0.0.1:1", "db.example.rds.amazonaws.com", "admin", "pw", c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.n != 0 {
+		t.Fatal("closed before the pool")
+	}
+	if err := db.Close(); err != nil || c.n != 1 {
+		t.Fatalf("db.Close() = %v, resource closed %d times", err, c.n)
+	}
+}

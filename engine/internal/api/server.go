@@ -309,7 +309,8 @@ func (s *Server) checkTarget(w http.ResponseWriter, r *http.Request) {
 
 // listTasks answers the native backup/restore tasks of a target, newest
 // first (?db= filters by database, ?limit= caps the rows, 1-100). Each call
-// opens its own SQL session: the GUI polls it while tasks are running.
+// opens its own SQL session, and with connect.mode tunnel its own tunnel:
+// the GUI polls it while tasks are running.
 func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 	f := mssql.TaskFilter{Database: r.URL.Query().Get("db")}
 	if f.Database != "" {
@@ -334,10 +335,6 @@ func (s *Server) listTasks(w http.ResponseWriter, r *http.Request) {
 	name, t, err := cfg.Target(r.PathValue("name"))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	}
-	if t.Connect.Mode == config.ModeTunnel {
-		http.Error(w, config.ErrTunnelNotYet.Error(), http.StatusUnprocessableEntity)
 		return
 	}
 	password, err := session.PasswordFromEnv(t, s.opts.Getenv)

@@ -6,7 +6,9 @@ package mssql
 import (
 	"crypto/tls"
 	"database/sql"
+	"database/sql/driver"
 	"errors"
+	"io"
 	"net"
 	"net/url"
 	"strconv"
@@ -30,6 +32,12 @@ func Addr(direct bool, localPort int, endpoint string, endpointPort int) string 
 // against the RDS roots for the endpoint name, so it holds through a tunnel
 // too. Nothing is dialed until the first query.
 func Open(addr, endpoint, user, password string) (*sql.DB, error) {
+	return OpenWith(addr, endpoint, user, password, nil)
+}
+
+// OpenWith is Open with a resource the pool owns: db.Close closes it too
+// (the integrated tunnel the connections go through).
+func OpenWith(addr, endpoint, user, password string, also io.Closer) (*sql.DB, error) {
 	pool, err := rdsca.Pool()
 	if err != nil {
 		return nil, err
@@ -56,7 +64,20 @@ func Open(addr, endpoint, user, password string) (*sql.DB, error) {
 	cfg.TLSConfig.RootCAs = pool
 	cfg.TLSConfig.ServerName = endpoint
 	cfg.TLSConfig.MinVersion = tls.VersionTLS12
-	db := sql.OpenDB(mssql.NewConnectorConfig(cfg))
+	var conn driver.Connector = mssql.NewConnectorConfig(cfg)
+	if also != nil {
+		conn = closingConnector{conn, also}
+	}
+	db := sql.OpenDB(conn)
 	db.SetMaxOpenConns(1)
 	return db, nil
 }
+
+// closingConnector closes its resource when the pool closes: database/sql
+// calls Close on a connector that has one.
+type closingConnector struct {
+	driver.Connector
+	also io.Closer
+}
+
+func (c closingConnector) Close() error { return c.also.Close() }
