@@ -151,6 +151,24 @@ func (j *uploadJournal) UploadEnded(string, error) {}
 type TaskParams struct {
 	Statement string `json:"statement"`
 	Database  string `json:"database"`
+	// Key and the options are what Statement was built from, so a resume
+	// can build it again and refuse a journal that was edited.
+	Key          string `json:"key,omitempty"`
+	Differential bool   `json:"differential,omitempty"`
+	NoRecovery   bool   `json:"noRecovery,omitempty"`
+}
+
+// expected is the statement of the step id ("restore" or "export") for
+// params, built the way the plan builds it, on bucket.
+func (p TaskParams) expected(id, bucket string) (string, error) {
+	arn := mssql.S3ARN(bucket, p.Key)
+	switch id {
+	case "restore":
+		return mssql.RestoreDatabase(p.Database, arn, mssql.RestoreOptions{Differential: p.Differential, NoRecovery: p.NoRecovery}), nil
+	case "export":
+		return mssql.BackupDatabase(p.Database, arn), nil
+	}
+	return "", fmt.Errorf("unknown task step %q", id)
 }
 
 // Step runs the statement and records the task on the item.

@@ -248,3 +248,20 @@ func TestDownloadFileMode(t *testing.T) {
 		t.Fatalf("replaced file mode %v, want 0640", st.Mode().Perm())
 	}
 }
+
+func TestDownloadDoesNotReplaceAFileCreatedMeanwhile(t *testing.T) {
+	fake := transfertest.New()
+	randomObject(t, fake, "k", KiB, types.ChecksumAlgorithmCrc64nvme)
+	dest := filepath.Join(t.TempDir(), "k")
+	fake.OnGetObject = func(context.Context, string, int) error {
+		// Created after the pre-flight, before the final placement.
+		return os.WriteFile(dest, []byte("mine"), 0o600)
+	}
+	_, err := Download{Bucket: testBucket, Key: "k", Path: dest}.Run(context.Background(), fake, quick(nil))
+	if got, _ := os.ReadFile(dest); err == nil || !strings.Contains(err.Error(), "already exists") || string(got) != "mine" {
+		t.Fatalf("err = %v, file %q", err, got)
+	}
+	if left, _ := filepath.Glob(filepath.Join(filepath.Dir(dest), "*.part*")); len(left) > 0 {
+		t.Fatalf("temporary files left: %v", left)
+	}
+}

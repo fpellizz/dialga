@@ -774,3 +774,31 @@ func TestImportPlanCarriesTheUploads(t *testing.T) {
 		t.Fatalf("uploads %+v, rejected %+v", it.Uploads, it.Rejected)
 	}
 }
+
+func TestParseFileCapsTheSize(t *testing.T) {
+	big := "apiVersion: v1\nkind: Export\n# " + strings.Repeat("x", MaxFileSize) + "\n"
+	if _, err := ParseFile([]byte(big), t.TempDir()); err == nil || !strings.Contains(err.Error(), "larger than 1024 KiB") {
+		t.Fatalf("ParseFile: %v", err)
+	}
+	path := filepath.Join(t.TempDir(), "plan.yaml")
+	if err := os.WriteFile(path, []byte(big), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadFile(path); err == nil || !strings.Contains(err.Error(), "larger than 1024 KiB") {
+		t.Fatalf("ReadFile: %v", err)
+	}
+}
+
+func TestValidateChecksThePrefixUpFront(t *testing.T) {
+	for _, prefix := range []string{"a b", "../x", "/abs", "it's"} {
+		req := Request{Kind: jobs.Import, Prefix: &prefix, Import: []ImportItem{{Files: []string{"/a.bak"}, Database: "a"}}}
+		if err := req.Validate(testTarget); err == nil || !strings.Contains(err.Error(), "invalid prefix") {
+			t.Fatalf("prefix %q: %v", prefix, err)
+		}
+	}
+	ok := "imports/2026"
+	req := Request{Kind: jobs.Import, Prefix: &ok, Import: []ImportItem{{Files: []string{"/a.bak"}, Database: "a"}}}
+	if err := req.Validate(testTarget); err != nil {
+		t.Fatal(err)
+	}
+}

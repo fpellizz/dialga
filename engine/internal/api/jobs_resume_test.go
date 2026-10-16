@@ -32,7 +32,7 @@ func interruptedJob(t *testing.T, reg *jobs.Registry) (*jobs.Manager, string) {
 		<-ctx.Done()
 		return "", ctx.Err()
 	})
-	job, err := first.Start(jobs.Spec{Kind: jobs.Import, Target: "dev-sql", Instance: "dev-sqlserver", Items: []jobs.ItemSpec{{
+	job, err := first.Start(jobs.Spec{Kind: jobs.Import, Target: "dev-sql", Instance: "dev-sqlserver", InstanceKey: "123456789012/eu-west-1/dev-sqlserver", Items: []jobs.ItemSpec{{
 		Name: "sales", Steps: []jobs.Step{jobs.WithKind(upload, "upload", map[string]string{"key": "import/sales.bak"})},
 	}}})
 	if err != nil {
@@ -174,6 +174,8 @@ func TestResumeJobErrors(t *testing.T) {
 	bare, bareID := interruptedJob(t, jobs.NewRegistry()) // no factory for "upload"
 	doc := testConfig
 	otherTarget := strings.Replace(testConfig, "dev-sql:", "lab-sql:", 1)
+	otherAccount := strings.Replace(testConfig, "123456789012", "999999999999", 1)
+	otherRegion := strings.Replace(testConfig, "eu-west-1", "us-east-1", 1)
 	otherInstance := strings.Replace(testConfig, "instance: dev-sqlserver", "instance: other-sqlserver", 1)
 	path := "/api/v1/jobs/" + id + "/resume"
 	tests := []struct {
@@ -193,6 +195,8 @@ func TestResumeJobErrors(t *testing.T) {
 		{"no configuration", m, path, nil, resumePassword, &resumeEnv{}, "", 409, "no such file"},
 		{"target gone", m, path, &otherTarget, resumePassword, &resumeEnv{}, "", 422, "target dev-sql of this job is not in the configuration"},
 		{"other instance", m, path, &otherInstance, resumePassword, &resumeEnv{}, "", 422, "now points at instance other-sqlserver, the job ran on dev-sqlserver"},
+		{"other account", m, path, &otherAccount, resumePassword, &resumeEnv{}, "", 422, "the job ran on 123456789012/eu-west-1/dev-sqlserver, the target is on 999999999999/"},
+		{"other region", m, path, &otherRegion, resumePassword, &resumeEnv{}, "", 422, "the target is on 123456789012/us-east-1/"},
 		{"no password", m, path, &doc, nil, &resumeEnv{}, "", 422, "SQL password"},
 		{"env fails", m, path, &doc, resumePassword, &resumeEnv{err: errors.New("AWS: no credentials")}, "", 502, "AWS: no credentials"},
 		{"not resumable", bare, "/api/v1/jobs/" + bareID + "/resume", &doc, resumePassword, &resumeEnv{}, "", 422, `no factory rebuilds steps of kind "upload"`},

@@ -107,7 +107,7 @@ func TestIntegrationResumeInterruptedJobs(t *testing.T) {
 	}
 	end := func(t *testing.T, m *jobs.Manager, id string, e Env) jobs.Job {
 		t.Helper()
-		if _, err := m.Resume(id, jobs.ResumeOptions{Env: e}); err != nil {
+		if _, err := m.Resume(id, jobs.ResumeOptions{Env: e, InstanceKey: instanceKeyOf(e)}); err != nil {
 			t.Fatal(err)
 		}
 		wctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)

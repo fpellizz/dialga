@@ -96,7 +96,8 @@ func (r JobRequest) pipeline() (pipeline.Request, error) {
 // closing the connection does not stop it (POST .../cancel does).
 func (s *Server) startJob(w http.ResponseWriter, r *http.Request) {
 	var body JobRequest
-	if !readBody(w, r, &body) {
+	// A batch of MaxItems databases with stripes outgrows the default limit.
+	if !readBodyMax(w, r, &body, 1<<18) {
 		return
 	}
 	req, err := body.pipeline()

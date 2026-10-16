@@ -227,6 +227,9 @@ type Job struct {
 	Kind     Kind   `json:"kind"`
 	Target   string `json:"target"`
 	Instance string `json:"instance"`
+	// InstanceKey is account/region/instance of the RDS instance (empty in
+	// journals of older versions): a resume refuses another one.
+	InstanceKey string `json:"instanceKey,omitempty"`
 	// MaxTasks is the native tasks the job runs at once on the instance.
 	MaxTasks        int        `json:"maxTasks"`
 	State           State      `json:"state"`

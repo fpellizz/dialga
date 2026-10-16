@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -131,6 +132,12 @@ func (r Request) Validate(t config.Target) error {
 	if r.Prefix != nil && r.Kind != jobs.Import {
 		return invalidf("a prefix is for imports")
 	}
+	if r.Prefix != nil && *r.Prefix != "" {
+		// Checked here, so a bad prefix fails the request, not item by item.
+		if err := validate.S3Key(*r.Prefix + "/x"); err != nil {
+			return invalidf("invalid prefix %q: %v", *r.Prefix, err)
+		}
+	}
 	for _, it := range r.Import {
 		if err := database(it.Database); err != nil {
 			return err
@@ -212,6 +219,9 @@ type FileItem struct {
 	Destination  string   `yaml:"destination"`
 }
 
+// MaxFileSize is the largest plan file ReadFile and ParseFile take.
+const MaxFileSize = 1 << 20
+
 // The kinds of a File.
 const (
 	FileImport = "Import"
@@ -220,7 +230,12 @@ const (
 
 // ReadFile reads a plan file; relative paths in it are relative to its folder.
 func ReadFile(path string) (File, error) {
-	data, err := os.ReadFile(path)
+	fh, err := os.Open(path)
+	if err != nil {
+		return File{}, err
+	}
+	defer func() { _ = fh.Close() }()
+	data, err := io.ReadAll(io.LimitReader(fh, MaxFileSize+1))
 	if err != nil {
 		return File{}, err
 	}
@@ -237,6 +252,9 @@ func ReadFile(path string) (File, error) {
 
 // ParseFile decodes a plan file and makes its paths absolute against base.
 func ParseFile(data []byte, base string) (File, error) {
+	if len(data) > MaxFileSize {
+		return File{}, invalidf("the plan file is larger than %d KiB", MaxFileSize>>10)
+	}
 	var f File
 	dec := yaml.NewDecoder(bytes.NewReader(data))
 	dec.KnownFields(true)

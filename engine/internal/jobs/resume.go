@@ -56,6 +56,11 @@ func (m *Manager) Resume(id string, opts ResumeOptions) (Job, error) {
 		return Job{}, fmt.Errorf("%w: job %s is %s", ErrNotInterrupted, id, before.State)
 	}
 
+	if before.InstanceKey != "" && opts.InstanceKey != before.InstanceKey {
+		return Job{}, fmt.Errorf("%w: the job ran on %s, the target is on %s now (account, region or instance changed)",
+			ErrNotResumable, before.InstanceKey, opts.InstanceKey)
+	}
+
 	job := before.clone(true)
 	steps := make([][]Step, len(job.Items))
 	resumed := 0
