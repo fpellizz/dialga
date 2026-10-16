@@ -1170,6 +1170,9 @@ components:
         startedAt: { type: string, format: date-time }
         endedAt: { type: string, format: date-time }
         detail: { type: string, description: Result line, or the error of a failed step. }
+        kind: { type: string, description: "The factory that rebuilds the step on a resume; absent: the step cannot be resumed." }
+        params: { description: "What that factory gets back on a resume (any JSON). Never secrets." }
+        taskId: { type: integer, description: The native task the step reported. }
     JobEvent:
       type: object
       description: One change of a job; seq grows by one per event of the job.
@@ -1179,7 +1182,7 @@ components:
         time: { type: string, format: date-time }
         type:
           type: string
-          examples: [job.queued, job.started, job.cancelling, job.succeeded, job.failed, job.cancelled, job.interrupted,
+          examples: [job.queued, job.started, job.cancelling, job.succeeded, job.failed, job.cancelled, job.interrupted, job.resumed,
             step.waiting, step.started, step.succeeded, step.failed, step.skipped, step.cancelled, step.interrupted,
             upload.progress, task.status, log]
         item: { type: string, description: The database. }

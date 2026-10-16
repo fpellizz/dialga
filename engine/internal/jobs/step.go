@@ -52,15 +52,46 @@ type Reporter interface {
 	// (upload.progress; the speed and the ETA are computed here).
 	Transfer(dir Direction, done, total int64)
 	// Task reports the native RDS task the step started or follows
-	// (task.status): its id is recorded on the item.
+	// (task.status): its id is recorded on the item and on the step.
 	Task(TaskStatus)
+	// LastTaskID is the last native task the item reported, by any of its
+	// steps (0 if none): what a "wait" follows after a "restore", also in a
+	// resumed job.
+	LastTaskID() int
 	// Upload records the multipart upload state a resume needs.
 	Upload(UploadState)
 	// Log adds a log event to the job.
 	Log(level Level, msg string)
 	// Result sets the result line of the item.
 	Result(string)
+	// Checkpoint replaces the params of a Resumable step (what its factory
+	// gets back on a resume, e.g. the S3 key a backup chose) and writes the
+	// journal at once.
+	Checkpoint(params any) error
 }
+
+// Resumable is a Step the journal can rebuild after an interrupt: Start
+// records its Kind and Params (as JSON) on the StepInfo, and Manager.Resume
+// hands them to the Factory registered for Kind.
+type Resumable interface {
+	Step
+	Kind() string
+	Params() any
+}
+
+// WithKind makes a step resumable by the factory of kind, with params.
+func WithKind(step Step, kind string, params any) Step {
+	return kindStep{Step: step, kind: kind, params: params}
+}
+
+type kindStep struct {
+	Step
+	kind   string
+	params any
+}
+
+func (s kindStep) Kind() string { return s.kind }
+func (s kindStep) Params() any  { return s.params }
 
 // NewStep makes a Step out of a function.
 func NewStep(id, title string, res Resource, run func(context.Context, Reporter) (string, error)) Step {
