@@ -251,18 +251,37 @@ func (s *Session) Finish(ctx context.Context, db string) (*Prepared, error) {
 	p.Plan.Actions = []core.Action{{
 		ID: "finish", Title: fmt.Sprintf("Finish the restore of %s (bring it online)", db),
 		Kind: core.KindSQL, Risk: core.Change, Statement: stmt,
-		Run: func(ctx context.Context) (string, error) {
-			if err := s.SQL.Exec(ctx, stmt); err != nil {
-				return "", err
-			}
-			state, err := s.SQL.DatabaseState(ctx, db)
-			if err != nil || state == "" {
-				return "restore finished", nil
-			}
-			return db + " is " + state, nil
-		},
+		Run: func(ctx context.Context) (string, error) { return s.FinishRestore(ctx, db) },
 	}}
 	return p, nil
+}
+
+// FinishRestore brings db online with rds_finish_restore, unless it is not
+// RESTORING any more (a finish that ran before an interrupt).
+func (s *Session) FinishRestore(ctx context.Context, db string) (string, error) {
+	state, err := s.SQL.DatabaseState(ctx, db)
+	if err != nil {
+		return "", err
+	}
+	if state != "" && state != "RESTORING" {
+		return db + " is " + state + ": nothing to finish", nil
+	}
+	if err := s.SQL.Exec(ctx, mssql.FinishRestore(db)); err != nil {
+		return "", err
+	}
+	state, err = s.SQL.DatabaseState(ctx, db)
+	if err != nil || state == "" {
+		return "restore finished", nil
+	}
+	return db + " is " + state, nil
+}
+
+// CancelTask asks RDS to cancel the native task id with rds_cancel_task.
+func (s *Session) CancelTask(ctx context.Context, id int) (string, error) {
+	if err := s.SQL.Exec(ctx, mssql.CancelTask(id)); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("cancel requested: follow it with dialga wait %d", id), nil
 }
 
 // Cancel prepares rds_cancel_task of a native task that has not ended.
@@ -295,12 +314,7 @@ func (s *Session) Cancel(ctx context.Context, id int) (*Prepared, error) {
 	p.Plan.Actions = []core.Action{{
 		ID: "cancel", Title: "Cancel " + what,
 		Kind: core.KindSQL, Risk: core.Change, Statement: stmt,
-		Run: func(ctx context.Context) (string, error) {
-			if err := s.SQL.Exec(ctx, stmt); err != nil {
-				return "", err
-			}
-			return fmt.Sprintf("cancel requested: follow it with dialga wait %d", id), nil
-		},
+		Run: func(ctx context.Context) (string, error) { return s.CancelTask(ctx, id) },
 	}}
 	return p, nil
 }

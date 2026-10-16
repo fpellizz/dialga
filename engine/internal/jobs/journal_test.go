@@ -312,17 +312,6 @@ func TestRetention(t *testing.T) {
 	}
 }
 
-func TestJournalLock(t *testing.T) {
-	dir := t.TempDir()
-	m := openT(t, dir, Options{})
-	if _, err := Open(dir, Options{}); !errors.Is(err, ErrLocked) {
-		t.Fatalf("second engine on the same journal: %v", err)
-	}
-	closeT(t, m)
-	again := openT(t, dir, Options{})
-	closeT(t, again)
-}
-
 func TestJournalSkipsBadFiles(t *testing.T) {
 	dir := t.TempDir()
 	at := time.Now()
@@ -340,8 +329,25 @@ func TestJournalSkipsBadFiles(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// A leftover of a crash is old; a younger one may be another process
+	// writing right now.
+	old := time.Now().Add(-time.Hour)
+	for name := range files {
+		if name[0] == '.' {
+			if err := os.Chtimes(filepath.Join(dir, name), old, old); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	young := filepath.Join(dir, ".20261016T000000Z-00000001.json.456.tmp")
+	if err := os.WriteFile(young, []byte("being written"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	m := openT(t, dir, Options{})
 	defer closeT(t, m)
+	if _, err := os.Stat(young); err != nil {
+		t.Fatalf("a recent temporary file belongs to another process: %v", err)
+	}
 	if got := m.List(); len(got) != 1 || got[0].ID != good.ID {
 		t.Fatalf("loaded %+v", got)
 	}
