@@ -217,6 +217,39 @@ const en = {
   "targets.confirmLabel": "Target name",
   "targets.confirmRemove": "Remove target",
   "targets.removed": "Target {name} removed.",
+  "app.skip": "Skip to content",
+  "check.steps": "Check steps",
+  "check.counts": "Failed: {failed} · warnings: {warnings}",
+  "overview.refresh": "Refresh the overview",
+  "tasks.refresh": "Refresh the tasks",
+  "hint.engine":
+    "Restart Dialga. If it happens again, start it from a terminal to read the engine log.",
+  "hint.config": "Fix the configuration file (its path is in Settings), then refresh.",
+  "hint.unknownTarget": "The configuration has changed: refresh the list of instances.",
+  "hint.account":
+    "Use an AWS profile of account {account} for this target, or log in to that account.",
+  "hint.profile":
+    "Create the profile {profile} in ~/.aws/config (aws configure sso), or fix aws_profile in the configuration.",
+  "hint.login": "Log in to AWS again (aws sso login), then retry.",
+  "hint.credentials":
+    "The profile has no AWS credentials: log in (aws sso login) or add its keys to ~/.aws/credentials.",
+  "hint.permission":
+    "The AWS profile lacks the permission named in the message: ask for it, or use another profile.",
+  "hint.envVar":
+    "Start Dialga with {name} set in its environment: the engine reads the SQL password from there.",
+  "hint.tunnel": "Open the SSM tunnel to the instance on the port of the target, then retry.",
+  "hint.sqlLogin": "Check the SQL user of the target and the password the engine received.",
+  "hint.tls":
+    "The certificate is not the instance's: check that the tunnel leads to the RDS endpoint.",
+  "hint.instance":
+    "Check the instance identifier and the region of the target in the configuration.",
+  "hint.instanceState":
+    "Wait until the instance is available and its option group in-sync, then run the check again.",
+  "hint.option":
+    "Add SQLSERVER_BACKUP_RESTORE to the option group of the instance, with the IAM role for the bucket, and wait until it is in-sync.",
+  "hint.bucket": "Check the bucket of the target in the configuration.",
+  "hint.bucketRegion":
+    "Use a bucket in the region of the instance: RDS reads backups only from there.",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -442,6 +475,39 @@ const it: Record<MessageKey, string> = {
   "targets.confirmLabel": "Nome del target",
   "targets.confirmRemove": "Rimuovi il target",
   "targets.removed": "Target {name} rimosso.",
+  "app.skip": "Vai al contenuto",
+  "check.steps": "Passi del check",
+  "check.counts": "Falliti: {failed} · avvisi: {warnings}",
+  "overview.refresh": "Aggiorna il riepilogo",
+  "tasks.refresh": "Aggiorna i task",
+  "hint.engine":
+    "Riavvia Dialga. Se succede ancora, avvialo da un terminale per leggere il log dell'engine.",
+  "hint.config":
+    "Correggi il file di configurazione (il percorso è in Impostazioni), poi aggiorna.",
+  "hint.unknownTarget": "La configurazione è cambiata: aggiorna l'elenco delle istanze.",
+  "hint.account":
+    "Usa per questo target un profilo AWS dell'account {account}, oppure accedi a quell'account.",
+  "hint.profile":
+    "Crea il profilo {profile} in ~/.aws/config (aws configure sso), oppure correggi aws_profile nella configurazione.",
+  "hint.login": "Accedi di nuovo ad AWS (aws sso login), poi riprova.",
+  "hint.credentials":
+    "Il profilo non ha credenziali AWS: accedi (aws sso login) o aggiungi le sue chiavi in ~/.aws/credentials.",
+  "hint.permission":
+    "Al profilo AWS manca il permesso indicato nel messaggio: chiedilo, oppure usa un altro profilo.",
+  "hint.envVar":
+    "Avvia Dialga con {name} impostata nell'ambiente: l'engine legge da lì la password SQL.",
+  "hint.tunnel": "Apri il tunnel SSM verso l'istanza sulla porta del target, poi riprova.",
+  "hint.sqlLogin": "Controlla l'utente SQL del target e la password ricevuta dall'engine.",
+  "hint.tls":
+    "Il certificato non è quello dell'istanza: controlla che il tunnel porti all'endpoint RDS.",
+  "hint.instance":
+    "Controlla l'identificativo dell'istanza e la regione del target nella configurazione.",
+  "hint.instanceState":
+    "Attendi che l'istanza sia disponibile e il suo option group in-sync, poi riesegui il check.",
+  "hint.option":
+    "Aggiungi SQLSERVER_BACKUP_RESTORE all'option group dell'istanza, con il ruolo IAM per il bucket, e attendi che sia in-sync.",
+  "hint.bucket": "Controlla il bucket del target nella configurazione.",
+  "hint.bucketRegion": "Usa un bucket nella regione dell'istanza: RDS legge i backup solo da lì.",
 };
 
 export const messages: Record<Lang, Record<MessageKey, string>> = { en, it };

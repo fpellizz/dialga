@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { errorText } from "./api";
 import { DatabasesPage } from "./DatabasesPage";
 import { type EngineInfo, getEngineInfo } from "./engine";
@@ -36,6 +36,20 @@ export function App() {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
+  // A new page moves the focus to its title, as a page load would; not on start.
+  const shown = useRef(page);
+  useEffect(() => {
+    if (shown.current === page) {
+      return;
+    }
+    shown.current = page;
+    const title = document.querySelector<HTMLElement>("#main h1");
+    if (title) {
+      title.tabIndex = -1;
+      title.focus();
+    }
+  }, [page]);
+
   // Before the first paint, so a dark system never flashes the light theme.
   useLayoutEffect(() => applyTheme(theme), [theme]);
 
@@ -48,7 +62,7 @@ export function App() {
     <I18nProvider>
       <div className="layout">
         <Sidebar page={page} engine={engine} engineError={engineError} />
-        <main className="main">
+        <main id="main" className="main" tabIndex={-1}>
           {page === "settings" && (
             <SettingsPage engine={engine} theme={theme} onThemeChange={changeTheme} />
           )}
