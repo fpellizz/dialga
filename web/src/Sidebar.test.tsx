@@ -34,8 +34,8 @@ describe("Sidebar", () => {
       within(nav)
         .getAllByRole("link")
         .map((link) => link.textContent),
-    ).toEqual(["Instances", "Databases"]);
-    for (const name of ["Import", "Export", "Activity"]) {
+    ).toEqual(["Instances", "Databases", "Export", "Settings"]);
+    for (const name of ["Import", "Activity"]) {
       const item = within(nav).getByText(name);
       expect(item).toHaveAttribute("aria-disabled", "true");
       expect(item).toHaveTextContent(`${name}Soon`);
@@ -68,7 +68,8 @@ describe("Sidebar", () => {
       "aria-current",
       "page",
     );
-    expect(screen.getAllByText("Presto")).toHaveLength(3);
+    expect(screen.getByRole("link", { name: "Esporta" })).toBeInTheDocument();
+    expect(screen.getAllByText("Presto")).toHaveLength(2);
     expect(screen.getByText("Avvio dell'engine…")).toBeInTheDocument();
   });
 });

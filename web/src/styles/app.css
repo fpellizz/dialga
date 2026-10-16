@@ -1462,7 +1462,7 @@ summary:focus-visible {
   color: var(--muted-foreground);
   font-weight: 500;
 }
-.wizard-steps li > span,
+.wizard-step-label,
 .wizard-jump {
   display: inline-flex;
   align-items: center;
@@ -1540,4 +1540,86 @@ summary:focus-visible {
 }
 .wizard-nav .btn-primary {
   order: 10;
+}
+
+/* Export wizard */
+.export-target {
+  max-width: 320px;
+}
+.export-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+.export-dbs,
+.export-previews,
+.export-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.export-db {
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.export-db:has(input:checked) {
+  border-color: var(--primary);
+}
+.export-db:has(input:focus-visible) {
+  outline: 2px solid var(--ring);
+  outline-offset: 1px;
+}
+.export-db .mono {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.export-preview,
+.export-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.export-preview-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.export-preview-head h3 {
+  overflow-wrap: anywhere;
+}
+.export-uri {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.export-uri code,
+.export-code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.export-windows dd {
+  overflow-wrap: anywhere;
+}
+.row-select {
+  width: 1%;
+  text-align: center;
+}
+.row-select input {
+  accent-color: var(--primary);
+}
+a.btn {
+  text-decoration: none;
 }

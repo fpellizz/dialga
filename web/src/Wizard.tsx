@@ -42,7 +42,7 @@ export function Wizard({
   /** The earlier steps cannot be reopened (while something runs). */
   locked?: boolean;
   busy?: boolean;
-  titleRef?: RefObject<HTMLHeadingElement | null>;
+  titleRef?: RefObject<HTMLHeadingElement>;
   footer?: ReactNode;
   children: ReactNode;
 }) {
@@ -100,7 +100,10 @@ export function Wizard({
                     {s.label}
                   </button>
                 ) : (
-                  <span aria-current={i === current ? "step" : undefined}>
+                  <span
+                    className="wizard-step-label"
+                    aria-current={i === current ? "step" : undefined}
+                  >
                     {dot}
                     {s.label}
                     {done && <span className="sr-only"> {t("wizard.done")}</span>}

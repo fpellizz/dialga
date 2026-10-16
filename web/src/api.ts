@@ -206,6 +206,10 @@ export interface Overview {
   userDatabases?: number;
   /** Native tasks queued, running or being cancelled. */
   activeTasks?: number;
+  /** Daily automated backup window, UTC: "04:29-04:59". */
+  backupWindow?: string;
+  /** Weekly maintenance window, UTC: "sun:05:00-sun:05:30". */
+  maintenanceWindow?: string;
 }
 
 /** The state of a configured target's RDS instance. */

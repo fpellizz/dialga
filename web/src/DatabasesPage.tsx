@@ -3,6 +3,7 @@ import {
   ArrowUp,
   ArrowUpDown,
   CloudDownload,
+  CloudUpload,
   Database,
   RefreshCw,
   SearchX,
@@ -29,6 +30,7 @@ import {
   targetFromHash,
 } from "./databases";
 import type { EngineInfo } from "./engine";
+import { exportable, exportHref } from "./exportPlan";
 import { ErrorBanner, HintText } from "./Feedback";
 import { type MessageKey, useI18n } from "./i18n";
 import { PlanDialog, type PlanResult } from "./PlanDialog";
@@ -76,6 +78,8 @@ export function DatabasesPage({
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
   const [dialog, setDialog] = useState<Dialog | null>(null);
+  // The databases ticked for "Export selected" (online ones only).
+  const [selected, setSelected] = useState<string[]>([]);
   // A task the plan dialog was following when it closed: it keeps running.
   const [running, setRunning] = useState<{ id: number; target: string } | null>(null);
 
@@ -134,6 +138,13 @@ export function DatabasesPage({
     () => (list ? sortDatabases(filterDatabases(list, query), sort) : []),
     [list, query, sort],
   );
+  // A database that is no longer listed (or online) is no longer selected.
+  const ticked = selected.filter((name) => list?.some((d) => d.name === name && exportable(d)));
+  const shownExportable = rows.filter(exportable).map((d) => d.name);
+  const allShown = shownExportable.length > 0 && shownExportable.every((n) => ticked.includes(n));
+  const someShown = shownExportable.some((n) => ticked.includes(n));
+  const tick = (name: string, on: boolean) =>
+    setSelected((s) => (on ? [...s.filter((n) => n !== name), name] : s.filter((n) => n !== name)));
 
   const closePlan = (result: PlanResult) => {
     setDialog(null);
@@ -148,6 +159,7 @@ export function DatabasesPage({
   const choose = (name: string) => {
     saveLastTarget(name);
     setTarget(name);
+    setSelected([]);
     // Keep the address in step without a hashchange (the page stays mounted).
     window.history.replaceState(null, "", databasesHref(name));
   };
@@ -259,6 +271,23 @@ export function DatabasesPage({
                 disabled={!list}
               />
             </label>
+            {list?.some(exportable) && (
+              <button
+                type="button"
+                className="btn btn-outline"
+                disabled={ticked.length === 0}
+                onClick={() => {
+                  // In the order the table shows, not the order of the clicks.
+                  const names = sortDatabases(list, sort)
+                    .map((d) => d.name)
+                    .filter((n) => ticked.includes(n));
+                  window.location.hash = exportHref(target, names);
+                }}
+              >
+                <CloudUpload size={16} aria-hidden="true" />
+                {t("databases.exportSelected", { count: ticked.length })}
+              </button>
+            )}
             {list && (
               <span className="muted" role="status">
                 {rows.length !== list.length
@@ -299,6 +328,31 @@ export function DatabasesPage({
                 <caption className="sr-only">{t("databases.caption", { target })}</caption>
                 <thead>
                   <tr>
+                    <th scope="col" className="row-select">
+                      {shownExportable.length > 0 && (
+                        <input
+                          type="checkbox"
+                          aria-label={t("databases.selectAllShown")}
+                          checked={allShown}
+                          ref={(el) => {
+                            if (el) {
+                              el.indeterminate = someShown && !allShown;
+                            }
+                          }}
+                          onChange={(e) => {
+                            const on = e.currentTarget.checked;
+                            setSelected((s) =>
+                              on
+                                ? [
+                                    ...s.filter((n) => !shownExportable.includes(n)),
+                                    ...shownExportable,
+                                  ]
+                                : s.filter((n) => !shownExportable.includes(n)),
+                            );
+                          }}
+                        />
+                      )}
+                    </th>
                     {COLUMNS.map((col) => (
                       <SortHeader
                         key={col.key}
@@ -315,7 +369,13 @@ export function DatabasesPage({
                 </thead>
                 <tbody>
                   {rows.map((db) => (
-                    <DatabaseLine key={db.name} db={db} onOpen={setDialog} />
+                    <DatabaseLine
+                      key={db.name}
+                      db={db}
+                      onOpen={setDialog}
+                      selected={ticked.includes(db.name)}
+                      onSelect={(on) => tick(db.name, on)}
+                    />
                   ))}
                 </tbody>
               </table>
@@ -383,13 +443,34 @@ function SortHeader({
   );
 }
 
-function DatabaseLine({ db, onOpen }: { db: DatabaseRow; onOpen: (dialog: Dialog) => void }) {
+function DatabaseLine({
+  db,
+  onOpen,
+  selected,
+  onSelect,
+}: {
+  db: DatabaseRow;
+  onOpen: (dialog: Dialog) => void;
+  selected: boolean;
+  onSelect: (on: boolean) => void;
+}) {
   const { t, lang } = useI18n();
   const plan = (operation: Operation) => onOpen({ kind: "plan", operation, database: db.name });
   const stateKey = dbStateKey(db.state);
   const release = compatRelease(db.compatibility);
   return (
     <tr>
+      <td className="row-select">
+        {exportable(db) && (
+          <input
+            type="checkbox"
+            name="select"
+            aria-label={t("databases.select", { database: db.name })}
+            checked={selected}
+            onChange={(e) => onSelect(e.currentTarget.checked)}
+          />
+        )}
+      </td>
       <th scope="row" className="db-name">
         <span className="mono">{db.name}</span>
         {db.readOnly && <span className="badge badge-skipped">{t("databases.readOnly")}</span>}

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { errorText } from "./api";
 import { DatabasesPage } from "./DatabasesPage";
+import { ExportPage } from "./ExportPage";
 import { type EngineInfo, getEngineInfo } from "./engine";
 import { InstancesPage } from "./InstancesPage";
 import { I18nProvider } from "./i18n";
@@ -17,6 +18,10 @@ function pageFromHash(): Page {
   // #databases/<target> opens the screen on that target.
   if (hash === "#databases" || hash.startsWith("#databases/")) {
     return "databases";
+  }
+  // #export/<target>?db=… opens the wizard on those databases.
+  if (hash === "#export" || hash.startsWith("#export/")) {
+    return "export";
   }
   return "instances";
 }
@@ -69,6 +74,7 @@ export function App() {
               <SettingsPage engine={engine} theme={theme} onThemeChange={changeTheme} />
             )}
             {page === "databases" && <DatabasesPage engine={engine} engineError={engineError} />}
+            {page === "export" && <ExportPage engine={engine} engineError={engineError} />}
             {page === "instances" && <InstancesPage engine={engine} engineError={engineError} />}
           </main>
         </div>

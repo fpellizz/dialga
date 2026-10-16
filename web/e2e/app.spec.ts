@@ -16,8 +16,8 @@ test("navigates with the sidebar, the hash and history", async ({ page }) => {
   await expect(page.getByRole("heading", { level: 1, name: "Instances" })).toBeVisible();
   await expect(instances).toHaveAttribute("aria-current", "page");
   await expect(page.getByText("engine dev")).toBeVisible();
-  // The coming pages are not links yet.
-  await expect(nav.getByRole("link")).toHaveText(["Instances", "Databases"]);
+  // The coming pages (Import, Activity) are not links yet.
+  await expect(nav.getByRole("link")).toHaveText(["Instances", "Databases", "Export", "Settings"]);
 
   await databases.click();
   await expect(page).toHaveURL(/#databases$/);
@@ -102,7 +102,14 @@ test("runs a check that stops at the AWS step", async ({ page }) => {
   await expect(card.getByText("Open tunnel on port 11433")).toBeVisible();
 
   await card.getByRole("button", { name: "Run check" }).click();
-  await expect(card.getByText("Some checks failed")).toBeVisible({ timeout: 15_000 });
+  // The banner, and the same outcome in the card's live region for screen readers.
+  await expect(card.locator(".banner-fail")).toHaveText(
+    "Some checks failed · Failed: 1 · warnings: 0",
+    {
+      timeout: 15_000,
+    },
+  );
+  await expect(card.getByRole("status").first()).toHaveText(/^Some checks failed/);
   // No DIALGA_SQL_PASSWORD in the engine environment: said up front.
   await expect(card.getByText(/^SQL login will be skipped: /)).toBeVisible();
 
