@@ -317,7 +317,7 @@ func place(tmp, dest string, overwrite bool) error {
 		_ = os.Remove(tmp) // dest is complete; at worst a hidden .part file stays
 		return nil
 	case errors.Is(err, fs.ErrExist):
-		return fmt.Errorf("%s appeared during the download and was not replaced", dest)
+		return fmt.Errorf("%s already exists (it appeared during the download): not replaced, use overwrite", dest)
 	}
 	// No hard links on this file system: check, then rename.
 	if err := mustNotExist(dest); err != nil {
