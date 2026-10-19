@@ -9,13 +9,18 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ## [Non rilasciato]
 
+## [0.6.0] - 2026-10-19
+
 ### Aggiunto
 
 - **Accesso ai database**. Dare o togliere a un login SQL l'accesso a un
   database (lettura, lettura e scrittura, proprietario), con il permesso di
   fare backup (`--backup`); creare il login con password generata o letta da
   stdin (`CHECK_POLICY ON`, mostrata una sola volta); revocare livello, backup
-  o utente; legare un utente orfano al suo login (`fix-orphan`). CLI
+  o utente; legare un utente orfano al suo login (`fix-orphan`, o `grant`
+  con un login dello stesso nome, anche creato al momento). Un `db_owner` con i
+  permessi in msdb conta come abilitato al backup. Collaudato su `mssql-dev`
+  con un login usa e getta: grant con backup, backup lanciato dal login, revoke. CLI
   `dialga access list|logins|grant|revoke|fix-orphan` (dry run di default,
   `--apply`); API `GET …/logins`, `GET …/databases/{db}/access` e piani
   `grant|revoke|fix-orphan`; app: *Access…* nella riga del database. Il master
