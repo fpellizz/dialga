@@ -153,6 +153,7 @@ Su richiesta dell'utente ("che sto attrezzo veda la luce il prima possibile", me
 - Dipendenze: bastano i default di Tauri (deb `libwebkit2gtk-4.1-0, libgtk-3-0`; rpm i soname corrispondenti); l'engine è Go statico.
 - Tauri usa la prima PNG di `bundle.icon` come icona della finestra: tenere `icons/128x128.png` in testa.
 - Icona della voce di menu: `Icon=dialga` in `linux/desktop-entry.hbs`, con le PNG installate anche come `hicolor/<N>x<N>/apps/dialga.png` (`files` di deb e rpm). Dal 0.6.2: il vecchio nome `dialga-desktop` restava nella cache delle icone di KDE Plasma (`~/.cache/icon-cache.kcache`) e la barra mostrava ancora l'icona Decisyon. Se l'icona cambia di nuovo, cambiare anche il nome.
+- Wayland: `main.rs` chiama `glib::set_prgname("Dialga")`, così l'`app_id` della finestra è `Dialga` e coincide con `Dialga.desktop` (KWin e GNOME prendono da lì l'icona della finestra; con `dialga-desktop`, il nome del binario, KDE mostrava la "W" generica). `StartupWMClass=Dialga` per X11. Verifica: `WAYLAND_DEBUG=1 dialga-desktop 2>&1 | grep set_app_id`.
 - glibc: la build locale su Fedora 43 richiede glibc 2.39; la pipeline (`node:24-bookworm` = Debian 12, glibc 2.36) no. Pubblicare solo i pacchetti della pipeline.
 - TODO: confermare licenza, email del maintainer deb, compatibilità con Ubuntu 22.04, comportamento dei Downloads quando si ricarica un file con lo stesso nome.
 
