@@ -34,8 +34,9 @@ type DatabaseUser struct {
 	Roles  []string `json:"roles"`
 	// Level is none, read, readwrite, owner or custom (AccessLevel).
 	Level string `json:"level"`
-	// Backup: member of db_backupoperator and its login has the msdb grants
-	// of rds_backup_database. BackupPartial: only one of the two.
+	// Backup: member of db_backupoperator (or db_owner, which can back the
+	// database up too) and its login has the msdb grants of
+	// rds_backup_database. BackupPartial: only one of the two.
 	Backup        bool `json:"backup"`
 	BackupPartial bool `json:"backupPartial,omitempty"`
 	// Managed: Dialga may change it.
@@ -241,7 +242,7 @@ func (s Session) DatabaseAccess(ctx context.Context, db, master string) (Databas
 			u.Roles = r
 		}
 		u.Level = AccessLevel(u.Roles)
-		inRole := slices.Contains(u.Roles, RoleBackup)
+		inRole := slices.Contains(u.Roles, RoleBackup) || slices.Contains(u.Roles, "db_owner")
 		full := !u.Orphan && grants[sids[u.Name]] == len(BackupObjects)
 		some := !u.Orphan && grants[sids[u.Name]] > 0
 		u.Backup = inRole && full
@@ -289,7 +290,7 @@ func (s Session) MsdbUser(ctx context.Context, login string) (MsdbUser, error) {
 }
 
 // BackupOperators lists the online databases where the user bound to login
-// is a member of db_backupoperator, and those it could not read (the caller
+// is a member of db_backupoperator or db_owner, and those it could not read (the caller
 // has no access to them): the grants of msdb are still needed while one
 // database uses them.
 func (s Session) BackupOperators(ctx context.Context, login string) (used, unreadable []string, err error) {
@@ -303,7 +304,7 @@ WHILE @@FETCH_STATUS = 0
 BEGIN
   BEGIN TRY
     SET @q = N'SELECT @d, COUNT(*) FROM ' + QUOTENAME(@d) + N'.sys.database_role_members rm
-      JOIN ' + QUOTENAME(@d) + N'.sys.database_principals r ON r.principal_id = rm.role_principal_id AND r.name = N''db_backupoperator''
+      JOIN ' + QUOTENAME(@d) + N'.sys.database_principals r ON r.principal_id = rm.role_principal_id AND r.name IN (N''db_backupoperator'', N''db_owner'')
       JOIN ' + QUOTENAME(@d) + N'.sys.database_principals m ON m.principal_id = rm.member_principal_id
       JOIN sys.server_principals sp ON sp.sid = m.sid WHERE sp.name = @login';
     INSERT @r EXEC sp_executesql @q, N'@d sysname, @login sysname', @d, @login;

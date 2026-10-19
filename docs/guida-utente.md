@@ -781,7 +781,7 @@ Dà a un login SQL l'accesso a un database, glielo toglie e lega un utente orfan
 | `readwrite` | `db_datareader` + `db_datawriter` |
 | `owner` | `db_owner` |
 
-**`--backup`** (con `grant`) aggiunge `db_backupoperator` nel database e, in msdb, i permessi di `rds_backup_database` e `rds_task_status` e `SELECT` su `rds_fn_task_status`, così chi usa quel login può lanciare `exec msdb.dbo.rds_backup_database` con i suoi strumenti (SSMS, `sqlcmd`) e seguirne il task. Dialga invece si collega sempre con l'utente SQL del target. `rds_cancel_task` non viene concesso di proposito. Il backup scrive nei bucket a cui può accedere il **ruolo IAM dell'istanza**, non l'utente SQL.
+**`--backup`** (con `grant`) aggiunge `db_backupoperator` nel database e, in msdb, i permessi di `rds_backup_database` e `rds_task_status` e `SELECT` su `rds_fn_task_status`, così chi usa quel login può lanciare `exec msdb.dbo.rds_backup_database` con i suoi strumenti (SSMS, `sqlcmd`) e seguirne il task. Dialga invece si collega sempre con l'utente SQL del target. Un `db_owner` può già fare il backup del suo database: gli basta la parte in msdb, e `list` lo segna *partial* finché non c'è. `rds_cancel_task` non viene concesso di proposito. Il backup scrive nei bucket a cui può accedere il **ruolo IAM dell'istanza**, non l'utente SQL.
 
 **`--remove`** (con `revoke`):
 
