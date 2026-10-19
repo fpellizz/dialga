@@ -224,7 +224,11 @@ func TestExecutePlanStreams(t *testing.T) {
 		t.Fatalf("status %d, body %s", rec.Code, rec.Body)
 	}
 	names, data := events(t, rec.Body.String())
-	if got := strings.Join(names, " "); got != "job notice step step step task task step done" {
+	// The wait reports the task as the restore left it (CREATED), then its
+	// end: the first report repeats the state, so it is a best-effort
+	// progress event that a busy stream may skip. The end always arrives.
+	if got := strings.Join(names, " "); got != "job notice step step step task task step done" &&
+		got != "job notice step step step task step done" {
 		t.Fatalf("events %s\n%s", got, rec.Body)
 	}
 	var done PlanDone
