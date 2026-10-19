@@ -1,4 +1,4 @@
-import { LoaderCircle, Play, RefreshCw, TriangleAlert } from "lucide-react";
+import { Copy, LoaderCircle, Play, RefreshCw, TriangleAlert } from "lucide-react";
 import {
   type FormEvent,
   type ReactNode,
@@ -8,9 +8,11 @@ import {
   useRef,
   useState,
 } from "react";
+import { grantComplete, passwordProblem } from "./access";
 import { isActive, passwordNeeded, type Task } from "./api";
 import type { EngineInfo } from "./engine";
 import { ErrorBanner } from "./Feedback";
+import { GrantFields } from "./GrantFields";
 import { useI18n } from "./i18n";
 import { Modal } from "./Modal";
 import { usePassword } from "./PasswordProvider";
@@ -66,7 +68,7 @@ export function PlanDialog({
   target: string;
   operation: Operation;
   request: PlanRequest;
-  fields?: "export" | "restore";
+  fields?: "export" | "restore" | "grant";
   /** The databases of the target, when the page knows them: a restore over one offers to replace it. */
   existing?: readonly string[];
   /** The bucket of the target: names the S3 URI of the safety backup of a replace. */
@@ -87,6 +89,9 @@ export function PlanDialog({
   const [executeError, setExecuteError] = useState<unknown>(null);
   const [changed, setChanged] = useState(false);
   const [typed, setTyped] = useState("");
+  // The password of a new login (grant). Only here: it goes into the execute call, never a preview.
+  const [secret, setSecret] = useState("");
+  const [copied, setCopied] = useState(false);
   const {
     run,
     announcement,
@@ -141,7 +146,10 @@ export function PlanDialog({
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: the first preview only, on open.
   useEffect(() => {
-    if (fields !== "restore" || (request.database && request.key)) {
+    // A form first: the grant always, the restore until it has a database and a key.
+    const waitsForForm =
+      fields === "grant" || (fields === "restore" && !(request.database && request.key));
+    if (!waitsForForm) {
       void doPreview(request);
     }
     return () => previewAbort.current?.abort();
@@ -162,7 +170,12 @@ export function PlanDialog({
   }, [epoch]);
 
   const stale = preview !== null && previewed !== null && !sameRequest(params, previewed);
-  const runnable = preview !== null && !loading && canExecute(preview, typed, stale);
+  const runnable =
+    preview !== null &&
+    !loading &&
+    canExecute(preview, typed, stale) &&
+    // A new login needs a password that passes: it is not in the preview.
+    (!preview.request.createLogin || passwordProblem(secret) === null);
 
   async function execute() {
     if (!preview || !runnable) {
@@ -170,7 +183,7 @@ export function PlanDialog({
     }
     setExecuteError(null);
     setChanged(false);
-    const { refused } = await start(preview, typed);
+    const { refused } = await start(preview, typed, secret);
     if (refused?.status === 412) {
       // The plan changed, or a check fails now: show the new preview.
       setChanged(true);
@@ -194,6 +207,7 @@ export function PlanDialog({
   function close() {
     const following = run?.status === "running";
     previewAbort.current?.abort();
+    setSecret("");
     // Stops following the task; the engine finishes the statement and the task runs on.
     abort();
     onClose({
@@ -205,7 +219,7 @@ export function PlanDialog({
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    if (formComplete(fields, params)) {
+    if (formComplete(fields, params, secret)) {
       void doPreview(params);
     }
   }
@@ -213,6 +227,7 @@ export function PlanDialog({
   const title = t(`plan.title.${operation}`, {
     database: request.database ?? "",
     id: request.taskId ?? "",
+    user: request.user ?? "",
   });
   // Known before the preview for a drop: the button does not change colour when it arrives.
   const destructive = preview ? isDestructive(preview.plan) : operation === "drop";
@@ -297,18 +312,18 @@ export function PlanDialog({
             type="button"
             className="btn btn-ghost"
             onClick={() => void doPreview(params)}
-            disabled={loading || !formComplete(fields, params)}
+            disabled={loading || !formComplete(fields, params, secret)}
           >
             <RefreshCw size={16} className={loading ? "spin" : undefined} aria-hidden="true" />
             {t("plan.previewAgain")}
           </button>
         )}
-        {fields === "restore" && !preview && !previewError ? (
+        {(fields === "restore" || fields === "grant") && !preview && !previewError ? (
           <button
             type="submit"
             form={`${ids}-form`}
             className="btn btn-primary"
-            disabled={loading || !formComplete(fields, params)}
+            disabled={loading || !formComplete(fields, params, secret)}
           >
             {t("plan.preview")}
           </button>
@@ -345,6 +360,17 @@ export function PlanDialog({
             }
           }}
         >
+          {fields === "grant" && (
+            <GrantFields
+              engine={engine}
+              target={target}
+              params={params}
+              onChange={(patch) => setParams((p) => ({ ...p, ...patch }))}
+              password={secret}
+              onPassword={setSecret}
+              disabled={loading}
+            />
+          )}
           {fields === "restore" && (
             <label className="field-inline">
               <span>{t("plan.field.database")}</span>
@@ -362,27 +388,31 @@ export function PlanDialog({
               />
             </label>
           )}
-          <div className="field-inline">
-            <label className="field-inline">
-              <span>{t("plan.field.key")}</span>
-              <input
-                className="input mono"
-                name="key"
-                value={params.key ?? ""}
-                autoComplete="off"
-                spellCheck={false}
-                disabled={loading}
-                aria-describedby={`${ids}-key-hint`}
-                onChange={(e) => {
-                  const key = e.currentTarget.value;
-                  setParams((p) => ({ ...p, key }));
-                }}
-              />
-            </label>
-            <span id={`${ids}-key-hint`} className="hint">
-              {t(fields === "export" ? "plan.field.keyHint.export" : "plan.field.keyHint.restore")}
-            </span>
-          </div>
+          {fields !== "grant" && (
+            <div className="field-inline">
+              <label className="field-inline">
+                <span>{t("plan.field.key")}</span>
+                <input
+                  className="input mono"
+                  name="key"
+                  value={params.key ?? ""}
+                  autoComplete="off"
+                  spellCheck={false}
+                  disabled={loading}
+                  aria-describedby={`${ids}-key-hint`}
+                  onChange={(e) => {
+                    const key = e.currentTarget.value;
+                    setParams((p) => ({ ...p, key }));
+                  }}
+                />
+              </label>
+              <span id={`${ids}-key-hint`} className="hint">
+                {t(
+                  fields === "export" ? "plan.field.keyHint.export" : "plan.field.keyHint.restore",
+                )}
+              </span>
+            </div>
+          )}
           {fields === "restore" && (
             <div className="plan-options">
               <label className="check">
@@ -527,11 +557,38 @@ export function PlanDialog({
           onDropOld={onDropOld}
         />
       )}
+      {run?.status === "done" && secret && preview?.request.createLogin && (
+        <div className="banner banner-warn" role="status">
+          <span className="banner-text">
+            {t("grant.doneNote", { login: preview.request.login ?? "" })}
+          </span>
+          <button
+            type="button"
+            className="btn btn-outline btn-sm"
+            onClick={() => {
+              navigator.clipboard.writeText(secret).then(
+                () => setCopied(true),
+                () => setCopied(false),
+              );
+            }}
+          >
+            <Copy size={14} aria-hidden="true" />
+            {copied ? t("grant.copied") : t("grant.copy")}
+          </button>
+        </div>
+      )}
       <PlanAnnouncer text={announcement} />
     </Modal>
   );
 }
 
-function formComplete(fields: "export" | "restore" | undefined, p: PlanRequest): boolean {
+function formComplete(
+  fields: "export" | "restore" | "grant" | undefined,
+  p: PlanRequest,
+  secret: string,
+): boolean {
+  if (fields === "grant") {
+    return grantComplete(p, secret);
+  }
   return fields !== "restore" || (!!p.database?.trim() && !!p.key?.trim());
 }

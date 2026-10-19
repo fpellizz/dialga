@@ -10,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { AccessDialog } from "./AccessDialog";
 import { type Database as DatabaseRow, listDatabases, listTargets, type TargetList } from "./api";
 import {
   compatRelease,
@@ -53,7 +54,8 @@ const MIB = 1024 * 1024;
 /** What a database row, or the page, opens: a plan dialog or the report. */
 type Dialog =
   | { kind: "plan"; operation: Operation; database?: string }
-  | { kind: "report"; database: string };
+  | { kind: "report"; database: string }
+  | { kind: "access"; database: string };
 
 /** The databases read for one target; another target shows the skeleton until its own arrive. */
 interface Loaded {
@@ -437,6 +439,14 @@ export function DatabasesPage({
           }}
         />
       )}
+      {engine && target && dialog?.kind === "access" && (
+        <AccessDialog
+          engine={engine}
+          target={target}
+          database={dialog.database}
+          onClose={() => setDialog(null)}
+        />
+      )}
       {engine && target && dialog?.kind === "report" && (
         <ReportDialog
           engine={engine}
@@ -567,6 +577,16 @@ function DatabaseLine({
             onClick={() => plan("finish")}
           >
             {t("dbaction.finish")}
+          </button>
+        )}
+        {db.state === "ONLINE" && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            aria-label={t("dbaction.accessOf", { database: db.name })}
+            onClick={() => onOpen({ kind: "access", database: db.name })}
+          >
+            {t("dbaction.access")}
           </button>
         )}
         <button

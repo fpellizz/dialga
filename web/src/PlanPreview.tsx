@@ -1,8 +1,15 @@
 import { ShieldAlert } from "lucide-react";
 import { useId, useLayoutEffect, useRef } from "react";
 import type { StepEvent } from "./api";
-import { messages, type Translate, useI18n } from "./i18n";
-import { isDestructive, type PlanPreview, type PlanRequest, planStepKey } from "./plans";
+import { type MessageKey, messages, type Translate, useI18n } from "./i18n";
+import {
+  isAccessRequest,
+  isDestructive,
+  type PlanPreview,
+  type PlanRequest,
+  planStepKey,
+  stepKeys,
+} from "./plans";
 import { StepList } from "./StepList";
 
 /** Failed checks the caller expects (the backup is uploaded later): step id → why, translated. */
@@ -16,6 +23,16 @@ const REPLACE_ACTION = {
   "multi-user-old": "planaction.multiUserOld",
   post: "planaction.post",
 } as const;
+
+const ACCESS_CHECK: Record<string, MessageKey> = {
+  login: "plancheck.login",
+  user: "plancheck.user",
+  schemas: "plancheck.schemas",
+  access: "plancheck.access",
+  backup: "plancheck.backup",
+  msdb: "plancheck.msdb",
+  "msdb-user": "plancheck.msdbUser",
+};
 
 /** The label of a check, an action or the wait, in the user's language. */
 export function stepLabel(
@@ -31,6 +48,12 @@ export function stepLabel(
   };
   // The steps of a job are prefixed with the database: <db>/restore.
   const id = s.step.slice(s.step.lastIndexOf("/") + 1);
+  if (isAccessRequest(request)) {
+    // "backup" is also the safety backup of a drop: not here. The actions
+    // (add-role, create-user...) keep the engine's title, which names the role and the user.
+    const key = ACCESS_CHECK[id];
+    return key ? t(key) : s.label;
+  }
   switch (id) {
     case "restore":
       // A swap restores beside the current database first, under a temporary name.
@@ -105,6 +128,8 @@ export function PlanPreviewView({
       ? { ...c, status: "skipped" as const, detail: why }
       : c;
   });
+  // An id can repeat (two add-role): the key is the id and its occurrence.
+  const actionKeys = stepKeys(preview.plan.actions.map((a) => ({ step: a.id })));
   const asking = showConfirm && !!onConfirmChange && !!preview.confirmation;
   const Heading = title ? "h4" : "h3";
   const label = (s: StepEvent) => stepLabel(t, s, preview.request, preview.replace?.strategy);
@@ -147,8 +172,8 @@ export function PlanPreviewView({
           {t("plan.actions")}
         </Heading>
         <ol className="plan-actions">
-          {preview.plan.actions.map((a) => (
-            <li key={a.id} className="plan-action">
+          {preview.plan.actions.map((a, i) => (
+            <li key={actionKeys[i]} className="plan-action">
               <div className="plan-action-head">
                 <span className="step-label">
                   {label({ step: a.id, label: a.title, status: "ok" })}
@@ -169,7 +194,9 @@ export function PlanPreviewView({
         <div className="plan-confirm">
           {destructive && !preview.plan.protected && (
             <p id={`${ids}-warning`} className="plan-warning">
-              {t("plan.confirm.drop", { database, target: preview.plan.target })}
+              {preview.plan.operation === "revoke"
+                ? t("plan.confirm.dropUser", { database, target: preview.plan.target })
+                : t("plan.confirm.drop", { database, target: preview.plan.target })}
             </p>
           )}
           <label className="field-inline">

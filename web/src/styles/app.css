@@ -1956,3 +1956,41 @@ a.btn {
 .combo-option[aria-selected="true"] {
   font-weight: 600;
 }
+
+/* Database access: the panel, the grant fields */
+.access-dialog {
+  width: min(960px, calc(100vw - 32px));
+}
+.access-table .roles {
+  max-width: 280px;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.row-orphan {
+  background: color-mix(in oklab, var(--tone-warning, #b45309) 10%, transparent);
+}
+.revoke-choice {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.grant-fieldset > .check {
+  align-items: flex-start;
+}
+.grant-new {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 24px;
+}
+.password-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.password-row .input {
+  flex: 1 1 220px;
+  min-width: 0;
+}

@@ -10,7 +10,21 @@ import type { Hint } from "./hints";
 import type { MessageKey } from "./i18n";
 import { readEventStream } from "./sse";
 
-export type Operation = "restore" | "export" | "finish" | "cancel" | "drop";
+export type Operation =
+  | "restore"
+  | "export"
+  | "finish"
+  | "cancel"
+  | "drop"
+  | "grant"
+  | "revoke"
+  | "fix-orphan";
+
+/** The level of access a grant gives (the roles of the database). */
+export type AccessLevel = "read" | "readwrite" | "owner";
+
+/** What a revoke takes away. */
+export type RemoveWhat = "level" | "backup" | "user";
 
 /**
  * What a restore does when the database already exists: "" refuses (the
@@ -54,6 +68,18 @@ export interface PlanRequest {
   backupFirst?: boolean;
   /** Set by the engine's preview (yyyymmddhhmmss): sent back on execute so the names match. */
   stamp?: string;
+  /** Database access: the SQL login (grant, revoke). */
+  login?: string;
+  /** fix-orphan: the user without a login. */
+  user?: string;
+  /** grant: the level of access. */
+  level?: AccessLevel;
+  /** grant: also let the login back the database up. */
+  backup?: boolean;
+  /** grant: the login does not exist and is created (its password goes to execute only). */
+  createLogin?: boolean;
+  /** revoke: what to take away. */
+  remove?: RemoveWhat;
 }
 
 /** The body of .../execute: the previewed request, the confirmation and the digest. */
@@ -61,6 +87,11 @@ export interface ExecuteRequest extends PlanRequest {
   confirm?: string;
   digest?: string;
   noWait?: boolean;
+  /**
+   * grant with createLogin: the password of the new login. Execute only: the
+   * engine refuses a preview that carries it, and it is never kept.
+   */
+  loginPassword?: string;
 }
 
 export interface PlanAction {
@@ -248,15 +279,42 @@ export async function getDatabaseReport(
   return (await response.json()) as DatabaseReport;
 }
 
-/** The steps with event in place of the one with its id, or appended. */
+/**
+ * The steps with event in place of the one it updates, or appended. A step
+ * is its id and its label: the engine repeats an id for the same kind of
+ * action (add-role twice, with the role in the label), and those are
+ * separate steps. A label that is missing on either side matches.
+ */
 export function upsertStep(steps: StepEvent[], event: StepEvent): StepEvent[] {
-  const index = steps.findIndex((s) => s.step === event.step);
+  let index = -1;
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const s = steps[i];
+    if (s && s.step === event.step && (!s.label || !event.label || s.label === event.label)) {
+      index = i;
+      break;
+    }
+  }
   return index === -1 ? [...steps, event] : steps.map((s, i) => (i === index ? event : s));
+}
+
+/** A key for a list of steps that can repeat an id: the id and its occurrence. */
+export function stepKeys(steps: readonly { step: string }[]): string[] {
+  const seen = new Map<string, number>();
+  return steps.map((s) => {
+    const n = (seen.get(s.step) ?? 0) + 1;
+    seen.set(s.step, n);
+    return `${s.step}#${n}`;
+  });
 }
 
 /** The plan can run: no check failed, the values were not edited, the confirmation matches. */
 export function canExecute(preview: PlanPreview, typed: string, stale: boolean): boolean {
   return preview.ready && !stale && (!preview.confirmation || typed === preview.confirmation);
+}
+
+/** The request of a database access operation (grant, revoke, fix-orphan). */
+export function isAccessRequest(request: PlanRequest): boolean {
+  return !!(request.login || request.user || request.level || request.remove);
 }
 
 export function isDestructive(plan: Plan): boolean {
@@ -283,6 +341,26 @@ export function cleanRequest(request: PlanRequest): PlanRequest {
   if (request.taskId) {
     out.taskId = request.taskId;
   }
+  const login = request.login?.trim();
+  const user = request.user?.trim();
+  if (login) {
+    out.login = login;
+  }
+  if (user) {
+    out.user = user;
+  }
+  if (request.level) {
+    out.level = request.level;
+  }
+  if (request.backup) {
+    out.backup = true;
+  }
+  if (request.createLogin) {
+    out.createLogin = true;
+  }
+  if (request.remove) {
+    out.remove = request.remove;
+  }
   // The engine refuses a replace with a differential or a restore left restoring.
   if (request.replace && !request.differential && !request.noRecovery) {
     out.replace = request.replace;
@@ -303,6 +381,12 @@ export function sameRequest(a: PlanRequest, b: PlanRequest): boolean {
     !!x.differential === !!y.differential &&
     !!x.noRecovery === !!y.noRecovery &&
     x.taskId === y.taskId &&
+    x.login === y.login &&
+    x.user === y.user &&
+    x.level === y.level &&
+    !!x.backup === !!y.backup &&
+    !!x.createLogin === !!y.createLogin &&
+    x.remove === y.remove &&
     (x.replace ?? "") === (y.replace ?? "") &&
     x.backupFirst === y.backupFirst
   );
