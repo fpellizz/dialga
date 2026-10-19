@@ -35,6 +35,8 @@ import (
 // the mock that plays the RDS master user; "sa" prepares the fixtures.
 var (
 	sa, god *sql.DB
+	// instanceAddr is host:port of the container
+	instanceAddr string
 	// the image the CI pulls; override with DIALGA_MSSQL_IMAGE
 	mssqlImage = "mcr.microsoft.com/mssql/server:2022-latest"
 )
@@ -105,6 +107,7 @@ func setUp(ctx context.Context, ctr *tcmssql.MSSQLServerContainer, saPassword st
 	if err != nil {
 		return err
 	}
+	instanceAddr = hostPort
 	if sa, err = openPlain(ctx, hostPort, "sa", saPassword); err != nil {
 		return err
 	}

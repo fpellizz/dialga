@@ -24,6 +24,7 @@ import (
 	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/ops"
+	"github.com/decisyon/dialga/engine/internal/ops/opstest"
 	"github.com/decisyon/dialga/engine/internal/transfer/transfertest"
 )
 
@@ -41,6 +42,7 @@ var arnPattern = regexp.MustCompile(`arn:aws:s3:::[^/']+/([^']+)`)
 // on their second read. A restore creates its database when it ends, a
 // backup puts its file in the bucket.
 type fakeRDS struct {
+	opstest.NoAccess
 	mu     sync.Mutex
 	s3     *transfertest.S3
 	states map[string]string
