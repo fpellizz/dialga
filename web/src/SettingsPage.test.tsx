@@ -98,23 +98,16 @@ describe("SettingsPage", () => {
     expect(banner.querySelector("pre")).toHaveTextContent(/^forbidden origin$/);
   });
 
-  it("shows the engine version and the local API", async () => {
+  it("no longer has an About card", async () => {
     mockFetch({ [TARGETS]: () => json({ configPath: CONFIG_PATH, targets: [] }), ...PREREQS });
     renderI18n(<SettingsPage engine={ENGINE} theme="system" onThemeChange={() => {}} />);
-    const about = section("About");
-    expect(within(about).getByText("Engine").nextElementSibling).toHaveTextContent("0.1.0-test");
-    expect(within(about).getByText("Local API").nextElementSibling).toHaveTextContent(
-      `v1 · ${ENGINE.url}`,
-    );
+    expect(screen.queryByRole("heading", { name: "About" })).not.toBeInTheDocument();
     await within(section("Configuration file")).findByText(CONFIG_PATH);
   });
 
   it("waits for the engine without asking anything", () => {
     const fetch = mockFetch({});
     renderI18n(<SettingsPage engine={null} theme="system" onThemeChange={() => {}} />);
-    const about = section("About");
-    expect(within(about).getByText("Engine").nextElementSibling).toHaveTextContent("—");
-    expect(within(about).getByText("Local API").nextElementSibling).toHaveTextContent("—");
     expect(fetch).not.toHaveBeenCalled();
   });
 });

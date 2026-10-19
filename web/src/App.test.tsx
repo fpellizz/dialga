@@ -63,6 +63,13 @@ describe("App", () => {
     expect(await screen.findByText("No instances configured")).toBeInTheDocument();
   });
 
+  it("opens About from #about", () => {
+    window.location.hash = "#about";
+    render(<App />);
+    expect(heading()).toHaveTextContent("About");
+    expect(link("About")).toHaveAttribute("aria-current", "page");
+  });
+
   it("follows the hash as it changes", async () => {
     render(<App />);
     goTo("#settings");

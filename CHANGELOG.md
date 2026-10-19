@@ -9,6 +9,18 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ## [Non rilasciato]
 
+## [0.6.2] - 2026-10-20
+
+### Corretto
+
+- Un'operazione avviata con *Run* (export, restore, drop…) non viene più
+  rifiutata con `context canceled` se la finestra si chiude, o l'app si
+  ricarica, mentre girano i controlli preliminari: i controlli e il job
+  vanno avanti comunque.
+- L'icona nella barra delle applicazioni di KDE Plasma restava quella di
+  Decisyon dopo l'aggiornamento (cache delle icone per nome): la voce di menu
+  usa ora l'icona `dialga`, installata in tutte le misure.
+
 ## [0.6.1] - 2026-10-19
 
 ### Aggiunto

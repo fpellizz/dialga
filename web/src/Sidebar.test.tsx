@@ -26,6 +26,7 @@ describe("Sidebar", () => {
     ["instances", "Instances"],
     ["databases", "Databases"],
     ["settings", "Settings"],
+    ["about", "About"],
   ] as [Page, string][])("marks %s as the current page", (page, current) => {
     renderI18n(<Sidebar page={page} engine={ENGINE} engineError="" />);
     for (const link of screen.getAllByRole("link")) {
@@ -42,6 +43,7 @@ describe("Sidebar", () => {
     expect(screen.getByRole("link", { name: "Instances" })).toHaveAttribute("href", "#instances");
     expect(screen.getByRole("link", { name: "Databases" })).toHaveAttribute("href", "#databases");
     expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "#settings");
+    expect(screen.getByRole("link", { name: "About" })).toHaveAttribute("href", "#about");
   });
 
   it("links every page", () => {
@@ -51,7 +53,7 @@ describe("Sidebar", () => {
       within(nav)
         .getAllByRole("link")
         .map((link) => link.textContent),
-    ).toEqual(["Instances", "Databases", "Import", "Export", "Activity", "Settings"]);
+    ).toEqual(["Instances", "Databases", "Import", "Export", "Activity", "Settings", "About"]);
   });
 
   it.each([
@@ -86,6 +88,7 @@ describe("Sidebar", () => {
     ["instances", "Instances · Dialga"],
     ["databases", "Databases · Dialga"],
     ["settings", "Settings · Dialga"],
+    ["about", "About · Dialga"],
   ] as [Page, string][])("titles the window after the %s page", (page, title) => {
     renderI18n(<Sidebar page={page} engine={null} engineError="" />);
     expect(document.title).toBe(title);

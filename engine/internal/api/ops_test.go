@@ -86,6 +86,9 @@ type opsServer struct {
 	password string
 	opened   bool
 	openErr  error
+	// ctxErr makes OpenOps fail with the error of its context, as the AWS
+	// SDK does when the request is gone.
+	ctxErr bool
 }
 
 func newOpsServer(t *testing.T, configDoc *string, env map[string]string, f ops.SQL, objects fakeObjects) *opsServer {
@@ -100,8 +103,11 @@ func newOpsServer(t *testing.T, configDoc *string, env map[string]string, f ops.
 	s, err := New(Options{
 		Token: testToken, AllowedOrigins: DefaultOrigins, ConfigPath: path,
 		Getenv: func(k string) string { return env[k] }, TaskInterval: time.Millisecond,
-		OpenOps: func(_ context.Context, name string, tgt config.Target, password string) (*ops.Session, func(), error) {
+		OpenOps: func(ctx context.Context, name string, tgt config.Target, password string) (*ops.Session, func(), error) {
 			srv.opened, srv.password = true, password
+			if srv.ctxErr && ctx.Err() != nil {
+				return nil, nil, ctx.Err()
+			}
 			if srv.openErr != nil {
 				return nil, nil, srv.openErr
 			}
@@ -329,5 +335,33 @@ func TestDatabaseReport(t *testing.T) {
 		if rec := doJSON(srv.h, http.MethodGet, path, ""); rec.Code != want {
 			t.Errorf("%s: status %d, want %d", path, rec.Code, want)
 		}
+	}
+}
+
+// A client that goes away right after Run (the dialog closed) no longer
+// turns the run into a refusal: the pre-flight checks and the job go on.
+func TestExecutePlanOutlivesTheClient(t *testing.T) {
+	doc := testConfig
+	f := &fakeInstance{progress: []mssql.Lifecycle{mssql.Created, mssql.Success}}
+	srv := newOpsServer(t, &doc, testEnv, f, fakeObjects{"import/sales.bak": 1})
+	srv.ctxErr = true
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	req := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/targets/dev-sql/plans/restore/execute",
+		strings.NewReader(`{"database":"sales","key":"sales.bak"}`))
+	req.Host = "127.0.0.1:5000"
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	req.Header.Set("Content-Type", "application/json")
+	srv.h.ServeHTTP(httptest.NewRecorder(), req)
+
+	list := srv.jobs.List()
+	if len(list) != 1 || list[0].Refusal != nil {
+		t.Fatalf("jobs %+v, want one job that is not a refusal", list)
+	}
+	wctx, wcancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer wcancel()
+	job, err := srv.jobs.Wait(wctx, list[0].ID)
+	if err != nil || job.State != jobs.Succeeded || len(f.ran) != 1 {
+		t.Fatalf("job %s err %v ran %v", job.State, err, f.ran)
 	}
 }

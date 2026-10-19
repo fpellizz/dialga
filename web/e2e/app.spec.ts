@@ -24,6 +24,7 @@ test("navigates with the sidebar, the hash and history", async ({ page }) => {
     "Export",
     "Activity",
     "Settings",
+    "About",
   ]);
 
   await databases.click();
