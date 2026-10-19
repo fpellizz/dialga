@@ -1,6 +1,6 @@
 import { Activity, Database, Download, Server, Settings, Upload } from "lucide-react";
 import { useEffect } from "react";
-import symbolUrl from "./assets/decisyon-symbol.svg";
+import dialgaUrl from "./assets/dialga.svg";
 import type { EngineInfo } from "./engine";
 import { type MessageKey, useI18n } from "./i18n";
 import { TunnelSummary } from "./TunnelIndicator";
@@ -56,7 +56,7 @@ export function Sidebar({
         {t("app.skip")}
       </button>
       <div className="brand">
-        <img src={symbolUrl} alt="Decisyon" className="logo" />
+        <img src={dialgaUrl} alt="" className="logo" />
         <div>
           <div className="product">Dialga</div>
           <div className="tagline">{t("app.tagline")}</div>
