@@ -152,6 +152,7 @@ Su richiesta dell'utente ("che sto attrezzo veda la luce il prima possibile", me
 - Pacchetti deb/rpm (nome `dialga`): `/usr/bin/dialga` è il sidecar ed è anche la CLI nel `PATH`; `/usr/bin/dialga-desktop` è l'app; `Dialga.desktop` generato da `desktop/src-tauri/linux/desktop-entry.hbs`; icone hicolor 16-512 px; in `/usr/share/doc/dialga/` `config.example.yaml`, `iam-policy.json`, `CHANGELOG.md`.
 - Dipendenze: bastano i default di Tauri (deb `libwebkit2gtk-4.1-0, libgtk-3-0`; rpm i soname corrispondenti); l'engine è Go statico.
 - Tauri usa la prima PNG di `bundle.icon` come icona della finestra: tenere `icons/128x128.png` in testa.
+- Icona della voce di menu: `Icon=dialga` in `linux/desktop-entry.hbs`, con le PNG installate anche come `hicolor/<N>x<N>/apps/dialga.png` (`files` di deb e rpm). Dal 0.6.2: il vecchio nome `dialga-desktop` restava nella cache delle icone di KDE Plasma (`~/.cache/icon-cache.kcache`) e la barra mostrava ancora l'icona Decisyon. Se l'icona cambia di nuovo, cambiare anche il nome.
 - glibc: la build locale su Fedora 43 richiede glibc 2.39; la pipeline (`node:24-bookworm` = Debian 12, glibc 2.36) no. Pubblicare solo i pacchetti della pipeline.
 - TODO: confermare licenza, email del maintainer deb, compatibilità con Ubuntu 22.04, comportamento dei Downloads quando si ricarica un file con lo stesso nome.
 
