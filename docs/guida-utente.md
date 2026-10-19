@@ -761,6 +761,74 @@ Tutti accettano `--dir <cartella>` per un altro journal. Non esiste `dialga jobs
 - Su un target `protected` chiede di riscrivere il nome del target (`--confirm <target>` senza terminale).
 - Ctrl-C **interrompe di nuovo** il job: si potrà riprendere ancora. Exit: `0` job riuscito, `3` finito `failed` o `cancelled`, `1` errore.
 
+### 5.15 `dialga access`
+
+Dà a un login SQL l'accesso a un database, glielo toglie e lega un utente orfano al suo login. Tutto è una **dry run** finché non c'è `--apply`; le scritture girano come job (§5.14, Activity).
+
+| Comando | Cosa fa |
+|---|---|
+| `dialga access list <db>` | Utenti del database: login, livello, backup, ruoli, nota (orfano, non gestito da Dialga). Sola lettura |
+| `dialga access logins` | Login SQL dell'istanza, senza `sa`, `rdsa` e `##…##`. Il master user del target è marcato: non viene mai toccato. Sola lettura |
+| `dialga access grant <db> <login> --level …` | Dà accesso. Se il database non ha l'utente del login, lo crea con lo stesso nome |
+| `dialga access revoke <db> <login> --remove …` | Toglie livello, backup o utente |
+| `dialga access fix-orphan <db> <user> [--login <login>]` | Lega un utente orfano (login assente, tipico dopo un restore da un'altra istanza) al login con lo stesso nome, o a `--login` |
+
+**Livelli** (`--level`):
+
+| Livello | Ruoli nel database |
+|---|---|
+| `read` | `db_datareader` |
+| `readwrite` | `db_datareader` + `db_datawriter` |
+| `owner` | `db_owner` |
+
+**`--backup`** (con `grant`) aggiunge `db_backupoperator` nel database e, in msdb, i permessi di `rds_backup_database` e `rds_task_status` e `SELECT` su `rds_fn_task_status`, così il login può fare `dialga export` ed eseguire backup. `rds_cancel_task` non viene concesso di proposito. Il backup scrive nei bucket a cui può accedere il **ruolo IAM dell'istanza**, non l'utente SQL.
+
+**`--remove`** (con `revoke`):
+
+| Valore | Effetto |
+|---|---|
+| `level` | Toglie `db_datareader`, `db_datawriter` e `db_owner` |
+| `backup` | Toglie `db_backupoperator`. I permessi in msdb si tolgono solo se nessun altro database lascia fare il backup a quel login |
+| `user` | Elimina l'utente dal database. **Distruttivo**: `--apply` chiede di riscrivere il nome del login. Fallisce se l'utente possiede schemi |
+
+Il login non viene mai eliminato. Non vengono mai toccati: il master user del target, `sa`, `rdsa`, i `##…##`, `dbo`, `guest`.
+
+**Nuovo login** (`grant --create-login`): il login viene creato con `CHECK_POLICY ON` e senza scadenza. Con `--apply` serve la password, in uno di due modi:
+
+- `--generate-password`: Dialga ne genera una di 20 caratteri e la stampa **una sola volta** su stderr, dopo che il login esiste (nel JSON, con `-o json`, nel campo `generatedPassword`). Non compare mai in dry run.
+- `--password-stdin`: legge **una riga** da stdin. Non passare mai la password come argomento del comando.
+
+La password deve avere almeno 12 caratteri e tre classi su quattro (maiuscole, minuscole, cifre, simboli). Non viene salvata nel journal né mostrata nell'anteprima, dove compare come `****`.
+
+**Esempi**
+
+```bash
+# Chi ha accesso al database (sola lettura)
+dialga access list <db> -t <target>
+
+# Dry run: anteprima con il T-SQL esatto, nessuna modifica
+dialga access grant <db> <login> --level readwrite -t <target>
+
+# Esecuzione
+dialga access grant <db> <login> --level readwrite -t <target> --apply
+
+# Login nuovo, password generata e stampata una volta
+dialga access grant <db> <nuovo-login> --level read --create-login --apply --generate-password -t <target>
+
+# Login nuovo, password da una riga di stdin
+read -rs PW && printf '%s\n' "$PW" | dialga access grant <db> <nuovo-login> --level read --create-login --apply --password-stdin -t <target>
+unset PW
+
+# Accesso con backup, poi revoca del solo backup
+dialga access grant <db> <login> --level read --backup --apply -t <target>
+dialga access revoke <db> <login> --remove backup --apply -t <target>
+
+# Utente orfano dopo un restore: legarlo al login con lo stesso nome
+dialga access fix-orphan <db> <user> --apply -t <target>
+```
+
+Exit code come in §5.1. `access list` esce con `2` se il database non esiste.
+
 ## 6. App desktop
 
 ### 6.1 Avvio
@@ -843,11 +911,23 @@ Se la parte AWS fallisce (credenziali, account) la panoramica mostra l'errore e 
   | *Report* | Sempre | Il report di `dialga post` (§5.10.6): *Properties*, *Files*, *Checks* (*Login access*, *Orphaned users*, *Windows users*), l'elenco degli utenti SQL senza login con il comando per ricreare il login, *Objects* per tipo. Se il login non entra, lo dice e non legge utenti e oggetti |
   | *Export* (*Esporta*) | Database `ONLINE` | Il piano di `dialga export` |
   | *Finish restore* (*Concludi ripristino*) | Database `RESTORING` | Il piano di `dialga finish` |
+  | *Access…* (*Accessi…*) | Database `ONLINE` | Il pannello degli accessi: concedere, revocare, *Fix orphan* (sotto) |
   | *Drop* (*Elimina*) | Sempre | Il piano di `dialga drop`, distruttivo |
 
   In alto, il pulsante *Restore from S3* (*Ripristina da S3*) apre il piano di `dialga restore`: nome del database, chiave S3 del backup (con il suggerimento sulla ricerca sotto il prefisso `import`), *Differential backup* e *Leave the database restoring*.
 - Quando un piano ha avviato un task, un avviso dice *Task #N keeps running on <target>* con il link *Follow it in Instances*; *Dismiss* lo chiude.
 - In caso di errore: *The list is read with a SQL session: the engine needs the SQL password and a reachable instance*. Vedi §7.2 e §7.3.
+
+#### Accessi
+
+Il pulsante *Access…* (*Accessi…*) di ogni riga è disponibile solo per i database `ONLINE` e apre il pannello *Access to <database>*. Mostra gli utenti SQL del database (*Login*, *Level*, *Can back up*, *Roles*):
+
+- Gli **orfani** (login assente) sono evidenziati e offrono *Fix orphan*: lega l'utente al login con lo stesso nome.
+- Gli utenti che Dialga non gestisce (`dbo`, il master user, …) sono in sola lettura.
+- *Grant access* apre la finestra del piano per dare accesso a un login esistente, oppure a un *New login* con nome e password. *Generate* crea una password di 20 caratteri; *Show password* e *Copy* la mostrano. Dialga non la conserva: va copiata prima di chiudere il dialogo.
+- *Revoke…* chiede prima cosa togliere (livello, backup o utente) e poi apre la finestra del piano. Togliere l'utente chiede di riscrivere il nome del login.
+
+Il piano segue le stesse quattro fasi degli altri (§6.4, *La finestra del piano*). Alla chiusura del pannello gli accessi vengono riletti.
 
 #### La finestra del piano
 
@@ -987,6 +1067,8 @@ I messaggi sono quelli che stampano la CLI e l'app (in inglese).
 | Verifica della password rifiutata (422, `Login failed for user '<u>'`) | La password digitata nell'app non è valida: non viene memorizzata | Riprova con quella giusta |
 | `SQL password: environment variable <VAR> is empty` (`databases`, `status`, `wait`) | Questi comandi richiedono la password | Imposta la variabile |
 | `Login failed for user '<u>'` | Utente o password sbagliati | Controlla `sql.user` e la password |
+| Nuovo login rifiutato: password `422` o errore di SQL Server sulla policy | `--create-login` richiede almeno 12 caratteri da tre classi su quattro, e SQL Server applica anche la sua policy (`CHECK_POLICY ON`). L'errore di SQL Server viene ripulito: la password non compare | Usa `--generate-password`, oppure una password più forte con `--password-stdin`. Nell'app, *Generate* |
+| Utenti orfani dopo un restore da un'altra istanza (`orphan: no login`, *Orphan* nel pannello) | Il database porta gli utenti dell'istanza di origine, ma i login non esistono qui | Se il login esiste: `dialga access fix-orphan <db> <user> --login <login> --apply`, o *Fix orphan* nel pannello. Se manca: crealo con `dialga access grant <db> <user> --level … --create-login --apply --generate-password`, che poi lega l'utente. Un login già legato a un altro utente del database non si lega (`fix-orphan` lo dice) |
 | Errore di certificato (`x509: certificate is valid for …`) | Il tunnel `external` porta a un'altra istanza | Controlla che `local_port` sia il tunnel di **questa** istanza |
 
 ### 7.3 Tunnel e bridge
