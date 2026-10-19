@@ -185,7 +185,6 @@ func TestGrantRefusals(t *testing.T) {
 	}{
 		{"no login", Params{Database: "sales", Login: "ghost", Level: "read"}, "login:ghost does not exist"},
 		{"login exists", Params{Database: "sales", Login: "ana", Level: "read", CreateLogin: true}, "login:ana already exists"},
-		{"orphan by name", Params{Database: "sales", Login: "old", Level: "read"}, "fix-orphan"},
 		{"offline", Params{Database: "off", Login: "ana", Level: "read"}, "database:off is RESTORING"},
 		{"missing db", Params{Database: "nope", Login: "ana", Level: "read"}, "database:nope not found"},
 	}
@@ -215,6 +214,32 @@ func TestGrantRefusals(t *testing.T) {
 	p, _ := newSession(f, nil).Grant(context.Background(), Params{Database: "sales", Login: "carl", Level: "read"})
 	if p.Ready() || !strings.Contains(verdicts(p), "user:failed") {
 		t.Fatalf("user bound to another login: %s", verdicts(p))
+	}
+}
+
+// An orphan of the same name (restored from another instance) is bound to
+// the login, created here or existing, and keeps its roles.
+func TestGrantBindsOrphanOfTheSameName(t *testing.T) {
+	f := accessFake()
+	lost := user("lost", "", "db_datawriter")
+	lost.Orphan = true
+	f.access["sales"] = mssql.DatabaseAccess{Users: append(f.access["sales"].Users, lost)}
+	s := newSession(f, nil)
+
+	p, err := s.Grant(context.Background(), Params{Database: "sales", Login: "lost", Level: "readwrite", CreateLogin: true})
+	if err != nil || !p.Ready() {
+		t.Fatalf("Grant = %v ready %v: %s", err, p.Ready(), verdicts(p))
+	}
+	if got := ids(p); got != "create-login,map-user,add-role" {
+		t.Fatalf("ids = %s, want create-login,map-user,add-role (db_datawriter kept)", got)
+	}
+
+	p, err = s.Grant(context.Background(), Params{Database: "sales", Login: "old", Level: "read"})
+	if err != nil || !p.Ready() {
+		t.Fatalf("Grant = %v ready %v: %s", err, p.Ready(), verdicts(p))
+	}
+	if got := ids(p); got != "map-user,add-role" {
+		t.Fatalf("ids = %s, want map-user,add-role", got)
 	}
 }
 

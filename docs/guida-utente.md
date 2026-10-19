@@ -769,7 +769,7 @@ Dà a un login SQL l'accesso a un database, glielo toglie e lega un utente orfan
 |---|---|
 | `dialga access list <db>` | Utenti del database: login, livello, backup, ruoli, nota (orfano, non gestito da Dialga). Sola lettura |
 | `dialga access logins` | Login SQL dell'istanza, senza `sa`, `rdsa` e `##…##`. Il master user del target è marcato: non viene mai toccato. Sola lettura |
-| `dialga access grant <db> <login> --level …` | Dà accesso. Se il database non ha l'utente del login, lo crea con lo stesso nome |
+| `dialga access grant <db> <login> --level …` | Dà accesso. Se il database non ha l'utente del login, lo crea con lo stesso nome; se c'è un utente orfano con quel nome, lo lega al login e ne tiene i ruoli |
 | `dialga access revoke <db> <login> --remove …` | Toglie livello, backup o utente |
 | `dialga access fix-orphan <db> <user> [--login <login>]` | Lega un utente orfano (login assente, tipico dopo un restore da un'altra istanza) al login con lo stesso nome, o a `--login` |
 
@@ -781,7 +781,7 @@ Dà a un login SQL l'accesso a un database, glielo toglie e lega un utente orfan
 | `readwrite` | `db_datareader` + `db_datawriter` |
 | `owner` | `db_owner` |
 
-**`--backup`** (con `grant`) aggiunge `db_backupoperator` nel database e, in msdb, i permessi di `rds_backup_database` e `rds_task_status` e `SELECT` su `rds_fn_task_status`, così il login può fare `dialga export` ed eseguire backup. `rds_cancel_task` non viene concesso di proposito. Il backup scrive nei bucket a cui può accedere il **ruolo IAM dell'istanza**, non l'utente SQL.
+**`--backup`** (con `grant`) aggiunge `db_backupoperator` nel database e, in msdb, i permessi di `rds_backup_database` e `rds_task_status` e `SELECT` su `rds_fn_task_status`, così chi usa quel login può lanciare `exec msdb.dbo.rds_backup_database` con i suoi strumenti (SSMS, `sqlcmd`) e seguirne il task. Dialga invece si collega sempre con l'utente SQL del target. `rds_cancel_task` non viene concesso di proposito. Il backup scrive nei bucket a cui può accedere il **ruolo IAM dell'istanza**, non l'utente SQL.
 
 **`--remove`** (con `revoke`):
 
@@ -1068,7 +1068,7 @@ I messaggi sono quelli che stampano la CLI e l'app (in inglese).
 | `SQL password: environment variable <VAR> is empty` (`databases`, `status`, `wait`) | Questi comandi richiedono la password | Imposta la variabile |
 | `Login failed for user '<u>'` | Utente o password sbagliati | Controlla `sql.user` e la password |
 | Nuovo login rifiutato: password `422` o errore di SQL Server sulla policy | `--create-login` richiede almeno 12 caratteri da tre classi su quattro, e SQL Server applica anche la sua policy (`CHECK_POLICY ON`). L'errore di SQL Server viene ripulito: la password non compare | Usa `--generate-password`, oppure una password più forte con `--password-stdin`. Nell'app, *Generate* |
-| Utenti orfani dopo un restore da un'altra istanza (`orphan: no login`, *Orphan* nel pannello) | Il database porta gli utenti dell'istanza di origine, ma i login non esistono qui | Se il login esiste: `dialga access fix-orphan <db> <user> --login <login> --apply`, o *Fix orphan* nel pannello. Se manca: crealo con `dialga access grant <db> <user> --level … --create-login --apply --generate-password`, che poi lega l'utente. Un login già legato a un altro utente del database non si lega (`fix-orphan` lo dice) |
+| Utenti orfani dopo un restore da un'altra istanza (`orphan: no login`, *Orphan* nel pannello) | Il database porta gli utenti dell'istanza di origine, ma i login non esistono qui | Se il login esiste: `dialga access fix-orphan <db> <user> --login <login> --apply`, o *Fix orphan* nel pannello. Se manca: `dialga access grant <db> <user> --level … --create-login --apply --generate-password` crea il login, ci lega l'utente orfano (che tiene i suoi ruoli) e aggiunge quelli del livello. Un login già legato a un altro utente del database non si lega (`fix-orphan` lo dice) |
 | Errore di certificato (`x509: certificate is valid for …`) | Il tunnel `external` porta a un'altra istanza | Controlla che `local_port` sia il tunnel di **questa** istanza |
 
 ### 7.3 Tunnel e bridge

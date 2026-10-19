@@ -455,15 +455,22 @@ func (s *Session) Grant(ctx context.Context, in Params) (*Prepared, error) {
 	byName := findUser(users, login)
 	user := login
 	var have []string
-	createUser := false
+	createUser, bindOrphan := false, false
 	switch {
 	case bound != nil && !bound.Managed:
 		p.fail(ustep, ulabel, "user "+bound.Name+" of "+login+" is managed by SQL Server or RDS: Dialga never changes it")
 	case bound != nil:
 		user, have = bound.Name, bound.Roles
 		p.ok(ustep, ulabel, "user "+bound.Name+" is bound to "+login)
+	case byName != nil && byName.Orphan && !byName.Managed:
+		p.fail(ustep, ulabel, "user "+byName.Name+" is managed by SQL Server or RDS: Dialga never changes it")
 	case byName != nil && byName.Orphan:
-		p.fail(ustep, ulabel, "user "+byName.Name+" exists in "+db+" without a login (orphan): bind it first with dialga access fix-orphan "+db+" "+byName.Name+" --login "+login)
+		// The usual case after a restore from another instance: the user came
+		// with the database, its login did not. Bind it (to the login created
+		// here, or to the one that exists), keeping its roles.
+		user, have = byName.Name, byName.Roles
+		bindOrphan = true
+		p.ok(ustep, ulabel, "user "+byName.Name+" has no login (orphan): it will be bound to "+login)
 	case byName != nil:
 		p.fail(ustep, ulabel, "user "+byName.Name+" exists in "+db+" and is bound to another login ("+byName.Login+")")
 	default:
@@ -479,6 +486,10 @@ func (s *Session) Grant(ctx context.Context, in Params) (*Prepared, error) {
 	}
 	if createUser {
 		s.addAccess(p, AccessStep{ID: AccCreateUser, Database: db, Login: login}, fmt.Sprintf("Create user %s in %s", login, db), core.Change)
+	}
+	if bindOrphan {
+		s.addAccess(p, AccessStep{ID: AccMapUser, Database: db, User: user, Login: login},
+			fmt.Sprintf("Bind user %s of %s to login %s", user, db, login), core.Change)
 	}
 	want := mssql.LevelRolesOf(in.Level)
 	for _, role := range mssql.LevelRoles {
