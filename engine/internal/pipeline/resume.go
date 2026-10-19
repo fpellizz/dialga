@@ -158,7 +158,7 @@ func rebuildAccess(rb jobs.Rebuild) (jobs.Step, error) {
 	if err := rb.Params(&p); err != nil {
 		return nil, err
 	}
-	if err := p.AccessStep.Validate(env.Target); err != nil {
+	if err := p.Validate(env.Target); err != nil {
 		return nil, err
 	}
 	want, err := p.AccessStep.Statement(mssql.MaskedPassword)

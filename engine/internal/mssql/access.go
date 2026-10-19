@@ -176,8 +176,8 @@ func (s Session) DatabaseAccess(ctx context.Context, db, master string) (Databas
 		}
 		u.Login = login.String
 		u.Roles = []string{}
-		u.Managed = !ReservedUser(u.Name) && !ReservedLogin(u.Login) && !(master != "" &&
-			(strings.EqualFold(u.Name, master) || strings.EqualFold(u.Login, master)))
+		u.Managed = !ReservedUser(u.Name) && !ReservedLogin(u.Login) && (master == "" ||
+			!strings.EqualFold(u.Name, master) && !strings.EqualFold(u.Login, master))
 		sids[u.Name] = hex.EncodeToString(sid)
 		a.Users = append(a.Users, u)
 	}
