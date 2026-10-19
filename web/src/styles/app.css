@@ -85,9 +85,10 @@ body {
   gap: 10px;
   padding: 0 8px;
 }
+/* dialga.svg is 555 × 672 */
 .logo {
-  width: 18px;
-  height: 24px;
+  width: 33px;
+  height: 40px;
 }
 .product {
   font-weight: 600;
