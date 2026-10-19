@@ -20,6 +20,9 @@ var (
 	// to the 128 of a SQL Server identifier.
 	derivedNamePattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$`)
 	stampPattern       = regexp.MustCompile(`^[0-9]{14}$`)
+	// SQL logins and database users: the pattern of the OpenAPI contract
+	// (login, user), with "." for names like first.last.
+	principalPattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
 
 	// System databases of SQL Server plus the RDS administration database.
 	systemDatabases = map[string]bool{
@@ -49,6 +52,17 @@ func DerivedDBName(name string) error {
 	}
 	if systemDatabases[strings.ToLower(name)] {
 		return fmt.Errorf("%q is a system database", name)
+	}
+	return nil
+}
+
+// PrincipalName reports whether name can be the name of a SQL login or of a
+// database user: letters, digits, "_", "." and "-", at most 128 characters,
+// not starting with "." or "-". It does not look at which names are
+// reserved (sa, dbo...): the access operations do.
+func PrincipalName(name string) error {
+	if !principalPattern.MatchString(name) {
+		return fmt.Errorf("invalid login or user name %q: use letters, digits, _ . and -, max 128 characters, not starting with . or -", name)
 	}
 	return nil
 }
