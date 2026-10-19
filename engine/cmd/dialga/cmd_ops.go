@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -202,12 +203,28 @@ type opResult struct {
 	// JobID is the job the operation ran as: dialga jobs show <id>, and the
 	// Activity page of the app.
 	JobID string `json:"jobId,omitempty"`
+	// GeneratedPassword is the password --generate-password made for the new
+	// login, once the login exists; never in a dry run.
+	GeneratedPassword string `json:"generatedPassword,omitempty"`
 }
 
 // runOp prepares op, prints the pre-flight checks and either the preview
 // (dry run) or, with --apply and the confirmation, runs it as a job of the
 // journal (origin cli): the actions of the plan are its steps.
 func (a *app) runOp(cmd *cobra.Command, op string, p ops.Params, f opFlags) error {
+	return a.runOpWith(cmd, op, p, f, loginPassword{})
+}
+
+// loginPassword is the password of the login a grant creates: given by the
+// user or generated (then it is shown once, after the login exists). It
+// never reaches a plan, a preview or the journal.
+type loginPassword struct {
+	value     string
+	generated bool
+}
+
+// runOpWith is runOp for an operation that needs a password to execute.
+func (a *app) runOpWith(cmd *cobra.Command, op string, p ops.Params, f opFlags, pw loginPassword) error {
 	ctx, out := cmd.Context(), cmd.OutOrStdout()
 	if f.interval <= 0 {
 		return fmt.Errorf("--interval must be positive (got %s)", f.interval)
@@ -218,6 +235,11 @@ func (a *app) runOp(cmd *cobra.Command, op string, p ops.Params, f opFlags) erro
 	}
 	if err := ops.Validate(op, p, t); err != nil {
 		return err
+	}
+	if f.apply && p.CreateLogin {
+		if err := ops.CheckLoginPassword(pw.value); err != nil {
+			return err
+		}
 	}
 	password, err := a.sqlPassword(name, t)
 	if err != nil {
@@ -307,7 +329,7 @@ func (a *app) runOp(cmd *cobra.Command, op string, p ops.Params, f opFlags) erro
 	}
 	res.Applied = true
 	var lastTask atomic.Pointer[mssql.Task]
-	env := pipeline.Env{Name: name, Target: t, TaskInterval: f.interval, OpenOps: openOps,
+	env := pipeline.Env{Name: name, Target: t, TaskInterval: f.interval, OpenOps: openOps, LoginPassword: pw.value,
 		OnTask: func(task mssql.Task) { lastTask.Store(&task) }}
 	spec, err := pipeline.OperationSpec(env, prep, f.noWait)
 	if err != nil {
@@ -344,6 +366,18 @@ func (a *app) runOp(cmd *cobra.Command, op string, p ops.Params, f opFlags) erro
 			_, _ = fmt.Fprintf(out, "  %s  %s\n", tag(check.Status(e.Status)), e.Label)
 		}
 	}
+	// A generated password is shown once, as soon as the login exists: if a
+	// later step fails it would be lost otherwise.
+	reveal := func() {
+		created := slices.ContainsFunc(res.Steps, func(e core.Event) bool { return e.Step == ops.AccCreateLogin && e.Status == core.OK })
+		if !pw.generated || !created || res.GeneratedPassword != "" {
+			return
+		}
+		res.GeneratedPassword = pw.value
+		if text {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Password of login %s (shown once, not kept anywhere): %s\n", p.Login, pw.value)
+		}
+	}
 	final, err := followJob(ctx, m, job.ID, func(ev jobs.Event) {
 		switch e, ok := toStep(ev); {
 		case ok:
@@ -353,12 +387,14 @@ func (a *app) runOp(cmd *cobra.Command, op string, p ops.Params, f opFlags) erro
 		}
 	})
 	if err != nil {
+		reveal()
 		res.Error = err.Error()
 		if !text {
 			_ = json.NewEncoder(out).Encode(res)
 		}
 		return err
 	}
+	reveal()
 	item := final.Items[0]
 	task := lastTask.Load()
 	if task == nil {
