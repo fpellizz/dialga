@@ -86,8 +86,7 @@ dialga. --replace restores onto it anyway:
         and restore in its place
   auto  swap when two copies fit in the free storage, else drop with the backup
 Either way the plan shows the exact T-SQL, and --apply asks to retype the
-database name. The renames use rdsadmin.dbo.rds_modify_db_name (TODO:
-confermare su mssql-dev).
+database name. The renames use rdsadmin.dbo.rds_modify_db_name.
 ` + opExitStatus,
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {

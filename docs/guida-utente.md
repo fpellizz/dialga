@@ -612,7 +612,7 @@ RDS rifiuta un restore nativo sopra un database che esiste già, e per questo `d
 
 **Backup prima di `drop`**: di default `drop` salva prima il database su S3 (`backupFirst`). `--no-backup-first` lo salta: il database corrente è perso per sempre, e l'anteprima lo segnala con un `WARN`. Con `auto` il backup c'è sempre quando sceglie `drop`.
 
-**Sicurezza**: è un'operazione distruttiva, quindi vale tutto il modello di sempre: dry run di default, controlli in sola lettura, T-SQL esatto nell'anteprima, e `--apply` chiede di riscrivere il **nome del database** (il nome del target, se il target è protetto). I controlli avvisano delle sessioni attive sul database (saranno disconnesse) e verificano che i nomi temporanei e il backup di sicurezza siano liberi. Un replace segue i task fino alla fine: `--no-wait` non è ammesso. Le rinomine usano `rdsadmin.dbo.rds_modify_db_name` (TODO: confermare su mssql-dev).
+**Sicurezza**: è un'operazione distruttiva, quindi vale tutto il modello di sempre: dry run di default, controlli in sola lettura, T-SQL esatto nell'anteprima, e `--apply` chiede di riscrivere il **nome del database** (il nome del target, se il target è protetto). I controlli avvisano delle sessioni attive sul database (saranno disconnesse) e verificano che i nomi temporanei e il backup di sicurezza siano liberi. Un replace segue i task fino alla fine: `--no-wait` non è ammesso. Le rinomine usano `rdsadmin.dbo.rds_modify_db_name`, verificata su `mssql-dev` il 2026-10-19 (`@old_db_name`, `@new_db_name`).
 
 ```bash
 dialga restore sales sales.bak -t dev-sql --replace auto            # anteprima
