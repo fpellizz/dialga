@@ -119,6 +119,10 @@ func TestOpenAPISchemasMatchTheGoTypes(t *testing.T) {
 		"DatabaseFile":   {mssql.DatabaseFile{}},
 		"ObjectCount":    {mssql.ObjectCount{}},
 		"DatabaseReport": {ops.Report{}},
+		"Login":          {mssql.Login{}},
+		"LoginList":      {LoginList{}},
+		"DatabaseUser":   {mssql.DatabaseUser{}},
+		"DatabaseAccess": {ops.AccessView{}},
 		// First run and configuration (firstrun.go).
 		"InstallHint":        {discover.InstallHint{}},
 		"Prerequisite":       {discover.Prerequisite{}},
