@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/config"
@@ -283,6 +284,10 @@ func (s *Server) previewPlan(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// executeBuildTimeout bounds the pre-flight checks of an execution, which no
+// longer end with the request (opening a tunnel included).
+const executeBuildTimeout = 5 * time.Minute
+
 // executePlan builds the plan again (the instance may have changed since the
 // preview), checks it, the digest and the confirmation, then runs it as a job
 // of kind operation and streams it: "job" first, with the id of the job,
@@ -302,7 +307,13 @@ func (s *Server) executePlan(w http.ResponseWriter, r *http.Request) {
 	}
 	defer s.recordRefusal(rw, ref)
 	w = rw
-	built, ok := s.buildPlan(w, r, req.plan(), ref)
+	// Once Run is pressed the operation goes ahead: the pre-flight checks do
+	// not stop when the client goes away before the job starts (the dialog
+	// closed, the window reloaded), which refused the run with "context
+	// canceled". The stream below still follows the client.
+	bctx, cancelBuild := context.WithTimeout(context.WithoutCancel(r.Context()), executeBuildTimeout)
+	defer cancelBuild()
+	built, ok := s.buildPlan(w, r.WithContext(bctx), req.plan(), ref)
 	if !ok {
 		return
 	}
