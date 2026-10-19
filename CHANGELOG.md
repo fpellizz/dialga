@@ -11,6 +11,22 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ### Aggiunto
 
+- **Activity completa**. Ogni operazione è un job nel journal e compare in
+  Activity: le singole operazioni della pagina Databases (restore da S3,
+  export, drop, finish, cancel) ora girano come job di tipo
+  `operation` (passi del piano, avanzamento del task nativo, annullabili,
+  riprendibili; continuano se il client chiude lo stream); i tentativi
+  rifiutati al *Run* (412, 422, 428, 502) lasciano un job `failed` con
+  `refusal` (stato, motivo, controlli falliti); i job della CLI (`import`,
+  `run`, `restore`, `export`, `drop`, `finish`, `cancel` con `--apply`) entrano
+  nello stesso journal con origine `cli`, anche con l'app aperta. Nuovi campi
+  di `Job`/`JobSummary`: `kind` (`import`|`export`|`operation`), `operation`,
+  `origin` (`app`|`cli`), `refusal`; `POST .../plans/{op}/execute` apre con
+  l'evento SSE `job` (`{"id"}`) e `done` ha `jobId`. Il lock del journal è
+  ora per job (`.<id>.lock`) e non più uno solo per la cartella: l'app non
+  fallisce né perde job se una run CLI è in corso, `dialga jobs resume`
+  rifiuta solo se un altro processo ha quel job; annullare da Activity un job
+  di un altro processo risponde 409.
 - **Restore su un database esistente** (`replace`). RDS rifiuta un restore
   nativo sopra un database che esiste: ora `dialga restore --replace
   auto|swap|drop` (e `dialga import`, il piano YAML con `replace:` e

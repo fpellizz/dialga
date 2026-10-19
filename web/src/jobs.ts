@@ -1,4 +1,4 @@
-import { failure as apiFailure, type Lifecycle } from "./api";
+import { failure as apiFailure, type Lifecycle, type StepEvent } from "./api";
 import type { EngineInfo } from "./engine";
 import { createSseParser } from "./sse";
 
@@ -95,9 +95,29 @@ export interface JobEvent {
   task?: TaskProgress;
 }
 
+/** An import, an export, or one operation of the Databases page or the CLI. */
+export type JobKind = "import" | "export" | "operation";
+
+/** What a job of kind "operation" does. */
+export type JobOperation = "restore" | "export" | "drop" | "finish" | "cancel" | "post";
+
+/** Where the job started: this app or the dialga CLI. */
+export type JobOrigin = "app" | "cli";
+
+/** A Run the engine refused before running anything: the job is recorded as failed. */
+export interface JobRefusal {
+  /** The HTTP status of the refusal: 412, 422, 428 or 502. */
+  status: number;
+  reason: string;
+  checks?: StepEvent[];
+}
+
 export interface JobSummary {
   id: string;
-  kind: string;
+  kind: JobKind;
+  operation?: JobOperation;
+  origin: JobOrigin;
+  refusal?: JobRefusal;
   target: string;
   instance: string;
   state: JobState;
@@ -112,7 +132,10 @@ export interface JobSummary {
 
 export interface Job {
   id: string;
-  kind: string;
+  kind: JobKind;
+  operation?: JobOperation;
+  origin: JobOrigin;
+  refusal?: JobRefusal;
   target: string;
   instance: string;
   maxTasks: number;
@@ -204,6 +227,49 @@ export function isFinalEvent(event: JobEvent): boolean {
 
 export function isJobActive(state: JobState): boolean {
   return state === "queued" || state === "running";
+}
+
+/** The state to show: a refused job has the state failed, but never ran. */
+export type JobShownState = JobState | "refused";
+
+export function shownState(job: { state: JobState; refusal?: JobRefusal }): JobShownState {
+  return job.refusal ? "refused" : job.state;
+}
+
+export type JobFilter = "all" | "running" | "failed" | "refused";
+
+export const JOB_FILTERS: JobFilter[] = ["all", "running", "failed", "refused"];
+
+/** Running: queued or running; Failed: failed while running; Refused: never ran. */
+export function matchesFilter(job: JobSummary, filter: JobFilter): boolean {
+  switch (filter) {
+    case "running":
+      return isJobActive(job.state);
+    case "failed":
+      return job.state === "failed" && !job.refusal;
+    case "refused":
+      return !!job.refusal;
+    default:
+      return true;
+  }
+}
+
+export function filterCounts(list: JobSummary[]): Record<JobFilter, number> {
+  return {
+    all: list.length,
+    running: list.filter((j) => matchesFilter(j, "running")).length,
+    failed: list.filter((j) => matchesFilter(j, "failed")).length,
+    refused: list.filter((j) => matchesFilter(j, "refused")).length,
+  };
+}
+
+/** The refusals the engine records as jobs, when a Run is refused. */
+const RECORDED = new Set([412, 422, 428, 502]);
+
+/** A failed Run (or start) that the engine refused and recorded in Activity. */
+export function recordedRefusal(error: unknown): boolean {
+  const status = (error as { status?: unknown } | null)?.status;
+  return typeof status === "number" && RECORDED.has(status);
 }
 
 /**
@@ -437,7 +503,7 @@ export function formatDuration(seconds: number): string {
 /** The log as plain text for the clipboard: stable, in English like the engine. */
 export function logText(job: Job): string {
   const lines = [
-    `Dialga job ${job.id}: ${job.kind} on ${job.target} (instance ${job.instance}), ${job.state}`,
+    `Dialga job ${job.id}: ${job.operation ?? job.kind} on ${job.target} (instance ${job.instance}), ${job.state}`,
     `Created ${job.createdAt}${job.endedAt ? `, ended ${job.endedAt}` : ""}`,
     "",
   ];

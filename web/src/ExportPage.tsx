@@ -500,7 +500,7 @@ export function ExportPage({
         />
       )}
       {step === "preview" && previewError !== null && <ErrorBanner error={previewError} />}
-      {step === "preview" && runError !== null && <ErrorBanner error={runError} />}
+      {step === "preview" && runError !== null && <ErrorBanner error={runError} recorded />}
       {step === "preview" && preview === null && previewError === null && (
         <p className="plan-loading">
           <LoaderCircle size={16} className="spin tone-info" aria-hidden="true" />

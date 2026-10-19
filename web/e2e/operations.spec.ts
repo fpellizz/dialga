@@ -133,3 +133,47 @@ test("asks for the restore values before previewing", async ({ page }) => {
   await dialog.getByRole("textbox", { name: "S3 key of the backup" }).press("Enter");
   await expect(dialog.getByRole("alert")).toContainText("The SQL password for e2e-fake is needed");
 });
+
+test("a drop that runs as a job links to it in Activity", async ({ page }) => {
+  await answer(page, "/api/v1/targets/e2e-fake/plans/drop", DROP_PREVIEW);
+  const sse = [
+    ["job", { id: "job-e2e-1" }],
+    ["done", { ok: true, jobId: "job-e2e-1" }],
+  ]
+    .map(([event, data]) => `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+    .join("");
+  await page.route("**/api/v1/targets/e2e-fake/plans/drop/execute", (route) =>
+    route.request().method() === "OPTIONS"
+      ? route.continue()
+      : route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          headers: { "Access-Control-Allow-Origin": DEV_ORIGIN },
+          body: sse,
+        }),
+  );
+  await answer(page, "/api/v1/jobs/job-e2e-1", {
+    id: "job-e2e-1",
+    kind: "operation",
+    operation: "drop",
+    origin: "app",
+    target: "e2e-fake",
+    instance: "e2e-fake-instance",
+    maxTasks: 1,
+    state: "succeeded",
+    createdAt: "2026-10-16T09:00:00Z",
+    updatedAt: "2026-10-16T09:00:05Z",
+    endedAt: "2026-10-16T09:00:05Z",
+    items: [],
+    events: [],
+  });
+  await page.goto("/#databases/e2e-fake");
+  await page.getByRole("button", { name: "Drop sales" }).click();
+  const dialog = page.getByRole("dialog", { name: "Drop sales" });
+  await dialog.getByRole("textbox", { name: "Type sales to confirm" }).fill("sales");
+  await dialog.getByRole("button", { name: "Drop database" }).click();
+
+  await dialog.getByRole("link", { name: "Open in Activity" }).click();
+  await expect(page).toHaveURL(/#activity\/job-e2e-1$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Drop on e2e-fake" })).toBeVisible();
+});

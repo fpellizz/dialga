@@ -38,6 +38,10 @@ type ResumeOptions struct {
 // Confirmation (the target name of a protected target) is the caller's,
 // as for Start.
 func (m *Manager) Resume(id string, opts ResumeOptions) (Job, error) {
+	// What another process did to the job since it was read.
+	if r, err := m.run(id); err == nil {
+		m.fresh(r)
+	}
 	// Held to the end: two resumes of one job cannot both start it, and
 	// factories only build steps.
 	m.mu.Lock()
@@ -55,6 +59,22 @@ func (m *Manager) Resume(id string, opts ResumeOptions) (Job, error) {
 	if before.State != Interrupted {
 		return Job{}, fmt.Errorf("%w: job %s is %s", ErrNotInterrupted, id, before.State)
 	}
+
+	// The lock of the job: another process that runs it, or resumes it now,
+	// holds it. Kept by the run that follows.
+	var unlock func() error
+	if m.journal != nil {
+		var err error
+		if unlock, err = m.journal.lock(id); err != nil {
+			return Job{}, fmt.Errorf("%w: job %s is running or being resumed there", err, id)
+		}
+	}
+	started := false
+	defer func() {
+		if !started && unlock != nil {
+			_ = unlock()
+		}
+	}()
 
 	if before.InstanceKey != "" && opts.InstanceKey != before.InstanceKey {
 		return Job{}, fmt.Errorf("%w: the job ran on %s, the target is on %s now (account, region or instance changed)",
@@ -108,7 +128,7 @@ func (m *Manager) Resume(id string, opts ResumeOptions) (Job, error) {
 
 	r := &run{
 		m: m, key: cmp.Or(opts.InstanceKey, job.Instance, job.Target), maxTasks: cmp.Or(job.MaxTasks, 2),
-		steps: steps, job: job, seq: seq,
+		steps: steps, job: job, seq: seq, unlock: unlock,
 		done: make(chan struct{}), subs: map[*Subscription]struct{}{}, rates: make([]rate, len(job.Items)),
 	}
 	ctx, cancel := context.WithCancelCause(context.Background())
@@ -122,6 +142,7 @@ func (m *Manager) Resume(id string, opts ResumeOptions) (Job, error) {
 	snap := r.job.clone(true)
 	r.mu.Unlock()
 	m.jobs[id] = r
+	started = true
 	m.wg.Add(1)
 	go r.execute(ctx)
 	return snap, nil

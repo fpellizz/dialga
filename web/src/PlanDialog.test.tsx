@@ -355,6 +355,98 @@ describe("PlanDialog", () => {
     expect(requestsTo(fetch, execute("restore"))[0].signal?.aborted).toBe(true);
   });
 
+  it("follows the operation as a job: link to Activity, it keeps running, cancel through the job", async () => {
+    const stream = sseStream();
+    const fetch = mockFetch({
+      [plans("restore")]: () => json(RESTORE_PREVIEW),
+      [execute("restore")]: () => stream.response,
+      "POST /api/v1/jobs/job-7/cancel": () => json({ id: "job-7", state: "running" }),
+    });
+    const { onClose } = open(
+      "restore",
+      { database: "sales_copy", key: "sales.bak" },
+      { fields: "restore" },
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Restore" }));
+    stream.send("job", { id: "job-7" });
+    expect(await screen.findByText("It keeps running: follow it in Activity.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open in Activity" })).toHaveAttribute(
+      "href",
+      "#activity/job-7",
+    );
+
+    // Cancel asks first: the focus moves to the safe choice, Escape keeps it running.
+    const cancel = screen.getByRole("button", { name: "Cancel operation" });
+    await userEvent.click(cancel);
+    const keep = screen.getByRole("button", { name: "Keep running" });
+    await waitFor(() => expect(keep).toHaveFocus());
+    expect(screen.getByText("Cancel the remaining steps?")).toBeInTheDocument();
+    expect(screen.getByText(/intermediate state shown in the steps/)).toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByText("Cancel the remaining steps?")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    await waitFor(() => expect(cancel).toHaveFocus());
+    expect(requestsTo(fetch, "POST /api/v1/jobs/job-7/cancel")).toHaveLength(0);
+
+    // Confirming cancels through the job and the dialog keeps following.
+    await userEvent.click(cancel);
+    await userEvent.click(
+      within(
+        screen.getByText("Cancel the remaining steps?").closest("section") as HTMLElement,
+      ).getByRole("button", { name: "Cancel operation" }),
+    );
+    await waitFor(() =>
+      expect(requestsTo(fetch, "POST /api/v1/jobs/job-7/cancel")).toHaveLength(1),
+    );
+    expect(await screen.findByText(/Cancelling: the operation stops/)).toBeInTheDocument();
+    expect(cancel).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(cancel);
+    expect(screen.queryByText("Cancel the remaining steps?")).toBeNull();
+    expect(requestsTo(fetch, "POST /api/v1/jobs/job-7/cancel")).toHaveLength(1);
+
+    // Closing while it runs hands the job to the page.
+    await userEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(onClose).toHaveBeenCalledWith({ changed: true, jobId: "job-7" });
+  });
+
+  it("keeps the link to the job after the run, from the done event", async () => {
+    const stream = sseStream();
+    mockFetch({
+      [plans("drop")]: () => json(DROP_PREVIEW),
+      [execute("drop")]: () => stream.response,
+    });
+    open("drop", { database: "sales" });
+    await userEvent.type(
+      await screen.findByRole("textbox", { name: "Type sales to confirm" }),
+      "sales",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Drop database" }));
+    stream.send("done", { ok: false, error: "boom", jobId: "job-9" });
+    stream.close();
+    expect(await screen.findByRole("link", { name: "Open in Activity" })).toHaveAttribute(
+      "href",
+      "#activity/job-9",
+    );
+    expect(screen.queryByText("It keeps running: follow it in Activity.")).toBeNull();
+  });
+
+  it("offers Activity for a refused Run that the engine records", async () => {
+    mockFetch({
+      [plans("drop")]: () => json(DROP_PREVIEW),
+      [execute("drop")]: () => text("SQL password: not set\n", 422),
+    });
+    open("drop", { database: "sales" });
+    await userEvent.type(
+      await screen.findByRole("textbox", { name: "Type sales to confirm" }),
+      "sales",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Drop database" }));
+    expect(await screen.findByRole("link", { name: "See it in Activity" })).toHaveAttribute(
+      "href",
+      "#activity",
+    );
+  });
+
   it("closes on Escape and aborts the preview in flight", async () => {
     const answer = deferred<Response>();
     const fetch = mockFetch({ [plans("cancel")]: () => answer.promise });

@@ -6,15 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"syscall"
 )
 
-// lockDir takes an exclusive flock on dir/.lock: one engine per journal, or
-// a second app would mark the running jobs of the first as interrupted. The
-// kernel drops the lock if the engine dies.
-func lockDir(dir string) (func() error, error) {
-	f, err := os.OpenFile(filepath.Join(dir, ".lock"), os.O_CREATE|os.O_RDWR, 0o600)
+// lockFile takes an exclusive flock on path (created if needed): the lock of
+// one job. The kernel drops it if the process dies. ErrLocked if another
+// process holds it.
+func lockFile(path string) (func() error, error) {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return nil, fmt.Errorf("job journal: %w", err)
 	}

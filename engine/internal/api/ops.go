@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,12 +9,15 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync/atomic"
 
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/config"
 	"github.com/decisyon/dialga/engine/internal/core"
+	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/ops"
+	"github.com/decisyon/dialga/engine/internal/pipeline"
 	"github.com/decisyon/dialga/engine/internal/validate"
 )
 
@@ -99,6 +103,11 @@ type PlanPreview struct {
 	Replace *ops.Replacement `json:"replace,omitempty"`
 }
 
+// JobRef is the data of the first event of an execution, "job".
+type JobRef struct {
+	ID string `json:"id"`
+}
+
 // PlanDone is the data of the final "done" event of an execution.
 type PlanDone struct {
 	// OK: every action ran and the task, when followed, ended in SUCCESS.
@@ -106,6 +115,8 @@ type PlanDone struct {
 	Error string `json:"error,omitempty"`
 	// Task is the native task the operation started, last state read.
 	Task *mssql.Task `json:"task,omitempty"`
+	// JobID is the job the operation ran as (Activity).
+	JobID string `json:"jobId,omitempty"`
 	// Result is what a replace kept: the old database or the safety backup.
 	Result string `json:"result,omitempty"`
 	// Replace is the structured outcome of a replace: strategy, the old
@@ -156,9 +167,16 @@ func (s *Server) opTarget(w http.ResponseWriter, r *http.Request, check func(con
 // openOps opens the session of a resolved target, answering 422 without a
 // password and 502 when AWS or SQL Server do not answer.
 func (s *Server) openOps(w http.ResponseWriter, r *http.Request, name string, t config.Target) (*ops.Session, func(), bool) {
+	sess, closeOps, _, ok := s.openOpsWithPassword(w, r, name, t)
+	return sess, closeOps, ok
+}
+
+// openOpsWithPassword is openOps that also gives the password it used: a job
+// opens its own sessions with it.
+func (s *Server) openOpsWithPassword(w http.ResponseWriter, r *http.Request, name string, t config.Target) (*ops.Session, func(), string, bool) {
 	password, ok := s.sqlPassword(r.Context(), w, name, t)
 	if !ok {
-		return nil, nil, false
+		return nil, nil, "", false
 	}
 	sess, closeOps, err := s.opts.OpenOps(r.Context(), name, t, password)
 	if err != nil {
@@ -166,29 +184,42 @@ func (s *Server) openOps(w http.ResponseWriter, r *http.Request, name string, t 
 			s.opts.Log.Warn("ops: session failed", "target", name, "err", err)
 		}
 		http.Error(w, err.Error(), http.StatusBadGateway)
-		return nil, nil, false
+		return nil, nil, "", false
 	}
-	return sess, closeOps, true
+	return sess, closeOps, password, true
 }
 
-// buildPlan runs the pre-flight checks of the operation in the path.
-func (s *Server) buildPlan(w http.ResponseWriter, r *http.Request, req PlanRequest) (*ops.Prepared, func(), bool) {
+// builtPlan is a plan after its pre-flight checks, with what runs it.
+type builtPlan struct {
+	prep     *ops.Prepared
+	closeOps func()
+	name     string
+	target   config.Target
+	password string
+}
+
+// buildPlan runs the pre-flight checks of the operation in the path. ref,
+// when set, learns the target as soon as it is resolved.
+func (s *Server) buildPlan(w http.ResponseWriter, r *http.Request, req PlanRequest, ref *refused) (builtPlan, bool) {
 	op := r.PathValue("operation")
 	name, t, ok := s.opTarget(w, r, func(t config.Target) error { return ops.Validate(op, req.params(), t) })
 	if !ok {
-		return nil, nil, false
+		return builtPlan{}, false
 	}
-	sess, closeOps, ok := s.openOps(w, r, name, t)
+	if ref != nil {
+		ref.target, ref.instance = name, t.Instance
+	}
+	sess, closeOps, password, ok := s.openOpsWithPassword(w, r, name, t)
 	if !ok {
-		return nil, nil, false
+		return builtPlan{}, false
 	}
 	prep, err := sess.Build(r.Context(), op, req.params())
 	if err != nil {
 		closeOps()
 		http.Error(w, err.Error(), http.StatusBadGateway)
-		return nil, nil, false
+		return builtPlan{}, false
 	}
-	return prep, closeOps, true
+	return builtPlan{prep: prep, closeOps: closeOps, name: name, target: t, password: password}, true
 }
 
 func knownOperation(w http.ResponseWriter, r *http.Request) bool {
@@ -206,11 +237,12 @@ func (s *Server) previewPlan(w http.ResponseWriter, r *http.Request) {
 	if !knownOperation(w, r) || !readBody(w, r, &req) {
 		return
 	}
-	prep, closeOps, ok := s.buildPlan(w, r, req)
+	built, ok := s.buildPlan(w, r, req, nil)
 	if !ok {
 		return
 	}
-	defer closeOps()
+	defer built.closeOps()
+	prep := built.prep
 	var text strings.Builder
 	_ = prep.Plan.Preview(&text)
 	resolved := req
@@ -225,20 +257,32 @@ func (s *Server) previewPlan(w http.ResponseWriter, r *http.Request) {
 }
 
 // executePlan builds the plan again (the instance may have changed since the
-// preview), checks it, the digest and the confirmation, then streams the
-// execution: "notice" for the pre-flight warnings, "step" for every action
-// (and the wait), "task" for every change of the followed task, one "done".
+// preview), checks it, the digest and the confirmation, then runs it as a job
+// of kind operation and streams it: "job" first, with the id of the job,
+// "notice" for the pre-flight warnings, "step" for every action (and the
+// wait), "task" for every change of the followed task, one "done". The job
+// goes on if the client goes away; POST /api/v1/jobs/{id}/cancel stops it.
+// A request that is refused leaves a failed job (refusals.go).
 func (s *Server) executePlan(w http.ResponseWriter, r *http.Request) {
 	var req ExecuteRequest
 	if !knownOperation(w, r) || !readBody(w, r, &req) {
 		return
 	}
-	prep, closeOps, ok := s.buildPlan(w, r, req.plan())
+	rw := &refusalWriter{ResponseWriter: w}
+	ref := &refused{kind: jobs.Operation, operation: r.PathValue("operation")}
+	if item := pipeline.OperationItem(req.plan().params()); item != "" {
+		ref.items = []string{item}
+	}
+	defer s.recordRefusal(rw, ref)
+	w = rw
+	built, ok := s.buildPlan(w, r, req.plan(), ref)
 	if !ok {
 		return
 	}
-	defer closeOps()
+	defer built.closeOps()
+	prep := built.prep
 	if !prep.Ready() {
+		rw.checks = nonOK(prep.Checks)
 		var failed []string
 		for _, c := range prep.Checks {
 			if c.Status == check.Failed {
@@ -249,6 +293,7 @@ func (s *Server) executePlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Digest != "" && req.Digest != prep.Digest() {
+		rw.checks = nonOK(prep.Checks)
 		http.Error(w, "the plan changed since the preview: preview it again", http.StatusPreconditionFailed)
 		return
 	}
@@ -256,11 +301,50 @@ func (s *Server) executePlan(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("%v: retype %q", core.ErrNotConfirmed, want), http.StatusUnprocessableEntity)
 		return
 	}
+	if prep.Replace != nil && req.NoWait {
+		http.Error(w, ops.ErrReplaceNoWait.Error(), http.StatusUnprocessableEntity)
+		return
+	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
 		return
 	}
+	// The wait step hands the task in full (with its info) just before the
+	// job reports it, so the "task" event carries what the CLI shows.
+	var lastTask atomic.Pointer[mssql.Task]
+	env := pipeline.Env{
+		Name: built.name, Target: built.target, TaskInterval: s.opts.TaskInterval,
+		// The steps open their sessions with the context of the job, not of
+		// this request: the job outlives it.
+		OpenOps: func(ctx context.Context) (*ops.Session, func(), error) {
+			return s.opts.OpenOps(ctx, built.name, built.target, built.password)
+		},
+		OnTask: func(t mssql.Task) { lastTask.Store(&t) },
+	}
+	spec, err := pipeline.OperationSpec(env, prep, req.NoWait)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	job, err := s.opts.Jobs.Start(spec)
+	switch {
+	case errors.Is(err, jobs.ErrClosed):
+		http.Error(w, err.Error(), http.StatusServiceUnavailable)
+		return
+	case err != nil:
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	sub, err := s.opts.Jobs.Subscribe(job.ID, 0)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer sub.Close()
+	op, name := prep.Plan.Operation, prep.Plan.Target
+	s.opts.Log.Info("plan started", "job", job.ID, "target", name, "operation", op, "digest", prep.Digest())
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
@@ -270,34 +354,79 @@ func (s *Server) executePlan(w http.ResponseWriter, r *http.Request) {
 		_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
 		flusher.Flush()
 	}
+	send("job", JobRef{ID: job.ID})
 	for _, c := range prep.Checks {
 		if c.Status == check.Warning {
 			send("notice", Notice{Message: c.Label + ": " + c.Detail})
 		}
 	}
-	op, name := prep.Plan.Operation, prep.Plan.Target
-	s.opts.Log.Info("plan started", "target", name, "operation", op, "digest", prep.Digest())
-	task, err := prep.Execute(r.Context(), ops.ExecOptions{
-		Confirm: req.Confirm, Wait: !req.NoWait, Interval: s.opts.TaskInterval,
-		OnStep: func(e core.Event) { send("step", e) },
-		OnTask: func(t mssql.Task) { send("task", t) },
-		OnRetry: func(err error) {
-			s.opts.Log.Warn("plan: reading the task failed, retrying", "target", name, "err", err)
-		},
-	})
-	done := PlanDone{OK: err == nil, Task: task, Replace: prep.Outcome()}
-	if err != nil {
-		done.Error = err.Error()
-	} else if task != nil && !req.NoWait && task.Lifecycle != mssql.Success {
-		done.OK = false
-	} else {
-		done.Result = prep.Result()
+	titles := map[string]string{}
+	for _, st := range job.Items[0].Steps {
+		titles[st.ID] = st.Title
 	}
+	toStep := pipeline.OperationEvents(titles)
+	handle := func(ev jobs.Event) {
+		switch e, ok := toStep(ev); {
+		case ok:
+			send("step", e)
+		case ev.Type == jobs.EventTaskStatus && ev.Task != nil && strings.HasPrefix(ev.Step, "wait"):
+			// The task a wait follows, not the one a restore queued.
+			t := mssql.Task{ID: ev.Task.ID, Type: ev.Task.Type, Database: job.Items[0].Name, Percent: ev.Task.Percent, Lifecycle: ev.Task.Lifecycle}
+			if last := lastTask.Load(); last != nil && last.ID == t.ID {
+				t = *last
+			}
+			send("task", t)
+		}
+	}
+	for _, ev := range sub.Replay {
+		handle(ev)
+	}
+	for open := true; open; {
+		select {
+		case ev, ok := <-sub.C:
+			if !ok {
+				open = false
+				break
+			}
+			handle(ev)
+		case <-r.Context().Done():
+			// The operation goes on without this client.
+			s.opts.Log.Info("plan: client gone, the job goes on", "job", job.ID)
+			return
+		}
+	}
+	final, err := s.opts.Jobs.Get(job.ID)
+	if err != nil {
+		s.opts.Log.Warn("plan: job not readable", "job", job.ID, "err", err)
+		return
+	}
+	done := planDone(final, prep, lastTask.Load())
 	send("done", done)
-	s.opts.Log.Info("plan finished", "target", name, "operation", op, "ok", done.OK)
+	s.opts.Log.Info("plan finished", "job", job.ID, "target", name, "operation", op, "ok", done.OK)
+}
+
+// planDone is the final event of an execution, from the job that ran it.
+func planDone(job jobs.Job, prep *ops.Prepared, task *mssql.Task) PlanDone {
+	item := job.Items[0]
+	done := PlanDone{OK: job.State == jobs.Succeeded, JobID: job.ID, Task: task, Replace: item.Replace}
+	if done.Task == nil {
+		done.Task = pipeline.OperationTask(item)
+	}
+	switch {
+	case done.OK:
+		done.Result = prep.Result()
+	case item.Error != "":
+		done.Error = item.Error
+	case job.State == jobs.Cancelled:
+		done.Error = "the job was cancelled"
+	default:
+		done.Error = "the job " + string(job.State)
+	}
+	return done
 }
 
 // databaseReport answers the post-restore report of a database (read-only).
+// It is a view, not a run: it leaves no job.
 func (s *Server) databaseReport(w http.ResponseWriter, r *http.Request) {
 	db := r.PathValue("db")
 	name, t, ok := s.opTarget(w, r, func(config.Target) error { return validate.DBName(db) })

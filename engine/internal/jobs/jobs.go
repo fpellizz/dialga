@@ -14,7 +14,9 @@
 //
 // Every change is an event (job.*, step.*, upload.progress, task.status,
 // log: plan section 3.4), streamed to the subscribers, and every job is
-// persisted as JSON in the journal (one file per job, atomic writes). The
+// persisted as JSON in the journal (one file per job, atomic writes), by
+// whichever process ran it: the app engine and the CLI share one journal
+// directory (see journal.go for how). The
 // history survives restarts; a job that was running when the engine
 // stopped becomes interrupted and keeps what a resume needs: its last step,
 // the multipart upload (upload id, parts done) and the native task ids.
@@ -24,6 +26,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/core"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 )
@@ -72,7 +75,30 @@ type Kind string
 const (
 	Import Kind = "import"
 	Export Kind = "export"
+	// Operation is a single native operation (Job.Operation says which):
+	// restore, export, drop, finish, cancel or post.
+	Operation Kind = "operation"
 )
+
+// Origin says which process ran the job.
+type Origin string
+
+const (
+	// OriginApp: the engine of the desktop app (or "dialga serve").
+	OriginApp Origin = "app"
+	// OriginCLI: a command line run (dialga import, run, restore...).
+	OriginCLI Origin = "cli"
+)
+
+// Refusal is why a request to run something was turned down: the job it
+// leaves in the journal is failed, has no steps and did not run anything.
+type Refusal struct {
+	// Status is the HTTP status the request got (412, 422, 428, 502).
+	Status int    `json:"status"`
+	Reason string `json:"reason"`
+	// Checks are the pre-flight checks, when they are why (412).
+	Checks []check.Event `json:"checks,omitempty"`
+}
 
 // EventType names an event; the prefix says what it is about.
 type EventType string
@@ -227,8 +253,13 @@ type Item struct {
 
 // Job is one execution on a target, with its items and its event log.
 type Job struct {
-	ID       string `json:"id"`
-	Kind     Kind   `json:"kind"`
+	ID   string `json:"id"`
+	Kind Kind   `json:"kind"`
+	// Operation is the native operation of a job of kind Operation.
+	Operation string `json:"operation,omitempty"`
+	// Origin is the process that ran the job (journals of older versions
+	// have none: app).
+	Origin   Origin `json:"origin"`
 	Target   string `json:"target"`
 	Instance string `json:"instance"`
 	// InstanceKey is account/region/instance of the RDS instance (empty in
@@ -242,6 +273,8 @@ type Job struct {
 	EndedAt         *time.Time `json:"endedAt,omitempty"`
 	CancelRequested bool       `json:"cancelRequested,omitempty"`
 	Items           []Item     `json:"items"`
+	// Refusal is set on a job that was refused when it was asked to run.
+	Refusal *Refusal `json:"refusal,omitempty"`
 	// Events is the log: every event but the transfer progress and the
 	// task percentages (see EventUploadProgress, EventTaskStatus).
 	Events []Event `json:"events"`
@@ -251,6 +284,8 @@ type Job struct {
 type Summary struct {
 	ID              string     `json:"id"`
 	Kind            Kind       `json:"kind"`
+	Operation       string     `json:"operation,omitempty"`
+	Origin          Origin     `json:"origin"`
 	Target          string     `json:"target"`
 	Instance        string     `json:"instance"`
 	State           State      `json:"state"`
@@ -261,14 +296,19 @@ type Summary struct {
 	Databases       []string   `json:"databases"`
 	Succeeded       int        `json:"succeeded"`
 	Failed          int        `json:"failed"`
+	Refusal         *Refusal   `json:"refusal,omitempty"`
 }
 
 // Summary returns the list view of the job.
 func (j Job) Summary() Summary {
 	s := Summary{
-		ID: j.ID, Kind: j.Kind, Target: j.Target, Instance: j.Instance, State: j.State,
+		ID: j.ID, Kind: j.Kind, Operation: j.Operation, Origin: j.Origin, Target: j.Target, Instance: j.Instance, State: j.State,
 		CreatedAt: j.CreatedAt, UpdatedAt: j.UpdatedAt, EndedAt: j.EndedAt,
 		CancelRequested: j.CancelRequested, Databases: make([]string, 0, len(j.Items)),
+	}
+	if j.Refusal != nil {
+		// The checks are for the detail.
+		s.Refusal = &Refusal{Status: j.Refusal.Status, Reason: j.Refusal.Reason}
 	}
 	for _, it := range j.Items {
 		s.Databases = append(s.Databases, it.Name)

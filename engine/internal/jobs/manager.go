@@ -11,7 +11,9 @@ import (
 	"io"
 	"log/slog"
 	"math"
+	"os"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -29,8 +31,11 @@ var (
 	ErrInterrupted error = interruptedError{}
 
 	ErrNotFound = errors.New("job not found")
-	ErrEnded    = errors.New("job already ended")
-	ErrClosed   = errors.New("job manager closed")
+	// ErrForeign means the job runs in another process (a CLI run): only that
+	// process can stop it.
+	ErrForeign = errors.New("the job runs in another Dialga process: stop it there")
+	ErrEnded   = errors.New("job already ended")
+	ErrClosed  = errors.New("job manager closed")
 )
 
 type interruptedError struct{}
@@ -45,6 +50,10 @@ const (
 	DefaultKeep      = 200
 	DefaultMaxAge    = 30 * 24 * time.Hour
 	defaultSaveEvery = 2 * time.Second
+	// scanEvery is how often the journal directory is read again for the
+	// jobs of other processes; a followed job is read every followEvery.
+	scanEvery   = 300 * time.Millisecond
+	followEvery = 500 * time.Millisecond
 )
 
 const (
@@ -74,12 +83,17 @@ type Options struct {
 	Log      *slog.Logger
 	// Now is the clock of the event times (default time.Now).
 	Now func() time.Time
+	// Origin marks the jobs this manager starts (default OriginApp).
+	Origin Origin
 }
 
 // Spec describes a job to start.
 type Spec struct {
-	Kind   Kind
-	Target string
+	Kind Kind
+	// Operation is the native operation of a job of kind Operation, and
+	// only then.
+	Operation string
+	Target    string
 	// Instance is the RDS instance identifier, shown to the user.
 	Instance string
 	// InstanceKey identifies the instance for the RDS slots across
@@ -101,6 +115,10 @@ func (s Spec) validate() error {
 	switch {
 	case s.Kind == "":
 		return errors.New("job: kind missing")
+	case s.Kind == Operation && s.Operation == "":
+		return errors.New("job: operation missing")
+	case s.Kind != Operation && s.Operation != "":
+		return errors.New("job: operation is for jobs of kind operation")
 	case s.Target == "":
 		return errors.New("job: target missing")
 	case s.MaxTasks < 0 || s.MaxTasks > 2:
@@ -142,6 +160,11 @@ type Manager struct {
 	seq    int64
 	closed bool
 	wg     sync.WaitGroup
+
+	// scanMu serializes the reads of the journal for the jobs of other
+	// processes; lastScan throttles them.
+	scanMu   sync.Mutex
+	lastScan time.Time
 }
 
 // New returns a manager that keeps its jobs in memory only.
@@ -151,6 +174,9 @@ func New(opts Options) *Manager {
 	}
 	if opts.Now == nil {
 		opts.Now = time.Now
+	}
+	if opts.Origin == "" {
+		opts.Origin = OriginApp
 	}
 	if opts.Keep <= 0 {
 		opts.Keep = DefaultKeep
@@ -173,9 +199,10 @@ func New(opts Options) *Manager {
 }
 
 // Open returns a manager with its journal in dir (DefaultDir in the
-// engine): it takes the directory lock (ErrLocked if another engine holds
-// it), loads the jobs, marks those that were running as interrupted and
-// applies the retention.
+// engine): it loads the jobs, marks as interrupted those that were running
+// and whose process is gone, lists the ones that run in other processes
+// (Manager.List follows them) and applies the retention. It never fails
+// because another process runs jobs in the same directory.
 func Open(dir string, opts Options) (*Manager, error) {
 	j, err := openJournal(dir)
 	if err != nil {
@@ -183,27 +210,170 @@ func Open(dir string, opts Options) (*Manager, error) {
 	}
 	m := New(opts)
 	m.journal = j
-	loaded, errs := j.load()
-	for _, err := range errs {
-		m.log.Warn("job journal: file skipped", "err", err)
-	}
-	for _, job := range loaded {
-		r := &run{m: m, job: job, cancel: func(error) {}, done: make(chan struct{}), subs: map[*Subscription]struct{}{}}
-		if n := len(job.Events); n > 0 {
-			r.seq = job.Events[n-1].Seq
-		}
-		r.mu.Lock()
-		if job.State.Ended() {
-			r.ended = true
-			close(r.done)
-		} else {
-			r.interrupt("The engine stopped while the job was running.")
-		}
-		r.mu.Unlock()
-		m.jobs[job.ID] = r
-	}
-	m.prune()
+	m.prune() // reads the journal first
 	return m, nil
+}
+
+// stamp identifies a version of a job file.
+type stamp struct {
+	mod  time.Time
+	size int64
+}
+
+func stampOf(info os.FileInfo, err error) stamp {
+	if err != nil {
+		return stamp{}
+	}
+	return stamp{info.ModTime(), info.Size()}
+}
+
+// rescan reads the journal for what other processes did: new jobs, jobs that
+// progressed or ended, jobs whose process died, jobs removed. Unless force,
+// it is throttled.
+func (m *Manager) rescan(force bool) {
+	if m.journal == nil || m.journalOff.Load() {
+		return
+	}
+	m.scanMu.Lock()
+	defer m.scanMu.Unlock()
+	if !force && time.Since(m.lastScan) < scanEvery {
+		return
+	}
+	m.lastScan = time.Now()
+	entries, err := os.ReadDir(m.journal.dir)
+	if err != nil {
+		m.log.Warn("job journal: cannot read the directory", "err", err)
+		return
+	}
+	onDisk := map[string]bool{}
+	for _, e := range entries {
+		id, ok := strings.CutSuffix(e.Name(), ".json")
+		if !ok || e.IsDir() || !ValidID(id) {
+			continue
+		}
+		onDisk[id] = true
+		info, err := e.Info()
+		m.sync(id, stampOf(info, err))
+	}
+	// Jobs another process removed (its retention): forget the ones that do
+	// not run here.
+	m.mu.Lock()
+	for id, r := range m.jobs {
+		r.mu.Lock()
+		gone := !onDisk[id] && r.ended && !r.dirty
+		r.mu.Unlock()
+		if gone {
+			delete(m.jobs, id)
+		}
+	}
+	m.mu.Unlock()
+}
+
+// sync brings the job id up to date with its file. A job that runs here is
+// never replaced by its file.
+func (m *Manager) sync(id string, st stamp) {
+	m.mu.Lock()
+	r := m.jobs[id]
+	m.mu.Unlock()
+	if r == nil {
+		job, err := m.journal.read(id)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				m.log.Warn("job journal: file skipped", "err", err)
+			}
+			return
+		}
+		r = m.newLoaded(job, st)
+		m.mu.Lock()
+		if _, dup := m.jobs[id]; dup {
+			m.mu.Unlock()
+			return
+		}
+		m.jobs[id] = r
+		m.mu.Unlock()
+		m.settle(r)
+		return
+	}
+	r.mu.Lock()
+	local := !r.ended && !r.foreign
+	same := r.stamp == st
+	if same {
+		foreign := r.foreign
+		r.mu.Unlock()
+		if foreign {
+			m.settle(r) // still running there? or its process died
+		}
+		return
+	}
+	prev := r.job.UpdatedAt
+	r.mu.Unlock()
+	if local {
+		return
+	}
+	job, err := m.journal.read(id)
+	if err != nil {
+		return
+	}
+	if job.UpdatedAt.Before(prev) || (job.UpdatedAt.Equal(prev) && job.State.Ended()) {
+		// our own last write, or nothing new
+		r.mu.Lock()
+		r.stamp = st
+		r.mu.Unlock()
+		return
+	}
+	r.absorb(job, st)
+	m.settle(r)
+}
+
+func (m *Manager) newLoaded(job Job, st stamp) *run {
+	r := &run{m: m, job: job, stamp: st, cancel: func(error) {}, done: make(chan struct{}), subs: map[*Subscription]struct{}{}}
+	if n := len(job.Events); n > 0 {
+		r.seq = job.Events[n-1].Seq
+	}
+	if job.State.Ended() {
+		r.ended = true
+		close(r.done)
+	} else {
+		r.foreign = true
+	}
+	return r
+}
+
+// settle decides what a job that was read from the journal and has not ended
+// is: running in another process (its lock is held: it stays as it is,
+// foreign) or an orphan (its process is gone: marked interrupted, here).
+func (m *Manager) settle(r *run) {
+	r.mu.Lock()
+	id, pending := r.job.ID, r.foreign && !r.ended
+	r.mu.Unlock()
+	if !pending {
+		return
+	}
+	release, err := m.journal.lock(id)
+	if err != nil {
+		return // held: it runs in another process
+	}
+	defer func() { _ = release() }()
+	// It may have ended between the read and the lock.
+	job, err := m.journal.read(id)
+	if err == nil {
+		r.mu.Lock()
+		if job.UpdatedAt.After(r.job.UpdatedAt) {
+			r.mu.Unlock()
+			r.absorb(job, stampOf(os.Stat(m.journal.path(id))))
+			r.mu.Lock()
+		}
+		pending = r.foreign && !r.ended
+		r.mu.Unlock()
+		if !pending {
+			return
+		}
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.foreign = false
+	r.interrupt("The engine stopped while the job was running.")
+	r.stamp = stampOf(os.Stat(m.journal.path(id)))
 }
 
 // Start runs a job in the background and returns its first snapshot.
@@ -221,7 +391,7 @@ func (m *Manager) Start(spec Spec) (Job, error) {
 		done: make(chan struct{}), subs: map[*Subscription]struct{}{},
 		rates: make([]rate, len(spec.Items)),
 		job: Job{
-			Kind: spec.Kind, Target: spec.Target, Instance: spec.Instance, InstanceKey: spec.InstanceKey, MaxTasks: spec.MaxTasks,
+			Kind: spec.Kind, Operation: spec.Operation, Origin: m.opts.Origin, Target: spec.Target, Instance: spec.Instance, InstanceKey: spec.InstanceKey, MaxTasks: spec.MaxTasks,
 			State: Queued, CreatedAt: now, UpdatedAt: now, Items: []Item{}, Events: []Event{},
 		},
 	}
@@ -246,11 +416,10 @@ func (m *Manager) Start(spec Spec) (Job, error) {
 		cancel(ErrClosed)
 		return Job{}, ErrClosed
 	}
-	for {
-		r.job.ID = newID(now)
-		if _, dup := m.jobs[r.job.ID]; !dup {
-			break
-		}
+	if err := m.claimID(r, now); err != nil {
+		m.mu.Unlock()
+		cancel(err)
+		return Job{}, err
 	}
 	m.seq++
 	r.prio = m.seq
@@ -281,6 +450,36 @@ func stepInfo(st Step) (StepInfo, error) {
 	return info, nil
 }
 
+// claimID gives r an id no job has, in this process or in another one: with
+// a journal it takes the lock of the id (m.mu held), which the run keeps
+// until it ends.
+func (m *Manager) claimID(r *run, now time.Time) error {
+	for range 20 {
+		id := newID(now)
+		if _, dup := m.jobs[id]; dup {
+			continue
+		}
+		if m.journal != nil {
+			release, ok := m.journal.claim(id)
+			if !ok {
+				continue
+			}
+			r.unlock = release
+		}
+		r.job.ID = id
+		return nil
+	}
+	return errors.New("job: no free job id")
+}
+
+// releaseLock gives the lock of the job back (r.mu held).
+func (r *run) releaseLock() {
+	if r.unlock != nil {
+		_ = r.unlock()
+		r.unlock = nil
+	}
+}
+
 func newID(now time.Time) string {
 	b := make([]byte, 4)
 	_, _ = rand.Read(b) // crypto/rand never fails on supported systems
@@ -289,12 +488,30 @@ func newID(now time.Time) string {
 
 func (m *Manager) run(id string) (*run, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	r, ok := m.jobs[id]
+	m.mu.Unlock()
+	if !ok && m.journal != nil {
+		// A job another process started since the last read.
+		m.rescan(true)
+		m.mu.Lock()
+		r, ok = m.jobs[id]
+		m.mu.Unlock()
+	}
 	if !ok {
 		return nil, ErrNotFound
 	}
 	return r, nil
+}
+
+// fresh reads the file of a job that runs in another process, so a snapshot
+// is as new as the file.
+func (m *Manager) fresh(r *run) {
+	r.mu.Lock()
+	id, foreign := r.job.ID, r.foreign && !r.ended
+	r.mu.Unlock()
+	if foreign && m.journal != nil {
+		m.sync(id, stampOf(os.Stat(m.journal.path(id))))
+	}
 }
 
 // Get returns a snapshot of the job, with its events.
@@ -303,6 +520,7 @@ func (m *Manager) Get(id string) (Job, error) {
 	if err != nil {
 		return Job{}, err
 	}
+	m.fresh(r)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.job.clone(true), nil
@@ -310,6 +528,7 @@ func (m *Manager) Get(id string) (Job, error) {
 
 // List returns the jobs, newest first.
 func (m *Manager) List() []Summary {
+	m.rescan(false)
 	m.mu.Lock()
 	runs := make([]*run, 0, len(m.jobs))
 	for _, r := range m.jobs {
@@ -336,11 +555,17 @@ func (m *Manager) Cancel(id string) (Summary, error) {
 	if err != nil {
 		return Summary{}, err
 	}
+	m.fresh(r)
 	r.mu.Lock()
 	if r.ended {
 		s := r.job.Summary()
 		r.mu.Unlock()
 		return s, ErrEnded
+	}
+	if r.foreign {
+		s := r.job.Summary()
+		r.mu.Unlock()
+		return s, ErrForeign
 	}
 	if !r.job.CancelRequested {
 		r.job.CancelRequested = true
@@ -416,8 +641,28 @@ func (m *Manager) Subscribe(id string, after int64) (*Subscription, error) {
 		close(ch)
 	} else {
 		r.subs[s] = struct{}{}
+		if r.foreign {
+			go m.follow(r, s)
+		}
 	}
 	return s, nil
+}
+
+// follow feeds the subscription of a job that runs in another process: the
+// journal is the only place its events are, so it is read until the job ends
+// or the subscription closes.
+func (m *Manager) follow(r *run, s *Subscription) {
+	t := time.NewTicker(followEvery)
+	defer t.Stop()
+	for range t.C {
+		r.mu.Lock()
+		_, live := r.subs[s]
+		r.mu.Unlock()
+		if !live || m.journalOff.Load() {
+			return
+		}
+		m.fresh(r)
+	}
 }
 
 // Close stops the manager: no new jobs, the running ones are interrupted
@@ -460,13 +705,14 @@ func (m *Manager) Close(ctx context.Context) error {
 	}
 	if m.journal != nil {
 		m.journalOff.Store(true)
-		err = errors.Join(err, m.journal.close())
 	}
 	return err
 }
 
-// prune applies the retention to the ended jobs.
+// prune applies the retention to the ended jobs, those of other processes
+// too: the history is one, whoever ran the job.
 func (m *Manager) prune() {
+	m.rescan(true)
 	type ended struct {
 		id string
 		at time.Time
@@ -511,8 +757,14 @@ type run struct {
 	maxTasks int
 	prio     int64
 	steps    [][]Step // per item; nil for a job loaded from the journal
+	// unlock gives back the lock of the job (journal.lock) when it ends.
+	unlock func() error
 
-	mu       sync.Mutex
+	mu sync.Mutex
+	// foreign: the job runs in another process; job is what its file said
+	// last, stamp the version of the file.
+	foreign  bool
+	stamp    stamp
 	job      Job
 	seq      int64
 	ended    bool
@@ -829,11 +1081,53 @@ func (r *run) end(state State, msg string) {
 	r.emit(Event{Type: EventType("job." + string(state)), Message: msg}, true)
 	r.ended = true
 	r.save(true)
+	r.releaseLock()
 	for s := range r.subs {
 		delete(r.subs, s)
 		close(s.ch)
 	}
 	close(r.done)
+}
+
+// absorb replaces the job with the newer version another process wrote:
+// the events it has not seen go to the subscribers.
+func (r *run) absorb(job Job, st stamp) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	seen := r.seq
+	r.job, r.stamp = job, st
+	if n := len(job.Events); n > 0 && job.Events[n-1].Seq > r.seq {
+		r.seq = job.Events[n-1].Seq
+	}
+	for _, ev := range job.Events {
+		if ev.Seq <= seen {
+			continue
+		}
+		for s := range r.subs {
+			select {
+			case s.ch <- ev:
+			default:
+				s.lagged = true
+				delete(r.subs, s)
+				close(s.ch)
+			}
+		}
+	}
+	switch {
+	case job.State.Ended() && !r.ended:
+		r.ended, r.foreign = true, false
+		for s := range r.subs {
+			delete(r.subs, s)
+			close(s.ch)
+		}
+		close(r.done)
+	case !job.State.Ended() && r.ended:
+		// Resumed by another process.
+		r.ended, r.foreign = false, true
+		r.done = make(chan struct{})
+	case !job.State.Ended():
+		r.foreign = true
+	}
 }
 
 func (r *run) at(i, s int) (*Item, *StepInfo) {
@@ -1095,3 +1389,83 @@ func (p *reporter) Checkpoint(params any) error {
 }
 
 func clampPercent(p int) int { return min(max(p, 0), 100) }
+
+// Finished describes a job that is recorded when it already ended: a request
+// that was refused (Refusal).
+type Finished struct {
+	Kind      Kind
+	Operation string
+	Target    string
+	Instance  string
+	// State is Failed or Succeeded.
+	State State
+	// Message is the text of the final event (default: the refusal's reason).
+	Message string
+	Items   []FinishedItem
+	Refusal *Refusal
+}
+
+// FinishedItem is one database of a Finished job.
+type FinishedItem struct {
+	Name   string
+	Steps  []StepInfo
+	Result string
+	// Error makes the item failed.
+	Error string
+}
+
+// Record writes an ended job to the journal and the history. It runs
+// nothing: a refused request leaves a trace in Activity this way.
+func (m *Manager) Record(f Finished) (Job, error) {
+	if f.State != Failed && f.State != Succeeded {
+		return Job{}, fmt.Errorf("job: cannot record a job in state %q", f.State)
+	}
+	if f.Kind == "" || f.Target == "" || (f.Kind == Operation) == (f.Operation == "") {
+		return Job{}, errors.New("job: kind, operation or target invalid")
+	}
+	now := m.opts.Now()
+	msg := f.Message
+	if msg == "" && f.Refusal != nil {
+		msg = f.Refusal.Reason
+	}
+	ev := Event{Seq: 1, Time: now, Type: EventType("job." + string(f.State)), Message: msg}
+	r := &run{
+		m: m, seq: 1, ended: true, cancel: func(error) {}, done: make(chan struct{}), subs: map[*Subscription]struct{}{},
+		job: Job{
+			Kind: f.Kind, Operation: f.Operation, Origin: m.opts.Origin, Target: f.Target, Instance: f.Instance,
+			State: f.State, CreatedAt: now, UpdatedAt: now, EndedAt: &now, Refusal: f.Refusal,
+			Items: []Item{}, Events: []Event{ev},
+		},
+	}
+	close(r.done)
+	for _, it := range f.Items {
+		item := Item{Name: it.Name, State: Succeeded, Steps: slices.Clone(it.Steps), Result: it.Result, Error: it.Error, Percent: 100}
+		if item.Steps == nil {
+			item.Steps = []StepInfo{}
+		}
+		if it.Error != "" {
+			item.State, item.Percent = Failed, 0
+		}
+		r.job.Items = append(r.job.Items, item)
+	}
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return Job{}, ErrClosed
+	}
+	if err := m.claimID(r, now); err != nil {
+		m.mu.Unlock()
+		return Job{}, err
+	}
+	// Written before it is listed: a read of the journal in between would
+	// take a job without a file for a removed one.
+	r.mu.Lock()
+	r.save(true)
+	r.releaseLock()
+	snap := r.job.clone(true)
+	r.mu.Unlock()
+	m.jobs[r.job.ID] = r
+	m.mu.Unlock()
+	m.prune()
+	return snap, nil
+}

@@ -113,7 +113,11 @@ func rebuildSQL(rb jobs.Rebuild) (jobs.Step, error) {
 	if err := rb.Params(&p); err != nil {
 		return nil, err
 	}
-	if err := validate.DerivedDBName(p.Database); err != nil {
+	if p.Op == ops.StepCancel {
+		if p.TaskID < 1 {
+			return nil, fmt.Errorf("the cancel step recorded task %d", p.TaskID)
+		}
+	} else if err := validate.DerivedDBName(p.Database); err != nil {
 		return nil, err
 	}
 	if p.Op == ops.StepRename {

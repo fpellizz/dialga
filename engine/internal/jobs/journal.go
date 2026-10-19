@@ -9,10 +9,12 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"time"
 )
 
-// ErrLocked means another engine owns the journal directory.
-var ErrLocked = errors.New("the job journal is in use by another Dialga engine")
+// ErrLocked means another process owns the job: it runs it (or resumes it)
+// right now.
+var ErrLocked = errors.New("the job is in use by another Dialga process")
 
 // idPattern is the shape of the job ids (newID): also the journal file names.
 var idPattern = regexp.MustCompile(`^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$`)
@@ -48,29 +50,61 @@ func defaultDir(goos string, getenv func(string) string, home, config func() (st
 
 // journal keeps one JSON file per job, written atomically (temporary file,
 // fsync, rename), readable by the user only.
+//
+// Several processes share the directory: the engine of the app and every CLI
+// run that starts a job. They never write the same file, because a job is
+// written only by the process that runs it, and that process holds the lock
+// of the job (flock on .<id>.lock) from the moment it takes its id until the
+// job ends. The kernel drops the lock if the process dies, so a job file
+// that has not ended and whose lock is free is an orphan: the process that
+// finds it marks it interrupted (while holding the lock, so only one does).
+// A job file that has not ended and whose lock is held is running in another
+// process: it is listed and followed, never touched. Resuming a job takes
+// its lock too, so the app and the CLI cannot both resume it.
 type journal struct {
-	dir    string
-	unlock func() error
+	dir string
 }
+
+// staleTmp is how old a temporary file is before it is taken for a leftover
+// of a crash: another process may be writing a younger one right now.
+const staleTmp = time.Minute
 
 func openJournal(dir string) (*journal, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("job journal: %w", err)
 	}
-	unlock, err := lockDir(dir)
-	if err != nil {
-		return nil, err
-	}
 	// Leftovers of a write cut short by a crash: the job file before it is
 	// still whole.
 	tmps, _ := filepath.Glob(filepath.Join(dir, ".*.tmp"))
 	for _, f := range tmps {
-		_ = os.Remove(f)
+		if info, err := os.Stat(f); err == nil && time.Since(info.ModTime()) > staleTmp {
+			_ = os.Remove(f)
+		}
 	}
-	return &journal{dir: dir, unlock: unlock}, nil
+	return &journal{dir: dir}, nil
 }
 
 func (j *journal) path(id string) string { return filepath.Join(j.dir, id+".json") }
+
+func (j *journal) lockPath(id string) string { return filepath.Join(j.dir, "."+id+".lock") }
+
+// lock takes the lock of the job: ErrLocked if another process holds it.
+func (j *journal) lock(id string) (release func() error, err error) {
+	return lockFile(j.lockPath(id))
+}
+
+// claim takes the lock of a new job id, which must not name a job already.
+func (j *journal) claim(id string) (release func() error, ok bool) {
+	release, err := j.lock(id)
+	if err != nil {
+		return nil, false
+	}
+	if _, err := os.Stat(j.path(id)); err == nil {
+		_ = release()
+		return nil, false
+	}
+	return release, true
+}
 
 func (j *journal) write(id string, data []byte) (err error) {
 	f, err := os.CreateTemp(j.dir, "."+id+".*.tmp") // mode 0600
@@ -104,12 +138,36 @@ func (j *journal) write(id string, data []byte) (err error) {
 	return nil
 }
 
+// remove deletes the job file and, unless a process holds it, its lock file.
 func (j *journal) remove(id string) error {
 	err := os.Remove(j.path(id))
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
+		err = nil
+	}
+	if release, lerr := j.lock(id); lerr == nil {
+		_ = os.Remove(j.lockPath(id))
+		_ = release()
 	}
 	return err
+}
+
+// read reads the file of one job.
+func (j *journal) read(id string) (Job, error) {
+	data, err := os.ReadFile(j.path(id))
+	if err != nil {
+		return Job{}, err
+	}
+	var job Job
+	if err := json.Unmarshal(data, &job); err != nil {
+		return Job{}, fmt.Errorf("%s.json: %w", id, err)
+	}
+	if job.ID != id {
+		return Job{}, fmt.Errorf("%s.json: holds job %q", id, job.ID)
+	}
+	if job.Origin == "" {
+		job.Origin = OriginApp // journals of older versions
+	}
+	return job, nil
 }
 
 // load reads every job file. A file that cannot be read is reported and
@@ -128,18 +186,9 @@ func (j *journal) load() ([]Job, []error) {
 		if !ok || e.IsDir() || !ValidID(id) {
 			continue
 		}
-		data, err := os.ReadFile(j.path(id))
+		job, err := j.read(id)
 		if err != nil {
 			errs = append(errs, err)
-			continue
-		}
-		var job Job
-		if err := json.Unmarshal(data, &job); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", e.Name(), err))
-			continue
-		}
-		if job.ID != id {
-			errs = append(errs, fmt.Errorf("%s: holds job %q", e.Name(), job.ID))
 			continue
 		}
 		list = append(list, job)
@@ -147,12 +196,10 @@ func (j *journal) load() ([]Job, []error) {
 	return list, errs
 }
 
-func (j *journal) close() error { return j.unlock() }
-
-// ReadJournal reads the jobs in dir without taking the lock or changing a
+// ReadJournal reads the jobs in dir without taking a lock or changing a
 // file, so it works while an engine runs ("dialga jobs"). A job that has
-// not ended in a journal that no engine holds was interrupted: the next
-// engine to start marks it so. A missing dir means no jobs yet.
+// not ended and whose process is gone was interrupted: the next engine to
+// start marks it so. A missing dir means no jobs yet.
 func ReadJournal(dir string) ([]Job, []error) {
 	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
 		return nil, nil

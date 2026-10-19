@@ -1,6 +1,7 @@
 import { errorText, passwordNeeded } from "./api";
 import { errorHint, type Hint } from "./hints";
 import { useI18n } from "./i18n";
+import { recordedRefusal } from "./jobs";
 import { PasswordNeededBanner } from "./PasswordProvider";
 
 /** What to do, under a message; nothing without a hint. */
@@ -17,11 +18,15 @@ export function ErrorBanner({
   error,
   fallback,
   preformatted = false,
+  recorded = false,
 }: {
   error: unknown;
   fallback?: Hint;
   preformatted?: boolean;
+  /** The error is a refused Run: the engine records it in Activity (link to it). */
+  recorded?: boolean;
 }) {
+  const { t } = useI18n();
   const needed = passwordNeeded(error);
   if (needed) {
     return <PasswordNeededBanner target={needed} />;
@@ -34,6 +39,11 @@ export function ErrorBanner({
         <span className="banner-text">{errorText(error)}</span>
       )}
       <HintText hint={errorHint(error) ?? fallback} />
+      {recorded && recordedRefusal(error) && (
+        <a className="banner-hint" href="#activity">
+          {t("activity.seeIt")}
+        </a>
+      )}
     </div>
   );
 }

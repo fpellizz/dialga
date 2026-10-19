@@ -109,12 +109,12 @@ func readJobs(dir string, errOut io.Writer) (string, []jobs.Job, error) {
 
 func printJobs(w io.Writer, dir string, list []jobs.Job) error {
 	if len(list) == 0 {
-		_, err := fmt.Fprintf(w, "No jobs in %s yet: the imports and exports of the desktop app appear here.\n", dir)
+		_, err := fmt.Fprintf(w, "No jobs in %s yet: the operations of the desktop app and of the dialga commands appear here.\n", dir)
 		return err
 	}
 	_, _ = fmt.Fprintf(w, "Jobs in %s, newest first:\n", dir)
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "  ID\tSTATE\tKIND\tTARGET\tDATABASES\tCREATED\tENDED")
+	_, _ = fmt.Fprintln(tw, "  ID\tSTATE\tKIND\tORIGIN\tTARGET\tDATABASES\tCREATED\tENDED")
 	unfinished := false
 	for _, j := range list {
 		s := j.Summary()
@@ -127,21 +127,35 @@ func printJobs(w io.Writer, dir string, list []jobs.Job) error {
 			state += " (cancelling)"
 		}
 		unfinished = unfinished || !s.State.Ended()
-		_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\n", s.ID, state, s.Kind, s.Target, dbs,
+		_, _ = fmt.Fprintf(tw, "  %s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n", s.ID, state, kindOf(s.Kind, s.Operation), s.Origin, s.Target, dbs,
 			localTime(&s.CreatedAt, time.DateTime[:16]), localTime(s.EndedAt, time.DateTime[:16]))
 	}
 	if err := tw.Flush(); err != nil {
 		return err
 	}
 	if unfinished {
-		_, _ = fmt.Fprintln(w, "Queued or running jobs were interrupted if no Dialga engine is running: the next one marks them.")
+		_, _ = fmt.Fprintln(w, "Queued or running jobs were interrupted if their process (the app, a dialga run) is gone: the next engine marks them.")
 	}
 	_, err := fmt.Fprintln(w, "Detail of a job: dialga jobs show <id>")
 	return err
 }
 
+// kindOf is how a list names a job: import, export, or the operation.
+func kindOf(kind jobs.Kind, operation string) string {
+	if kind == jobs.Operation && operation != "" {
+		return operation
+	}
+	return string(kind)
+}
+
 func printJob(w io.Writer, j jobs.Job, last int) error {
-	_, _ = fmt.Fprintf(w, "Job %s: %s on %s (instance %s)\n", j.ID, j.Kind, j.Target, j.Instance)
+	_, _ = fmt.Fprintf(w, "Job %s: %s on %s (instance %s)\n", j.ID, kindOf(j.Kind, j.Operation), j.Target, j.Instance)
+	if j.Origin != "" {
+		_, _ = fmt.Fprintf(w, "  Origin   %s\n", j.Origin)
+	}
+	if r := j.Refusal; r != nil {
+		_, _ = fmt.Fprintf(w, "  Refused  %d: %s\n", r.Status, oneLine(r.Reason, 160))
+	}
 	state := string(j.State)
 	switch {
 	case j.State == jobs.Interrupted:

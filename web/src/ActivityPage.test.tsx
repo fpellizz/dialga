@@ -58,9 +58,11 @@ describe("ActivityPage list", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Activity" })).toBeInTheDocument();
     const empty = screen.getAllByRole("status").find((el) => el.classList.contains("empty"));
     expect(empty).toHaveTextContent("No jobs yet");
+    expect(screen.getByText("Previews and dry runs are not recorded here.")).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Show jobs" })).toBeNull();
     expect(
       screen.getByText(
-        "Imports and exports appear here while they run, with every step, and stay here as history.",
+        "Imports, exports, single operations and refused attempts appear here while they run, with every step, and stay here as history.",
       ),
     ).toBeInTheDocument();
   });
@@ -294,7 +296,7 @@ describe("ActivityPage detail", () => {
 
     const box = screen.getByRole("region", { name: "Cancel this job?" });
     expect(box).toHaveAccessibleDescription(
-      "Databases that are queued or waiting do not start, and running uploads stop. A native RDS task already running on the instance is not stopped: it ends on its own.",
+      "Databases that are queued or waiting do not start, and running uploads stop. A native RDS task already running on the instance is not stopped: it ends on its own. With a swap or a drop, the database may be left in the intermediate state shown in the steps.",
     );
     expect(within(box).getByRole("button", { name: "Keep running" })).toHaveFocus();
     await user.keyboard("{Escape}");
@@ -571,5 +573,206 @@ describe("ActivityPage resume", () => {
       within(box).getByLabelText("Riscrivi dev-sql per confermare: il target è protetto"),
     ).toBeInTheDocument();
     expect(within(box).getByRole("button", { name: "Non ora" })).toBeInTheDocument();
+  });
+});
+
+const REFUSED_ID = "20261016T100000Z-00000003";
+const CLI_ID = "20261016T110000Z-00000004";
+
+/** An operation of the Databases page refused at Run, one started by the CLI, a failed import. */
+function mixedList(): JobSummary[] {
+  const base = runningJob();
+  return [
+    summary(base),
+    summary(base, {
+      id: REFUSED_ID,
+      kind: "operation",
+      operation: "drop",
+      state: "failed",
+      createdAt: at(10, 0),
+      endedAt: at(10, 0),
+      databases: ["sales"],
+      succeeded: 0,
+      failed: 0,
+      refusal: { status: 422, reason: "SQL password: not set" },
+    }),
+    summary(base, {
+      id: CLI_ID,
+      kind: "operation",
+      operation: "finish",
+      origin: "cli",
+      state: "succeeded",
+      createdAt: at(9, 0),
+      endedAt: at(9, 5),
+      databases: ["hr"],
+      succeeded: 1,
+      failed: 0,
+    }),
+    summary(base, {
+      id: "20261016T080000Z-00000005",
+      kind: "export",
+      state: "failed",
+      createdAt: at(8, 0),
+      endedAt: at(8, 20),
+      databases: ["sales"],
+      succeeded: 0,
+      failed: 1,
+    }),
+  ];
+}
+
+describe("ActivityPage operations, origin and refusals", () => {
+  afterEach(() => {
+    sessionStorage.clear();
+  });
+
+  it("labels every kind of operation with its target and databases", () => {
+    const ops = [
+      ["restore", "Restore"],
+      ["export", "Export database"],
+      ["drop", "Drop"],
+      ["finish", "Finish restore"],
+      ["cancel", "Cancel task"],
+      ["post", "Post-restore report"],
+    ] as const;
+    renderList(
+      ops.map(([operation], i) =>
+        summary(runningJob(), {
+          id: `op-${i}`,
+          kind: "operation",
+          operation,
+          state: "succeeded",
+          databases: ["sales", "hr", "ops", "dw"],
+        }),
+      ),
+    );
+    for (const [, label] of ops) {
+      expect(screen.getByRole("link", { name: new RegExp(`^${label} on dev-sql`) })).toBeVisible();
+    }
+    expect(screen.getAllByText("sales, hr, ops, +1")).toHaveLength(6);
+  });
+
+  it("marks the jobs of the CLI, not those of the app", () => {
+    renderList(mixedList());
+    const cli = screen.getByRole("link", { name: /^Finish restore on dev-sql/ });
+    expect(within(cli).getByText("CLI")).toHaveClass("badge");
+    expect(screen.getAllByText("CLI")).toHaveLength(1);
+  });
+
+  it("shows a refused job as Refused with its reason and HTTP status", () => {
+    renderList(mixedList());
+    const row = screen.getByRole("link", { name: /^Drop on dev-sql/ });
+    expect(row).toHaveAttribute("href", `#activity/${REFUSED_ID}`);
+    expect(within(row).getByText("Refused")).toHaveClass("badge-warning");
+    expect(within(row).queryByText("Failed")).toBeNull();
+    expect(within(row).getByText("SQL password: not set")).toBeInTheDocument();
+    expect(within(row).getByText("HTTP 422 · Not confirmed")).toBeInTheDocument();
+    // A failure while running stays Failed.
+    const failed = screen.getByRole("link", { name: /^Export on dev-sql/ });
+    expect(within(failed).getByText("Failed")).toHaveClass("badge-failed");
+  });
+
+  it("filters with chips that carry the counts, by mouse and keyboard", async () => {
+    renderList(mixedList());
+    const group = screen.getByRole("group", { name: "Show jobs" });
+    const chips = within(group).getAllByRole("radio");
+    expect(chips.map((c) => c.closest("label")?.textContent)).toEqual([
+      "All (4)",
+      "Running (1)",
+      "Failed (1)",
+      "Refused (1)",
+    ]);
+    expect(within(group).getByRole("radio", { name: "All (4)" })).toBeChecked();
+
+    await userEvent.click(within(group).getByRole("radio", { name: "Refused (1)" }));
+    expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: /^Drop on/ })).toBeVisible();
+
+    // Arrow keys move through the chips and apply them.
+    await userEvent.keyboard("{ArrowLeft}");
+    expect(within(group).getByRole("radio", { name: "Failed (1)" })).toBeChecked();
+    expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: /^Export on/ })).toBeVisible();
+    await userEvent.keyboard("{ArrowLeft}{ArrowLeft}");
+    expect(within(group).getByRole("radio", { name: "All (4)" })).toBeChecked();
+    expect(screen.getAllByRole("link")).toHaveLength(4);
+  });
+
+  it("remembers the chip for the session and says when nothing matches", async () => {
+    const first = renderList(mixedList());
+    await userEvent.click(screen.getByRole("radio", { name: "Refused (1)" }));
+    first.unmount();
+    const running = mixedList().filter((j) => j.state !== "failed");
+    renderList(running);
+    expect(screen.getByRole("radio", { name: "Refused (0)" })).toBeChecked();
+    expect(screen.getByText("No job matches this filter.")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("radio", { name: "All (2)" }));
+    expect(screen.queryByText("No job matches this filter.")).toBeNull();
+  });
+
+  it("works without sessionStorage", async () => {
+    const blocked = () => {
+      throw new Error("blocked");
+    };
+    vi.stubGlobal("sessionStorage", { getItem: blocked, setItem: blocked });
+    try {
+      renderList(mixedList());
+      await userEvent.click(screen.getByRole("radio", { name: "Running (1)" }));
+      expect(screen.getAllByRole("link")).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("shows a refused job in detail: the reason, the status and the failed checks", async () => {
+    const refused: Job = {
+      ...runningJob(),
+      id: REFUSED_ID,
+      kind: "operation",
+      operation: "restore",
+      state: "failed",
+      endedAt: at(10, 0),
+      items: [],
+      events: [{ seq: 1, time: at(10, 0), type: "job.refused", message: "Restore refused" }],
+      refusal: {
+        status: 412,
+        reason: "pre-flight checks failed",
+        checks: [
+          { step: "database", label: "Database", status: "failed", detail: "sales exists" },
+          { step: "tasks", label: "Native tasks", status: "ok" },
+        ],
+      },
+    };
+    mockFetch({ [`GET /api/v1/jobs/${REFUSED_ID}`]: () => json(refused) });
+    window.location.hash = `#activity/${REFUSED_ID}`;
+    renderI18n(
+      <ActivityPage
+        engine={ENGINE}
+        engineError=""
+        jobs={{ jobs: [], error: "", refresh: vi.fn() }}
+      />,
+    );
+    expect(
+      await screen.findByRole("heading", { level: 1, name: "Restore on dev-sql" }),
+    ).toBeVisible();
+    expect(screen.getByText("Refused")).toHaveClass("badge-warning");
+    const panel = screen.getByRole("region", { name: "Refused before running" });
+    expect(within(panel).getByText("pre-flight checks failed")).toBeVisible();
+    expect(panel).toHaveTextContent("HTTP 412 · Precondition failed");
+    expect(within(panel).getByText("Database")).toBeVisible();
+    expect(within(panel).getByText(/sales exists/)).toBeVisible();
+    expect(within(panel).queryByText("Native tasks")).toBeNull();
+    // No databases to list, no cancel: the job never ran.
+    expect(screen.queryByRole("heading", { name: "Databases" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel job" })).toBeNull();
+  });
+
+  it("speaks Italian", async () => {
+    renderList(mixedList(), "", "it");
+    expect(screen.getByRole("group", { name: "Mostra i job" })).toBeVisible();
+    expect(screen.getByRole("radio", { name: "Rifiutati (1)" })).toBeVisible();
+    expect(screen.getByText("Rifiutato")).toBeVisible();
+    expect(screen.getByText("HTTP 422 · Non confermato")).toBeVisible();
+    expect(screen.getByText("Le anteprime e i dry run non vengono registrati qui.")).toBeVisible();
   });
 });

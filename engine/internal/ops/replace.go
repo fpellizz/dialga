@@ -82,6 +82,9 @@ const (
 	StepRename     = "rename"
 	StepMultiUser  = "multi-user"
 	StepPost       = "post"
+	// The steps of a single operation that runs as a job (not of a replace).
+	StepFinish = "finish"
+	StepCancel = "cancel"
 )
 
 // ReplaceStep is one step of a replace: the same list gives the actions of an

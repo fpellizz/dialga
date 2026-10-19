@@ -15,6 +15,7 @@ import (
 
 	"github.com/decisyon/dialga/engine/internal/awsx"
 	"github.com/decisyon/dialga/engine/internal/config"
+	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/ops"
 )
@@ -79,6 +80,7 @@ func (b fakeObjects) Keys(context.Context, string) ([]string, error) { return ni
 // opsServer serves configDoc (nil: no file) with the target opened on f.
 type opsServer struct {
 	h        http.Handler
+	jobs     *jobs.Manager
 	password string
 	opened   bool
 	openErr  error
@@ -108,7 +110,7 @@ func newOpsServer(t *testing.T, configDoc *string, env map[string]string, f *fak
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv.h = s.Handler()
+	srv.h, srv.jobs = s.Handler(), s.opts.Jobs
 	return srv
 }
 
@@ -220,15 +222,15 @@ func TestExecutePlanStreams(t *testing.T) {
 		t.Fatalf("status %d, body %s", rec.Code, rec.Body)
 	}
 	names, data := events(t, rec.Body.String())
-	if got := strings.Join(names, " "); got != "notice step step step task task step done" {
+	if got := strings.Join(names, " "); got != "job notice step step step task task step done" {
 		t.Fatalf("events %s\n%s", got, rec.Body)
 	}
 	var done PlanDone
 	if json.Unmarshal([]byte(data[len(data)-1]), &done) != nil || !done.OK || done.Task == nil || done.Task.Lifecycle != mssql.Success {
 		t.Fatalf("done %s", data[len(data)-1])
 	}
-	if !strings.Contains(data[0], "RDS runs two at a time") || len(f.ran) != 1 {
-		t.Fatalf("notice %s, ran %v", data[0], f.ran)
+	if !strings.Contains(data[1], "RDS runs two at a time") || len(f.ran) != 1 {
+		t.Fatalf("notice %s, ran %v", data[1], f.ran)
 	}
 }
 
@@ -244,7 +246,7 @@ func TestExecutePlanTaskErrorAndNoWait(t *testing.T) {
 	}
 	rec = doJSON(srv.h, http.MethodPost, "/api/v1/targets/dev-sql/plans/export/execute", `{"database":"sales","noWait":true}`)
 	names, data := events(t, rec.Body.String())
-	if strings.Join(names, " ") != "step step done" || json.Unmarshal([]byte(data[2]), &done) != nil || !done.OK || done.Task.ID != 9 {
+	if strings.Join(names, " ") != "job step step done" || json.Unmarshal([]byte(data[3]), &done) != nil || !done.OK || done.Task.ID != 9 {
 		t.Fatalf("no wait: %s", rec.Body)
 	}
 }
@@ -293,7 +295,7 @@ func TestExecuteWhatWasPreviewed(t *testing.T) {
 	body, _ := json.Marshal(ExecuteRequest{Database: p.Request.Database, Confirm: p.Confirmation, Digest: p.Digest})
 	rec = doJSON(srv.h, http.MethodPost, "/api/v1/targets/dev-sql/plans/drop/execute", string(body))
 	names, _ := events(t, rec.Body.String())
-	if rec.Code != http.StatusOK || strings.Join(names, " ") != "step step done" || len(f.ran) != 1 || f.ran[0] != mssql.DropDatabase("sales") {
+	if rec.Code != http.StatusOK || strings.Join(names, " ") != "job step step done" || len(f.ran) != 1 || f.ran[0] != mssql.DropDatabase("sales") {
 		t.Fatalf("execute: status %d, ran %v, body %s", rec.Code, f.ran, rec.Body)
 	}
 }

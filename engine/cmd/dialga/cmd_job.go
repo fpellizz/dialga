@@ -15,6 +15,7 @@ import (
 
 	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/config"
+	"github.com/decisyon/dialga/engine/internal/core"
 	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/ops"
@@ -178,8 +179,8 @@ type jobDoc struct {
 }
 
 // runJob plans the job, prints the dry run or starts it and follows it to
-// the end in this process (the jobs of the CLI are not kept in the journal
-// of the desktop app).
+// the end in this process. The job is kept in the journal of the app
+// (origin cli), so its Activity page lists it.
 func (a *app) runJob(cmd *cobra.Command, f jobFlags, req pipeline.Request) error {
 	ctx, out := cmd.Context(), cmd.OutOrStdout()
 	if f.interval <= 0 {
@@ -241,18 +242,18 @@ func (a *app) runJob(cmd *cobra.Command, f jobFlags, req pipeline.Request) error
 		if text {
 			_, _ = fmt.Fprintln(out, "Nothing was started.")
 		}
+		a.recordRefusal(cmd.ErrOrStderr(), jobRefusal(plan, http412, "pre-flight failed, nothing was started: "+strings.Join(plan.Failed(), "; ")))
 		return finish(exitCheckFailed)
 	}
 	confirm, err := a.confirmation(plan.Core(), f.confirm)
 	if err != nil {
+		if errors.Is(err, core.ErrNotConfirmed) {
+			a.recordRefusal(cmd.ErrOrStderr(), jobRefusal(plan, http422, err.Error()))
+		}
 		return err
 	}
-	m := jobs.New(jobs.Options{})
-	defer func() {
-		closeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = m.Close(closeCtx)
-	}()
+	m := openCLIJobs(cmd.ErrOrStderr())
+	defer closeJobs(m)
 	job, err := plan.Start(m, confirm)
 	if err != nil {
 		return err
@@ -275,6 +276,25 @@ func (a *app) runJob(cmd *cobra.Command, f jobFlags, req pipeline.Request) error
 		printJobEnd(out, final)
 	}
 	return finish(jobExit(final))
+}
+
+// The statuses of a refusal, as the API answers them.
+const (
+	http412 = 412
+	http422 = 422
+)
+
+// jobRefusal is the refusal of a plan that does not run.
+func jobRefusal(plan *pipeline.Plan, status int, reason string) refusal {
+	r := refusal{kind: plan.Kind, target: plan.Target, instance: plan.Instance, status: status, reason: reason}
+	for _, it := range plan.Items {
+		r.items = append(r.items, it.Database)
+		for _, c := range nonOKChecks(it.Checks) {
+			c.Label = it.Database + ": " + c.Label
+			r.checks = append(r.checks, c)
+		}
+	}
+	return r
 }
 
 // printJobChecks prints the pre-flight checks of every database, before the
