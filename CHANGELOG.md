@@ -9,6 +9,19 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ## [Non rilasciato]
 
+## [0.6.3] - 2026-10-20
+
+### Aggiunto
+
+- Pagina **About** nel menu, subito sotto *Settings*: versione dell'engine,
+  API locale, autore e repository (spostata dal fondo di *Settings*).
+
+### Corretto
+
+- L'icona della finestra su Wayland (KDE) era quella generica: la finestra si
+  presenta ora come `Dialga`, lo stesso nome della voce di menu, e prende la
+  sua icona.
+
 ## [0.6.2] - 2026-10-20
 
 ### Corretto
