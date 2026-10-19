@@ -1,11 +1,18 @@
-import { Activity, Database, Download, Server, Settings, Upload } from "lucide-react";
+import { Activity, Database, Download, Info, Server, Settings, Upload } from "lucide-react";
 import { useEffect } from "react";
 import dialgaUrl from "./assets/dialga.svg";
 import type { EngineInfo } from "./engine";
 import { type MessageKey, useI18n } from "./i18n";
 import { TunnelSummary } from "./TunnelIndicator";
 
-export type Page = "instances" | "databases" | "import" | "export" | "activity" | "settings";
+export type Page =
+  | "instances"
+  | "databases"
+  | "import"
+  | "export"
+  | "activity"
+  | "settings"
+  | "about";
 
 /** The window title of each page: "Databases · Dialga". */
 const PAGE_TITLE: Record<Page, MessageKey> = {
@@ -15,6 +22,7 @@ const PAGE_TITLE: Record<Page, MessageKey> = {
   export: "nav.export",
   activity: "nav.activity",
   settings: "nav.settings",
+  about: "nav.about",
 };
 
 export function Sidebar({
@@ -96,6 +104,10 @@ export function Sidebar({
         <a href="#settings" className="nav-link nav-bottom" aria-current={current("settings")}>
           <Settings size={16} className="nav-icon" aria-hidden="true" />
           {t("nav.settings")}
+        </a>
+        <a href="#about" className="nav-link" aria-current={current("about")}>
+          <Info size={16} className="nav-icon" aria-hidden="true" />
+          {t("nav.about")}
         </a>
       </nav>
 

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { AboutPage } from "./AboutPage";
 import { ActivityPage } from "./ActivityPage";
 import { errorText } from "./api";
 import { DatabasesPage } from "./DatabasesPage";
@@ -19,6 +20,9 @@ function pageFromHash(): Page {
   const hash = window.location.hash;
   if (hash === "#settings") {
     return "settings";
+  }
+  if (hash === "#about") {
+    return "about";
   }
   // #activity/<job id> opens the detail of a job.
   if (hash === "#activity" || hash.startsWith("#activity/")) {
@@ -95,6 +99,7 @@ export function App() {
               {page === "settings" && (
                 <SettingsPage engine={engine} theme={theme} onThemeChange={changeTheme} />
               )}
+              {page === "about" && <AboutPage engine={engine} />}
               {page === "databases" && <DatabasesPage engine={engine} engineError={engineError} />}
               {page === "export" && <ExportPage engine={engine} engineError={engineError} />}
               {page === "activity" && (
