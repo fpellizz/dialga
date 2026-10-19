@@ -112,6 +112,13 @@ fn start_engine(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn main() {
+    // GTK takes the Wayland app_id (and the X11 WM_CLASS) from the program
+    // name, which is the binary name, dialga-desktop. KDE and GNOME look for
+    // <app_id>.desktop to give the window its icon: "Dialga" matches the
+    // Dialga.desktop of the packages, instead of a generic icon.
+    #[cfg(target_os = "linux")]
+    glib::set_prgname(Some("Dialga"));
+
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(Engine::default())

@@ -152,6 +152,7 @@ Su richiesta dell'utente ("che sto attrezzo veda la luce il prima possibile", me
 - Pacchetti deb/rpm (nome `dialga`): `/usr/bin/dialga` è il sidecar ed è anche la CLI nel `PATH`; `/usr/bin/dialga-desktop` è l'app; `Dialga.desktop` generato da `desktop/src-tauri/linux/desktop-entry.hbs`; icone hicolor 16-512 px; in `/usr/share/doc/dialga/` `config.example.yaml`, `iam-policy.json`, `CHANGELOG.md`.
 - Dipendenze: bastano i default di Tauri (deb `libwebkit2gtk-4.1-0, libgtk-3-0`; rpm i soname corrispondenti); l'engine è Go statico.
 - Tauri usa la prima PNG di `bundle.icon` come icona della finestra: tenere `icons/128x128.png` in testa.
+- Wayland: `main.rs` chiama `glib::set_prgname("Dialga")`, così l'`app_id` della finestra è `Dialga` e coincide con `Dialga.desktop` (KWin e GNOME prendono da lì l'icona della finestra; con `dialga-desktop`, il nome del binario, KDE mostrava la "W" generica). `StartupWMClass=Dialga` per X11. Verifica: `WAYLAND_DEBUG=1 dialga-desktop 2>&1 | grep set_app_id`.
 - glibc: la build locale su Fedora 43 richiede glibc 2.39; la pipeline (`node:24-bookworm` = Debian 12, glibc 2.36) no. Pubblicare solo i pacchetti della pipeline.
 - TODO: confermare licenza, email del maintainer deb, compatibilità con Ubuntu 22.04, comportamento dei Downloads quando si ricarica un file con lo stesso nome.
 
