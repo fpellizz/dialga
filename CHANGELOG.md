@@ -9,6 +9,19 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ## [Non rilasciato]
 
+## [0.6.1] - 2026-10-19
+
+### Aggiunto
+
+- `README.md` in inglese: funzioni, architettura, prerequisiti, ruolo IAM
+  dell'opzione `SQLSERVER_BACKUP_RESTORE`, policy IAM per gli utenti, bridge
+  SSM, installazione, configurazione, uso, sviluppo e rilascio.
+
+### Modificato
+
+- Nuova icona dell'app (finestra, voce di menu, icone dei pacchetti deb e rpm)
+  e logo nella barra laterale: Dialga al posto del simbolo Decisyon.
+
 ## [0.6.0] - 2026-10-19
 
 ### Aggiunto
