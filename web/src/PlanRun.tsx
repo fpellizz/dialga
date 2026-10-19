@@ -57,6 +57,15 @@ export function doneText(
       return t("plan.done.cancel");
     case "drop":
       return t("plan.done.drop", { database });
+    case "grant":
+      return t("plan.done.grant", { login: request.login ?? "", database });
+    case "revoke":
+      return t(request.remove === "user" ? "plan.done.revokeUser" : "plan.done.revoke", {
+        login: request.login ?? "",
+        database,
+      });
+    case "fix-orphan":
+      return t("plan.done.fixOrphan", { user: request.user ?? "", database });
   }
 }
 
@@ -78,7 +87,12 @@ export function usePlanRun(engine: EngineInfo, target: string, operation: Operat
   useEffect(() => () => inFlight.current?.abort(), []);
 
   const execute = useCallback(
-    async (preview: PlanPreview, confirm: string): Promise<{ refused?: ApiError }> => {
+    async (
+      preview: PlanPreview,
+      confirm: string,
+      /** grant with createLogin: goes into the body of this call and nowhere else. */
+      loginPassword?: string,
+    ): Promise<{ refused?: ApiError }> => {
       inFlight.current?.abort();
       const controller = new AbortController();
       inFlight.current = controller;
@@ -87,6 +101,9 @@ export function usePlanRun(engine: EngineInfo, target: string, operation: Operat
       const body: ExecuteRequest = { ...preview.request, digest: preview.digest };
       if (preview.confirmation) {
         body.confirm = confirm;
+      }
+      if (loginPassword && preview.request.createLogin) {
+        body.loginPassword = loginPassword;
       }
       let lifecycle = "";
       try {

@@ -29,6 +29,16 @@ func TestStatementsMatchMssqlImport(t *testing.T) {
 		{"multi-user.sql", SetMultiUser("golden_db")},
 		{"rename.sql", RenameDatabase("golden_db", "golden_db_old_20261016091500")},
 		{"backup-before-replace.sql", BackupDatabase("golden_db", S3ARN(bucket, "export/golden_db_before_replace_20261016091500.bak"))},
+		// Database access: written by hand too.
+		{"access-create-login.sql", CreateLogin("golden_user", MaskedPassword)},
+		{"access-create-login-quote.sql", CreateLogin("o]neil", "it's "+MaskedPassword)},
+		{"access-create-user.sql", CreateUser("golden_db", "golden_user")},
+		{"access-map-user.sql", MapUser("golden_db", "appowner", "appowner")},
+		{"access-add-role.sql", AddRole("golden_db", "db_datareader", "golden_user")},
+		{"access-drop-role.sql", DropRole("golden_db", "db_datawriter", "golden_user")},
+		{"access-drop-user.sql", DropUser("golden_db", "golden_user")},
+		{"access-backup-grants.sql", BackupGrants("golden_user")},
+		{"access-backup-revokes.sql", BackupRevokes("golden_user")},
 	}
 	for _, tc := range tests {
 		t.Run(tc.golden, func(t *testing.T) {

@@ -18,10 +18,12 @@ import (
 	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/ops"
+	"github.com/decisyon/dialga/engine/internal/ops/opstest"
 )
 
 // fakeInstance is the SQL Server of a target in memory.
 type fakeInstance struct {
+	opstest.NoAccess
 	states   map[string]string
 	active   int
 	ran      []string
@@ -86,7 +88,7 @@ type opsServer struct {
 	openErr  error
 }
 
-func newOpsServer(t *testing.T, configDoc *string, env map[string]string, f *fakeInstance, objects fakeObjects) *opsServer {
+func newOpsServer(t *testing.T, configDoc *string, env map[string]string, f ops.SQL, objects fakeObjects) *opsServer {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if configDoc != nil {

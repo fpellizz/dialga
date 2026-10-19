@@ -9,6 +9,24 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ## [Non rilasciato]
 
+### Aggiunto
+
+- **Accesso ai database**. Dare o togliere a un login SQL l'accesso a un
+  database (lettura, lettura e scrittura, proprietario), con il permesso di
+  fare backup (`--backup`); creare il login con password generata o letta da
+  stdin (`CHECK_POLICY ON`, mostrata una sola volta); revocare livello, backup
+  o utente; legare un utente orfano al suo login (`fix-orphan`). CLI
+  `dialga access list|logins|grant|revoke|fix-orphan` (dry run di default,
+  `--apply`); API `GET …/logins`, `GET …/databases/{db}/access` e piani
+  `grant|revoke|fix-orphan`; app: *Access…* nella riga del database. Il master
+  user del target, `sa`, `rdsa`, i `##…##`, `dbo` e `guest` non vengono mai
+  toccati. Guida in `docs/guida-utente.md` (§5.15, §6.4, §7.2).
+
+### Modificato
+
+- La rinomina di un restore con sostituzione (`rdsadmin.dbo.rds_modify_db_name`)
+  è verificata su `mssql-dev` (2026-10-19).
+
 ## [0.5.0] - 2026-10-19
 
 ### Aggiunto

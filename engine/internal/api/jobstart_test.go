@@ -18,6 +18,7 @@ import (
 	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/ops"
+	"github.com/decisyon/dialga/engine/internal/ops/opstest"
 	"github.com/decisyon/dialga/engine/internal/pipeline"
 	"github.com/decisyon/dialga/engine/internal/transfer"
 	"github.com/decisyon/dialga/engine/internal/transfer/transfertest"
@@ -26,6 +27,7 @@ import (
 // jobInstance is an RDS instance in memory whose native tasks succeed on
 // their second read; a restore brings its database online.
 type jobInstance struct {
+	opstest.NoAccess
 	mu     sync.Mutex
 	states map[string]string
 	tasks  map[int]*mssql.Task

@@ -193,3 +193,30 @@ func TestOperationSQLStepsRebuild(t *testing.T) {
 		t.Fatal("a cancel of no task")
 	}
 }
+
+func TestOperationAccessStepsRebuild(t *testing.T) {
+	env, _, _ := testEnv(t, testTarget)
+	good := AccessParams{AccessStep: ops.AccessStep{ID: ops.AccCreateLogin, Login: "dora"}, Statement: mssql.CreateLogin("dora", mssql.MaskedPassword)}
+	step, err := rebuildAccess(rebuildOf(t, env, jobs.StepInfo{ID: "create-login", Title: "Create login dora"}, good))
+	if err != nil || step == nil || step.ID() != "create-login" {
+		t.Fatalf("%v %v", step, err)
+	}
+	// a repeated id keeps its "#n" as the id of the step
+	again := AccessParams{AccessStep: ops.AccessStep{ID: ops.AccAddRole, Database: "sales", User: "dora", Role: "db_datawriter"},
+		Statement: mssql.AddRole("sales", "db_datawriter", "dora")}
+	if step, err = rebuildAccess(rebuildOf(t, env, jobs.StepInfo{ID: "add-role#2", Title: "t"}, again)); err != nil || step.ID() != "add-role#2" {
+		t.Fatalf("%v %v", step, err)
+	}
+	for name, p := range map[string]AccessParams{
+		"edited statement": {AccessStep: good.AccessStep, Statement: mssql.CreateLogin("dora", "Tr0ub4dor&3-xyz!")},
+		"master login":     {AccessStep: ops.AccessStep{ID: ops.AccCreateLogin, Login: "admin"}, Statement: mssql.CreateLogin("admin", mssql.MaskedPassword)},
+		"dbo":              {AccessStep: ops.AccessStep{ID: ops.AccDropUser, Database: "sales", User: "dbo"}, Statement: mssql.DropUser("sales", "dbo")},
+		"system database":  {AccessStep: ops.AccessStep{ID: ops.AccDropUser, Database: "master", User: "x"}, Statement: mssql.DropUser("master", "x")},
+		"unknown step":     {AccessStep: ops.AccessStep{ID: "drop-login", Login: "x"}},
+		"unmanaged role":   {AccessStep: ops.AccessStep{ID: ops.AccAddRole, Database: "sales", User: "x", Role: "db_securityadmin"}},
+	} {
+		if _, err := rebuildAccess(rebuildOf(t, env, jobs.StepInfo{ID: "x"}, p)); err == nil {
+			t.Errorf("%s: rebuilt", name)
+		}
+	}
+}

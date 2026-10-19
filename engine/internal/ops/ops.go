@@ -38,8 +38,10 @@ const (
 	OpDrop    = "drop"
 )
 
+// The access operations (access.go) are OpGrant, OpRevoke and OpFixOrphan.
+
 // Operations are the operations Build knows.
-var Operations = []string{OpRestore, OpExport, OpFinish, OpCancel, OpDrop}
+var Operations = []string{OpRestore, OpExport, OpFinish, OpCancel, OpDrop, OpGrant, OpRevoke, OpFixOrphan}
 
 // SQL is what the operations read and run on the SQL Server of a target.
 // mssql.Session implements it; tests replace it.
@@ -52,6 +54,13 @@ type SQL interface {
 	StartTask(ctx context.Context, stmt, db string) (mssql.Task, error)
 	Exec(ctx context.Context, stmt string) error
 	DatabaseReport(ctx context.Context, db string) (mssql.DatabaseReport, error)
+	// The reads of the access operations (access.go); master is the master
+	// user of the target.
+	Logins(ctx context.Context, master string) ([]mssql.Login, error)
+	DatabaseAccess(ctx context.Context, db, master string) (mssql.DatabaseAccess, error)
+	MsdbUser(ctx context.Context, login string) (mssql.MsdbUser, error)
+	BackupOperators(ctx context.Context, login string) (used, unreadable []string, err error)
+	UserSchemas(ctx context.Context, db, user string) ([]string, error)
 }
 
 // Objects reads the bucket of a target. awsx.Bucket implements it.
@@ -111,11 +120,32 @@ type Params struct {
 	Replace ReplaceOptions
 	// TaskID is the native task to cancel.
 	TaskID int
+
+	// The access operations (access.go). Login is the SQL login of a grant
+	// or a revoke, and of a fix-orphan when it is not the user's name.
+	Login string
+	// User is the database user a fix-orphan binds.
+	User string
+	// Level is what a grant gives: read, readwrite or owner.
+	Level string
+	// Backup also lets the login back the database up (grant).
+	Backup bool
+	// CreateLogin creates the login too (grant); its password is only given
+	// to Execute (ExecOptions.LoginPassword), never kept here.
+	CreateLogin bool
+	// Remove is what a revoke takes away: level, backup or user.
+	Remove string
 }
 
 // Validate checks the parameters of op against the target without reaching
 // it, so callers reject bad input before opening a session.
 func Validate(op string, p Params, t config.Target) error {
+	if IsAccess(op) {
+		return validateAccess(op, p, t.SQL.User)
+	}
+	if p.Login != "" || p.User != "" || p.Level != "" || p.Backup || p.CreateLogin || p.Remove != "" {
+		return fmt.Errorf("login, user, level, backup, createLogin and remove are for grant, revoke and fix-orphan, not %s", op)
+	}
 	switch op {
 	case OpRestore, OpExport, OpFinish, OpDrop:
 		if err := validate.DBName(p.Database); err != nil {
@@ -196,6 +226,12 @@ func (s *Session) Build(ctx context.Context, op string, p Params) (*Prepared, er
 		return s.Cancel(ctx, p.TaskID)
 	case OpDrop:
 		return s.Drop(ctx, p.Database)
+	case OpGrant:
+		return s.Grant(ctx, p)
+	case OpRevoke:
+		return s.Revoke(ctx, p)
+	case OpFixOrphan:
+		return s.FixOrphan(ctx, p)
 	}
 	return nil, Validate(op, p, s.Target)
 }
@@ -213,6 +249,10 @@ type Prepared struct {
 	sql SQL
 	// task is the native task the plan started, set while it runs.
 	task *mssql.Task
+	// access are the steps of an access plan (AccessSteps); loginPassword is
+	// the password of its create-login step, only set while Execute runs.
+	access        []AccessStep
+	loginPassword string
 
 	// Replace is how a restore replaces the existing database; nil otherwise.
 	Replace *Replacement
@@ -288,6 +328,9 @@ var ErrReplaceNoWait = errors.New("a replace follows its native tasks to the end
 type ExecOptions struct {
 	// Confirm is the text the user retyped (Plan.Confirmation).
 	Confirm string
+	// LoginPassword is the password of the login a grant creates; it goes
+	// to the statement that runs and nowhere else.
+	LoginPassword string
 	// Wait follows the native task the plan starts until it ends.
 	Wait bool
 	// Interval between two reads of the task (default 30s).
@@ -321,6 +364,13 @@ func (p *Prepared) Execute(ctx context.Context, opts ExecOptions) (*mssql.Task, 
 	emit := opts.OnStep
 	if emit == nil {
 		emit = func(core.Event) {}
+	}
+	if p.NeedsLoginPassword() {
+		if err := CheckLoginPassword(opts.LoginPassword); err != nil {
+			return nil, err
+		}
+		p.loginPassword = opts.LoginPassword
+		defer func() { p.loginPassword = "" }()
 	}
 	p.exec, p.waitCtx = opts, ctx
 	if err := p.Plan.Execute(context.WithoutCancel(ctx), opts.Confirm, emit); err != nil {

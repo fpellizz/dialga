@@ -31,6 +31,14 @@ type fakeSQL struct {
 	// after a task is started, Get answers these lifecycles in turn
 	progress []mssql.Lifecycle
 	reads    int
+	// the logins and users of the access operations (access_test.go)
+	logins   []mssql.Login
+	access   map[string]mssql.DatabaseAccess // by database, msdb included
+	msdb     map[string]mssql.MsdbUser       // by login
+	used     []string                        // databases where the login backs up
+	unread   []string
+	schemas  map[string][]string // owned schemas by user
+	accessEr error
 }
 
 func (f *fakeSQL) DatabaseState(_ context.Context, db string) (string, error) {

@@ -30,6 +30,8 @@ func (s *Server) opsRoutes() []route {
 		{http.MethodPost, "/api/v1/targets/{name}/plans/{operation}", s.previewPlan},
 		{http.MethodPost, "/api/v1/targets/{name}/plans/{operation}/execute", s.executePlan},
 		{http.MethodGet, "/api/v1/targets/{name}/databases/{db}/report", s.databaseReport},
+		{http.MethodGet, "/api/v1/targets/{name}/databases/{db}/access", s.databaseAccess},
+		{http.MethodGet, "/api/v1/targets/{name}/logins", s.targetLogins},
 	}
 }
 
@@ -48,6 +50,16 @@ type PlanRequest struct {
 	Replace     string `json:"replace,omitempty"`
 	BackupFirst *bool  `json:"backupFirst,omitempty"`
 	Stamp       string `json:"stamp,omitempty"`
+	// Database access (grant, revoke, fix-orphan): Login is the SQL login,
+	// User the orphan user of fix-orphan, Level read, readwrite or owner,
+	// Backup adds the right to back the database up, CreateLogin creates the
+	// login, Remove is what a revoke takes away (level, backup, user).
+	Login       string `json:"login,omitempty"`
+	User        string `json:"user,omitempty"`
+	Level       string `json:"level,omitempty"`
+	Backup      bool   `json:"backup,omitempty"`
+	CreateLogin bool   `json:"createLogin,omitempty"`
+	Remove      string `json:"remove,omitempty"`
 }
 
 // ExecuteRequest is the body of POST .../plans/{operation}/execute: the
@@ -64,6 +76,19 @@ type ExecuteRequest struct {
 	Replace     string `json:"replace,omitempty"`
 	BackupFirst *bool  `json:"backupFirst,omitempty"`
 	Stamp       string `json:"stamp,omitempty"`
+	// Database access (grant, revoke, fix-orphan): Login is the SQL login,
+	// User the orphan user of fix-orphan, Level read, readwrite or owner,
+	// Backup adds the right to back the database up, CreateLogin creates the
+	// login, Remove is what a revoke takes away (level, backup, user).
+	Login       string `json:"login,omitempty"`
+	User        string `json:"user,omitempty"`
+	Level       string `json:"level,omitempty"`
+	Backup      bool   `json:"backup,omitempty"`
+	CreateLogin bool   `json:"createLogin,omitempty"`
+	Remove      string `json:"remove,omitempty"`
+	// LoginPassword is the password of the login a grant creates: for the
+	// execution only, never in a preview, plan, event, journal or log.
+	LoginPassword string `json:"loginPassword,omitempty"`
 	// Confirm is the text the preview asked to retype (confirmation).
 	Confirm string `json:"confirm,omitempty"`
 	// Digest, when set, must be the digest of the preview: the plan has not
@@ -75,13 +100,15 @@ type ExecuteRequest struct {
 
 func (r ExecuteRequest) plan() PlanRequest {
 	return PlanRequest{Database: r.Database, Key: r.Key, Differential: r.Differential, NoRecovery: r.NoRecovery, TaskID: r.TaskID,
-		Replace: r.Replace, BackupFirst: r.BackupFirst, Stamp: r.Stamp}
+		Replace: r.Replace, BackupFirst: r.BackupFirst, Stamp: r.Stamp,
+		Login: r.Login, User: r.User, Level: r.Level, Backup: r.Backup, CreateLogin: r.CreateLogin, Remove: r.Remove}
 }
 
 func (r PlanRequest) params() ops.Params {
 	return ops.Params{Database: r.Database, Key: r.Key, TaskID: r.TaskID,
 		Restore: mssql.RestoreOptions{Differential: r.Differential, NoRecovery: r.NoRecovery},
-		Replace: ops.ReplaceOptions{Mode: r.Replace, BackupFirst: r.BackupFirst, Stamp: r.Stamp}}
+		Replace: ops.ReplaceOptions{Mode: r.Replace, BackupFirst: r.BackupFirst, Stamp: r.Stamp},
+		Login:   r.Login, User: r.User, Level: r.Level, Backup: r.Backup, CreateLogin: r.CreateLogin, Remove: r.Remove}
 }
 
 // PlanPreview is the answer of POST .../plans/{operation}. Nothing is changed.
@@ -301,6 +328,13 @@ func (s *Server) executePlan(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, fmt.Sprintf("%v: retype %q", core.ErrNotConfirmed, want), http.StatusUnprocessableEntity)
 		return
 	}
+	if prep.NeedsLoginPassword() {
+		// The message says what is wrong with it, never what it is.
+		if err := ops.CheckLoginPassword(req.LoginPassword); err != nil {
+			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
+	}
 	if prep.Replace != nil && req.NoWait {
 		http.Error(w, ops.ErrReplaceNoWait.Error(), http.StatusUnprocessableEntity)
 		return
@@ -320,7 +354,8 @@ func (s *Server) executePlan(w http.ResponseWriter, r *http.Request) {
 		OpenOps: func(ctx context.Context) (*ops.Session, func(), error) {
 			return s.opts.OpenOps(ctx, built.name, built.target, built.password)
 		},
-		OnTask: func(t mssql.Task) { lastTask.Store(&t) },
+		OnTask:        func(t mssql.Task) { lastTask.Store(&t) },
+		LoginPassword: req.LoginPassword,
 	}
 	spec, err := pipeline.OperationSpec(env, prep, req.NoWait)
 	if err != nil {
@@ -447,4 +482,52 @@ func (s *Server) databaseReport(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeJSON(w, report)
 	}
+}
+
+// databaseAccess answers who can use a database (read-only). Like the
+// report it is a view: it leaves no job.
+func (s *Server) databaseAccess(w http.ResponseWriter, r *http.Request) {
+	db := r.PathValue("db")
+	name, t, ok := s.opTarget(w, r, func(config.Target) error { return validate.DBName(db) })
+	if !ok {
+		return
+	}
+	sess, closeOps, ok := s.openOps(w, r, name, t)
+	if !ok {
+		return
+	}
+	defer closeOps()
+	view, err := sess.Access(r.Context(), db)
+	switch {
+	case errors.Is(err, mssql.ErrNoDatabase):
+		http.Error(w, err.Error(), http.StatusNotFound)
+	case err != nil:
+		http.Error(w, err.Error(), http.StatusBadGateway)
+	default:
+		writeJSON(w, view)
+	}
+}
+
+// LoginList is the answer of GET .../logins.
+type LoginList struct {
+	Logins []mssql.Login `json:"logins"`
+}
+
+// targetLogins lists the SQL logins of the instance (read-only, no job).
+func (s *Server) targetLogins(w http.ResponseWriter, r *http.Request) {
+	name, t, ok := s.opTarget(w, r, func(config.Target) error { return nil })
+	if !ok {
+		return
+	}
+	sess, closeOps, ok := s.openOps(w, r, name, t)
+	if !ok {
+		return
+	}
+	defer closeOps()
+	logins, err := sess.Logins(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	writeJSON(w, LoginList{Logins: logins})
 }

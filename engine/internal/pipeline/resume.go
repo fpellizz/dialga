@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/decisyon/dialga/engine/internal/jobs"
+	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/ops"
 	"github.com/decisyon/dialga/engine/internal/validate"
 )
@@ -19,6 +20,7 @@ const (
 	KindPost     = "pipeline.post"
 	KindDownload = "pipeline.download"
 	KindSQL      = "pipeline.sql"
+	KindAccess   = "pipeline.access"
 )
 
 func init() {
@@ -28,6 +30,7 @@ func init() {
 	jobs.Register(KindPost, rebuildPost)
 	jobs.Register(KindDownload, rebuildDownload)
 	jobs.Register(KindSQL, rebuildSQL)
+	jobs.Register(KindAccess, rebuildAccess)
 }
 
 // envOf is the Env a resume hands to the factories (ResumeOptions.Env).
@@ -133,6 +136,32 @@ func rebuildSQL(rb jobs.Rebuild) (jobs.Step, error) {
 		return nil, fmt.Errorf("the %s step recorded a new name", p.Op)
 	}
 	want, err := p.expected()
+	if err != nil {
+		return nil, err
+	}
+	if p.Statement != want {
+		return nil, errors.New("the statement the step recorded is not the one its parameters build")
+	}
+	return p.Step(env, rb.Step.ID, rb.Step.Title), nil
+}
+
+// rebuildAccess rebuilds a step of an access operation: the names are
+// checked again and the masked statement must be the one its parameters
+// build. A create-login has no password after a resume: it is a no-op when
+// the login exists by then, and fails saying so otherwise.
+func rebuildAccess(rb jobs.Rebuild) (jobs.Step, error) {
+	env, err := envOf(rb)
+	if err != nil {
+		return nil, err
+	}
+	var p AccessParams
+	if err := rb.Params(&p); err != nil {
+		return nil, err
+	}
+	if err := p.Validate(env.Target); err != nil {
+		return nil, err
+	}
+	want, err := p.AccessStep.Statement(mssql.MaskedPassword)
 	if err != nil {
 		return nil, err
 	}

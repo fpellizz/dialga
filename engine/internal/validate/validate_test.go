@@ -61,3 +61,15 @@ func TestS3Key(t *testing.T) {
 		})
 	}
 }
+
+func TestPrincipalName(t *testing.T) {
+	for name, ok := range map[string]bool{
+		"ana": true, "first.last": true, "svc-app_1": true, "_x": true, "9lives": true, strings.Repeat("a", 128): true,
+		"": false, "-x": false, ".x": false, "a b": false, "a;b": false, "a]b": false, "a'b": false, "##MS##": false,
+		strings.Repeat("a", 129): false, "é": false,
+	} {
+		if err := PrincipalName(name); (err == nil) != ok {
+			t.Errorf("PrincipalName(%q) = %v, want ok=%v", name, err, ok)
+		}
+	}
+}

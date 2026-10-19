@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/decisyon/dialga/engine/internal/core"
@@ -68,6 +69,23 @@ func OperationSpec(env Env, prep *ops.Prepared, noWait bool) (jobs.Spec, error) 
 		a := plan.Actions[0]
 		steps = append(steps, SQLParams{Op: ops.StepDrop, Statement: a.Statement, Database: p.Database,
 			Result: p.Database + " dropped"}.Step(env, a.ID, a.Title))
+	case ops.OpGrant, ops.OpRevoke, ops.OpFixOrphan:
+		if prep.NeedsLoginPassword() {
+			if err := ops.CheckLoginPassword(env.LoginPassword); err != nil {
+				return jobs.Spec{}, err
+			}
+		}
+		// The ids of the steps of a job are unique; the plan repeats add-role
+		// and drop-role, so the repeats get a "#n" (OperationEvents drops it).
+		seen := map[string]int{}
+		for i, st := range prep.AccessSteps() {
+			a := plan.Actions[i]
+			id := a.ID
+			if seen[id]++; seen[id] > 1 {
+				id = fmt.Sprintf("%s#%d", id, seen[id])
+			}
+			steps = append(steps, AccessParams{AccessStep: st, Statement: a.Statement}.Step(env, id, a.Title))
+		}
 	default:
 		return jobs.Spec{}, fmt.Errorf("operation %q cannot run as a job", plan.Operation)
 	}
@@ -79,13 +97,16 @@ func OperationSpec(env Env, prep *ops.Prepared, noWait bool) (jobs.Spec, error) 
 	}, nil
 }
 
+// repeatedID is the "#n" the steps of an access plan get when an id repeats.
+var repeatedID = regexp.MustCompile(`#[0-9]+$`)
+
 // OperationEvents turns the events of an operation job into what the plan
 // execution reported: a core.Event per step that starts, succeeds, fails or
 // is skipped. titles maps a step id to its title (jobs.StepInfo). ok is false
 // for the events that are not about a step.
 func OperationEvents(titles map[string]string) func(jobs.Event) (core.Event, bool) {
 	return func(ev jobs.Event) (core.Event, bool) {
-		out := core.Event{Step: ev.Step, Label: titles[ev.Step]}
+		out := core.Event{Step: repeatedID.ReplaceAllString(ev.Step, ""), Label: titles[ev.Step]}
 		switch ev.Type {
 		case jobs.EventStepStarted:
 			out.Status = core.Running

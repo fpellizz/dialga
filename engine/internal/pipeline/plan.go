@@ -46,6 +46,10 @@ type Env struct {
 	// full, at every change, just before the job reports it (task.status):
 	// a single operation streams it to its caller.
 	OnTask func(mssql.Task)
+	// LoginPassword is the password of the login a grant creates. It lives
+	// here only: the steps record the masked statement, so the journal never
+	// has it, and a resumed job has none (the step then fails clearly).
+	LoginPassword string
 }
 
 func (e Env) interval() time.Duration {

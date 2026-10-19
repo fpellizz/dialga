@@ -347,6 +347,26 @@ func (p SQLParams) Step(env Env, id, title string) jobs.Step {
 	}), KindSQL, p)
 }
 
+// AccessParams are one statement of an access operation (grant, revoke,
+// fix-orphan). Statement is the masked one, as the plan shows it: the
+// password of a new login is given by Env.LoginPassword and never recorded.
+type AccessParams struct {
+	ops.AccessStep
+	Statement string `json:"statement"`
+}
+
+// Step runs the statement on a session of its own.
+func (p AccessParams) Step(env Env, id, title string) jobs.Step {
+	return jobs.WithKind(jobs.NewStep(id, title, jobs.NoResource, func(ctx context.Context, _ jobs.Reporter) (string, error) {
+		sess, closeOps, err := env.OpenOps(ctx)
+		if err != nil {
+			return "", err
+		}
+		defer closeOps()
+		return sess.RunAccessStep(ctx, p.AccessStep, env.LoginPassword)
+	}), KindAccess, p)
+}
+
 // PostParams name the database of the post-restore report.
 type PostParams struct {
 	Database string `json:"database"`

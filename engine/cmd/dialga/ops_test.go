@@ -12,11 +12,13 @@ import (
 	"github.com/decisyon/dialga/engine/internal/config"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 	"github.com/decisyon/dialga/engine/internal/ops"
+	"github.com/decisyon/dialga/engine/internal/ops/opstest"
 )
 
 // fakeInstance is the SQL Server of a target in memory: database states,
 // the statements run, and the lifecycles a started task goes through.
 type fakeInstance struct {
+	opstest.NoAccess
 	states   map[string]string
 	ran      []string
 	execErr  error

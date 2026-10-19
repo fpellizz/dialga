@@ -318,7 +318,7 @@ paths:
         - name: operation
           in: path
           required: true
-          schema: { type: string, enum: [restore, export, finish, cancel, drop] }
+          schema: { type: string, enum: [restore, export, finish, cancel, drop, grant, revoke, fix-orphan] }
       requestBody:
         required: true
         content:
@@ -378,7 +378,7 @@ paths:
         - name: operation
           in: path
           required: true
-          schema: { type: string, enum: [restore, export, finish, cancel, drop] }
+          schema: { type: string, enum: [restore, export, finish, cancel, drop, grant, revoke, fix-orphan] }
       requestBody:
         required: true
         content:
@@ -456,6 +456,82 @@ paths:
         "428": { $ref: "#/components/responses/PasswordNeeded" }
         "502":
           description: AWS or SQL Server did not answer (credentials, tunnel, login).
+          content:
+            text/plain:
+              schema: { type: string }
+  /api/v1/targets/{name}/logins:
+    get:
+      summary: The SQL logins of the instance (read-only)
+      description: |
+        sys.server_principals of type SQL_LOGIN, without the logins of RDS
+        and SQL Server (rdsa, sa, ##…##). The master user of the target (sql.user)
+        is in the list with master true: Dialga never changes its access.
+        A read-only view: it leaves no job.
+      parameters:
+        - $ref: "#/components/parameters/TargetName"
+      responses:
+        "200":
+          description: The logins, by name.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LoginList" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "422":
+          description: The password source (environment variable, Secrets Manager) gave no password.
+          content:
+            text/plain:
+              schema: { type: string }
+        "428": { $ref: "#/components/responses/PasswordNeeded" }
+        "502":
+          description: AWS or SQL Server did not answer (credentials, tunnel, login).
+          content:
+            text/plain:
+              schema: { type: string }
+  /api/v1/targets/{name}/databases/{db}/access:
+    get:
+      summary: Who can use a database, and how (read-only)
+      description: |
+        The users of the database (SQL users; Windows users and groups are
+        counted, not listed), the login each one is bound to, their roles,
+        the level of access Dialga reads from the roles and whether they can
+        back the database up (db_backupoperator here and the msdb grants of
+        rds_backup_database). A read-only view: it leaves no job.
+      parameters:
+        - $ref: "#/components/parameters/TargetName"
+        - name: db
+          in: path
+          required: true
+          schema: { type: string, pattern: "^[A-Za-z0-9_][A-Za-z0-9_-]{0,99}$" }
+      responses:
+        "200":
+          description: The users of the database.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DatabaseAccess" }
+        "400":
+          description: Invalid database name.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: Unknown target, or no such database on the instance.
+          content:
+            text/plain:
+              schema: { type: string }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "422":
+          description: The password source (environment variable, Secrets Manager) gave no password.
+          content:
+            text/plain:
+              schema: { type: string }
+        "428": { $ref: "#/components/responses/PasswordNeeded" }
+        "502":
+          description: AWS or SQL Server did not answer (credentials, tunnel, login, database not online).
           content:
             text/plain:
               schema: { type: string }
@@ -1219,6 +1295,49 @@ components:
         databases:
           type: array
           items: { $ref: "#/components/schemas/Database" }
+    Login:
+      type: object
+      description: A SQL login of the instance.
+      required: [name, disabled, master]
+      properties:
+        name: { type: string }
+        disabled: { type: boolean }
+        master: { type: boolean, description: The master user of the target (sql.user); its access is never changed. }
+        createdAt: { type: string, description: "Server wall clock without a zone: 2006-01-02T15:04:05." }
+    LoginList:
+      type: object
+      required: [logins]
+      properties:
+        logins:
+          type: array
+          items: { $ref: "#/components/schemas/Login" }
+    DatabaseUser:
+      type: object
+      description: A SQL user of a database.
+      required: [name, orphan, roles, level, backup, managed]
+      properties:
+        name: { type: string }
+        login: { type: string, description: The login it is bound to; absent for an orphan. }
+        orphan: { type: boolean, description: A SQL user whose SID matches no login (typical after a restore from another instance). }
+        roles:
+          type: array
+          description: Database roles it is a member of, by name.
+          items: { type: string }
+        level: { type: string, enum: [none, read, readwrite, owner, custom], description: 'From the roles: owner when db_owner; readwrite when db_datareader and db_datawriter; read when db_datareader only; custom when only other roles; none when no role.' }
+        backup: { type: boolean, description: Member of db_backupoperator and its login has the msdb grants of rds_backup_database. }
+        backupPartial: { type: boolean, description: Only one half of backup is there (the role or the msdb grants); a grant with backup completes it. }
+        managed: { type: boolean, description: 'Dialga may change it: false for dbo, guest, INFORMATION_SCHEMA, sys, the master user of the target and users bound to logins Dialga never changes.' }
+    DatabaseAccess:
+      type: object
+      required: [target, instance, database, users, windowsPrincipals]
+      properties:
+        target: { type: string }
+        instance: { type: string }
+        database: { type: string }
+        users:
+          type: array
+          items: { $ref: "#/components/schemas/DatabaseUser" }
+        windowsPrincipals: { type: integer, description: Windows users and groups, unusable on RDS without Active Directory. }
     Overview:
       type: object
       description: The RDS instance of a target and, when a SQL session opens, its usage.
@@ -1357,7 +1476,7 @@ components:
       description: One action of a plan, with the exact statement it runs.
       required: [id, title, kind, risk, statement]
       properties:
-        id: { type: string, description: "Stable action id: restore, export, finish, cancel, drop." }
+        id: { type: string, description: "Stable action id: restore, export, finish, cancel, drop; for access create-login, create-user, map-user, add-role, drop-role, drop-user, msdb-user, backup-grants, backup-revokes, msdb-drop-user." }
         title: { type: string }
         kind: { type: string, enum: [sql, aws] }
         risk: { type: string, enum: [change, destructive] }
@@ -1383,6 +1502,9 @@ components:
         <export prefix>/<db>_<YYYYMMDD-HHMMSS>.bak in UTC), differential and
         noRecovery (restore), taskId (cancel). A bare file name goes under the
         target prefix, s3://<bucket>/<key> must name the target bucket.
+        Database access: database with login, level, backup and createLogin
+        (grant), login and remove (revoke), user and optionally login
+        (fix-orphan).
       properties:
         database: { type: string, pattern: "^[A-Za-z0-9_][A-Za-z0-9_-]{0,99}$" }
         key: { type: string }
@@ -1392,6 +1514,12 @@ components:
         replace: { type: string, enum: ["", auto, swap, drop], description: 'Restore onto a database that exists (RDS refuses it natively). "" (default) refuses; swap restores beside it and swaps the names, keeping the old database; drop backs it up to S3, drops it and restores; auto picks swap when two copies fit in the free storage, else drop with the backup. Needs the retyped database name.' }
         backupFirst: { type: boolean, description: 'Drop only - back the current database up to S3 first (default true; always true when auto picks drop).' }
         stamp: { type: string, pattern: "^[0-9]{14}$", description: 'yyyymmddhhmmss (UTC) that dates the names of a replace; the preview request carries the one chosen, send it back.' }
+        login: { type: string, pattern: "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$", description: 'grant, revoke - the SQL login; its user in the database has the same name, or the name of the user already bound to it. Never the master user of the target, sa, rdsa or ##…##.' }
+        user: { type: string, pattern: "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$", description: fix-orphan - the database user without a login; it is bound to the login of the same name (login overrides it). }
+        level: { type: string, enum: [read, readwrite, owner], description: 'grant - read = db_datareader; readwrite = db_datareader + db_datawriter; owner = db_owner. The user leaves the roles of the other levels (db_datareader, db_datawriter, db_owner); its other roles stay.' }
+        backup: { type: boolean, description: 'grant - also let the login back the database up: db_backupoperator here, a user in msdb with EXECUTE on rds_backup_database and rds_task_status and SELECT on rds_fn_task_status.' }
+        createLogin: { type: boolean, description: grant - the login does not exist and is created (CREATE LOGIN with CHECK_POLICY ON); the plan shows its password as ****. }
+        remove: { type: string, enum: [level, backup, user], description: 'revoke - level takes the user out of db_datareader, db_datawriter and db_owner; backup takes it out of db_backupoperator (and revokes the msdb grants when no other database lets that login back up); user drops the user from the database (destructive, asks to retype the login), and its msdb grants as for backup. The login always stays.' }
     ExecuteRequest:
       type: object
       description: The parameters of the preview (send back its request), plus how to run it.
@@ -1404,6 +1532,13 @@ components:
         replace: { type: string, enum: ["", auto, swap, drop], description: 'Restore onto a database that exists (RDS refuses it natively). "" (default) refuses; swap restores beside it and swaps the names, keeping the old database; drop backs it up to S3, drops it and restores; auto picks swap when two copies fit in the free storage, else drop with the backup. Needs the retyped database name.' }
         backupFirst: { type: boolean, description: 'Drop only - back the current database up to S3 first (default true; always true when auto picks drop).' }
         stamp: { type: string, pattern: "^[0-9]{14}$", description: 'yyyymmddhhmmss (UTC) that dates the names of a replace; the preview request carries the one chosen, send it back.' }
+        login: { type: string, pattern: "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$", description: 'grant, revoke - the SQL login; its user in the database has the same name, or the name of the user already bound to it. Never the master user of the target, sa, rdsa or ##…##.' }
+        user: { type: string, pattern: "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$", description: fix-orphan - the database user without a login; it is bound to the login of the same name (login overrides it). }
+        level: { type: string, enum: [read, readwrite, owner], description: 'grant - read = db_datareader; readwrite = db_datareader + db_datawriter; owner = db_owner. The user leaves the roles of the other levels (db_datareader, db_datawriter, db_owner); its other roles stay.' }
+        backup: { type: boolean, description: 'grant - also let the login back the database up: db_backupoperator here, a user in msdb with EXECUTE on rds_backup_database and rds_task_status and SELECT on rds_fn_task_status.' }
+        createLogin: { type: boolean, description: grant - the login does not exist and is created (CREATE LOGIN with CHECK_POLICY ON); the plan shows its password as ****. }
+        remove: { type: string, enum: [level, backup, user], description: 'revoke - level takes the user out of db_datareader, db_datawriter and db_owner; backup takes it out of db_backupoperator (and revokes the msdb grants when no other database lets that login back up); user drops the user from the database (destructive, asks to retype the login), and its msdb grants as for backup. The login always stays.' }
+        loginPassword: { type: string, writeOnly: true, minLength: 12, maxLength: 128, description: 'grant with createLogin - the password of the new login. Execute only: never in a preview, a plan, an event, the journal or a log; the statement shown has ****. At least 12 characters from three of upper case, lower case, digits and symbols (SQL Server checks its own policy too: a refusal fails the action, nothing after it runs).' }
         confirm: { type: string, description: The confirmation of the preview, retyped by the user. }
         digest: { type: string, description: The digest of the preview; when set, a different plan is refused (412). }
         noWait: { type: boolean, description: Return once the native task is started instead of following it. }
@@ -1435,7 +1570,7 @@ components:
       description: |
         How a restore replaces the database it finds (also a pre-flight check
         with step "replace": the reason of the strategy). The renames use
-        rdsadmin.dbo.rds_modify_db_name (TODO: confermare su mssql-dev).
+        rdsadmin.dbo.rds_modify_db_name.
       required: [strategy, reason, backupFirst, stamp, result]
       properties:
         strategy: { type: string, enum: [swap, drop], description: auto resolved. }

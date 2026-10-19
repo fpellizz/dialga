@@ -3,6 +3,7 @@ import type { StepEvent, StepStatus } from "./api";
 import { HintText } from "./Feedback";
 import { stepHint } from "./hints";
 import { type MessageKey, stepKey, useI18n } from "./i18n";
+import { stepKeys } from "./plans";
 
 const STATUS_KEY: Record<StepStatus, MessageKey> = {
   running: "status.running",
@@ -39,12 +40,14 @@ export function StepList({
   label?: (step: StepEvent) => string;
 }) {
   const { t } = useI18n();
+  // An id can repeat (two add-role): the key is the id and its occurrence.
+  const keys = stepKeys(steps);
   return (
     <ul className="steps" aria-label={t("check.steps")}>
-      {steps.map((s) => {
+      {steps.map((s, i) => {
         const key = stepKey(s.step);
         return (
-          <li key={s.step} className="step">
+          <li key={keys[i]} className="step">
             <StepIcon status={s.status} />
             <div className="step-body">
               <div className="step-label">{label ? label(s) : key ? t(key) : s.label}</div>
