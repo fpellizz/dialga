@@ -9,6 +9,8 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ## [Non rilasciato]
 
+## [0.5.0] - 2026-10-19
+
 ### Aggiunto
 
 - **Activity completa**. Ogni operazione è un job nel journal e compare in
