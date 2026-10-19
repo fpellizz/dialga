@@ -9,6 +9,13 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ## [Non rilasciato]
 
+### Corretto
+
+- Un'operazione avviata con *Run* (export, restore, drop…) non viene più
+  rifiutata con `context canceled` se la finestra si chiude, o l'app si
+  ricarica, mentre girano i controlli preliminari: i controlli e il job
+  vanno avanti comunque.
+
 ## [0.6.1] - 2026-10-19
 
 ### Aggiunto
