@@ -127,16 +127,6 @@ export function SettingsPage({
 
       <TargetsCard engine={engine} />
       <PrerequisitesCard engine={engine} />
-
-      <section className="card settings" aria-labelledby="settings-about">
-        <h2 id="settings-about">{t("settings.about")}</h2>
-        <dl className="facts">
-          <dt>{t("settings.engine")}</dt>
-          <dd className="mono">{engine?.version ?? "—"}</dd>
-          <dt>{t("settings.api")}</dt>
-          <dd className="mono">{engine ? `v1 · ${engine.url}` : "—"}</dd>
-        </dl>
-      </section>
     </div>
   );
 }
