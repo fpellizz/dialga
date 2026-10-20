@@ -43,6 +43,26 @@ struct ReadyLine {
 
 /// Where the frontend reaches the engine; an error while the engine starts
 /// or after it died.
+/// The repository the About page links to. The frontend can only ask to open
+/// this one address: the shell plugin stays hidden from it.
+const REPOSITORY_URL: &str = "https://github.com/fpellizz/dialga";
+
+/// Opens the repository in the default browser (a webview link would stay
+/// inside the app or do nothing).
+#[tauri::command]
+fn open_repository() -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    let mut cmd = std::process::Command::new("xdg-open");
+    #[cfg(target_os = "macos")]
+    let mut cmd = std::process::Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut cmd = std::process::Command::new("explorer");
+    cmd.arg(REPOSITORY_URL)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("cannot open {REPOSITORY_URL}: {e}"))
+}
+
 #[tauri::command]
 fn engine_info(engine: State<'_, Engine>) -> Result<EngineInfo, String> {
     if let Some(info) = engine.info.lock().unwrap().clone() {
@@ -122,7 +142,7 @@ fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(Engine::default())
-        .invoke_handler(tauri::generate_handler![engine_info])
+        .invoke_handler(tauri::generate_handler![engine_info, open_repository])
         .setup(|app| {
             start_engine(app.handle())?;
             Ok(())
