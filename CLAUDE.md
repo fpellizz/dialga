@@ -380,3 +380,8 @@ VITE_ENGINE_URL=http://127.0.0.1:<N> VITE_ENGINE_TOKEN=$(tr -d '\n' < token) pnp
 - Codice, commenti, commit e stringhe UI (chiavi i18n) in inglese; documentazione in italiano.
 - Target di build: si cambiano **solo** in `ci/build-engine.sh`, più la matrice desktop di `release.yml` per la v2.
 - Mai password, chiavi o endpoint reali nel codice, nei test o nelle fixture: si usano segnaposto (`[account-id]`) e il mock `rds_*`.
+
+### Layout: sidebar comprimibile, larghezza piena, menu azioni (branch `feature/layout-sidebar-menu`, 2026-10-20)
+- Sidebar comprimibile (`Sidebar.tsx`): pulsante `aria-expanded`/`aria-controls` ("Collapse/Expand sidebar"), rail da 56px con logo e icone (nome nel `title` e nel testo visivamente nascosto `.nav-label`; stato engine/tunnel ridotto al pallino). Scelta in `localStorage` `dialga.sidebar.collapsed` (try/catch). Sotto i 720px la sidebar resta barra in alto (niente rail); nessun collasso automatico.
+- Larghezza: `.page` non ha più tetto (la tabella Database usa tutta la finestra, `.table-wrap` scorre in orizzontale se serve); `.page-narrow` (About) e `.page.wizard` restano a 1040px, Impostazioni a 640px.
+- `MenuButton.tsx` (riusabile): menu button WAI-ARIA in portal con `position: fixed` (mai tagliato dalla tabella), frecce/Home/End, Escape e click fuori chiudono con focus al pulsante. Riga Database: **Report** resta visibile, il resto (Export, Finish restore, Access…, Drop in fondo, rosso) è nel menu "Actions for <db>". Helper di test `web/src/test/menu.ts` (`openActions`, `chooseAction`).

@@ -35,6 +35,7 @@ import { exportable, exportHref } from "./exportPlan";
 import { ErrorBanner, HintText } from "./Feedback";
 import { sqlSessionHint } from "./hints";
 import { type MessageKey, useI18n } from "./i18n";
+import { MenuButton, type MenuItem } from "./MenuButton";
 import { usePassword } from "./PasswordProvider";
 import { PlanDialog, type PlanResult } from "./PlanDialog";
 import type { Operation } from "./plans";
@@ -501,6 +502,39 @@ function DatabaseLine({
   const plan = (operation: Operation) => onOpen({ kind: "plan", operation, database: db.name });
   const stateKey = dbStateKey(db.state);
   const release = compatRelease(db.compatibility);
+  // Report stays on the row; the other actions live in the menu, Drop last.
+  const menuItems: MenuItem[] = [];
+  if (db.state === "ONLINE") {
+    menuItems.push({
+      key: "export",
+      label: t("dbaction.export"),
+      ariaLabel: t("dbaction.exportOf", { database: db.name }),
+      onSelect: () => plan("export"),
+    });
+  }
+  if (db.state === "RESTORING") {
+    menuItems.push({
+      key: "finish",
+      label: t("dbaction.finish"),
+      ariaLabel: t("dbaction.finishOf", { database: db.name }),
+      onSelect: () => plan("finish"),
+    });
+  }
+  if (db.state === "ONLINE") {
+    menuItems.push({
+      key: "access",
+      label: t("dbaction.access"),
+      ariaLabel: t("dbaction.accessOf", { database: db.name }),
+      onSelect: () => onOpen({ kind: "access", database: db.name }),
+    });
+  }
+  menuItems.push({
+    key: "drop",
+    label: t("dbaction.drop"),
+    ariaLabel: t("dbaction.dropOf", { database: db.name }),
+    onSelect: () => plan("drop"),
+    danger: true,
+  });
   return (
     <tr>
       <td className="row-select">
@@ -559,44 +593,7 @@ function DatabaseLine({
         >
           {t("dbaction.report")}
         </button>
-        {db.state === "ONLINE" && (
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            aria-label={t("dbaction.exportOf", { database: db.name })}
-            onClick={() => plan("export")}
-          >
-            {t("dbaction.export")}
-          </button>
-        )}
-        {db.state === "RESTORING" && (
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            aria-label={t("dbaction.finishOf", { database: db.name })}
-            onClick={() => plan("finish")}
-          >
-            {t("dbaction.finish")}
-          </button>
-        )}
-        {db.state === "ONLINE" && (
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            aria-label={t("dbaction.accessOf", { database: db.name })}
-            onClick={() => onOpen({ kind: "access", database: db.name })}
-          >
-            {t("dbaction.access")}
-          </button>
-        )}
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm btn-danger-text"
-          aria-label={t("dbaction.dropOf", { database: db.name })}
-          onClick={() => plan("drop")}
-        >
-          {t("dbaction.drop")}
-        </button>
+        <MenuButton label={t("dbaction.menu", { database: db.name })} items={menuItems} />
       </td>
     </tr>
   );

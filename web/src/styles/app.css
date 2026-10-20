@@ -52,13 +52,18 @@ body {
   min-width: 0;
   background: var(--background);
 }
+/* The work area grows with the window; tables scroll inside .table-wrap. Forms and text-heavy pages
+   (wizards, About) keep a readable width, see .page-narrow. */
 .page {
-  max-width: 1040px;
   margin: 0 auto;
   padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+}
+.page-narrow,
+.page.wizard {
+  max-width: 1040px;
 }
 .page-head {
   display: flex;
@@ -78,6 +83,128 @@ body {
   background: var(--sidebar);
   color: var(--sidebar-foreground);
   border-right: 1px solid var(--sidebar-border);
+  transition:
+    width 0.18s ease,
+    padding 0.18s ease;
+}
+.sidebar-toggle {
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.sidebar-toggle:hover {
+  background: var(--pane-accent);
+  color: var(--sidebar-foreground);
+}
+.sidebar-toggle:focus-visible {
+  outline: 2px solid var(--sidebar-ring);
+  outline-offset: -2px;
+}
+.nav,
+.brand {
+  /* Labels do not spill out while the width animates. */
+  overflow: hidden;
+}
+.nav-label {
+  white-space: nowrap;
+}
+
+/* Collapsed: an icon rail. Only on wide windows; the top bar of narrow ones has no rail. */
+@media (min-width: 721px) {
+  .sidebar-collapsed {
+    width: 56px;
+    padding: 16px 8px;
+    align-items: center;
+  }
+  .sidebar-collapsed .brand {
+    padding: 0;
+  }
+  .sidebar-collapsed .brand-text,
+  .sidebar-collapsed .nav-group,
+  .sidebar-collapsed .nav-count {
+    display: none;
+  }
+  .sidebar-collapsed .sidebar-toggle {
+    align-self: center;
+  }
+  .sidebar-collapsed .nav {
+    align-self: stretch;
+  }
+  .sidebar-collapsed .nav-link {
+    justify-content: center;
+    padding: 0;
+  }
+  /* Visually hidden, still the accessible name of the link. */
+  .sidebar-collapsed .nav-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+  }
+  /* The status lines shrink to their dot; the title carries the text. */
+  .sidebar-collapsed .engine {
+    font-size: 0;
+    gap: 0;
+    padding: 0;
+  }
+}
+
+/* Menu button (MenuButton.tsx) */
+.menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 168px;
+  padding: 4px;
+  background: var(--popover);
+  color: var(--popover-foreground);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+.menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.menu-item:hover,
+.menu-item:focus-visible {
+  background: var(--accent);
+  outline: none;
+}
+.menu-item:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--ring);
+}
+.menu-danger-row {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+.menu-item-danger {
+  color: var(--destructive);
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar {
+    transition: none;
+  }
 }
 .brand {
   display: flex;

@@ -59,6 +59,14 @@ async function answer(page: Page, path: string, body: unknown) {
   );
 }
 
+/** Opens the "Actions for <db>" menu and picks an item; returns the menu button. */
+async function chooseAction(page: Page, database: string, item: string) {
+  const menu = page.getByRole("button", { name: `Actions for ${database}` });
+  await menu.click();
+  await page.getByRole("menuitem", { name: item }).click();
+  return menu;
+}
+
 async function focusInDialog(page: Page): Promise<boolean> {
   return page.evaluate(() => !!document.querySelector("dialog")?.contains(document.activeElement));
 }
@@ -71,8 +79,7 @@ test.beforeEach(async ({ page }) => {
 
 test("explains why the engine cannot preview a drop", async ({ page }) => {
   await page.goto("/#databases/e2e-fake");
-  const drop = page.getByRole("button", { name: "Drop sales" });
-  await drop.click();
+  const drop = await chooseAction(page, "sales", "Drop sales");
 
   const dialog = page.getByRole("dialog", { name: "Drop sales" });
   await expect(dialog).toBeVisible();
@@ -95,7 +102,7 @@ test("explains why the engine cannot preview a drop", async ({ page }) => {
 test("runs a drop only on the exact name, then shows the engine refusal", async ({ page }) => {
   await answer(page, "/api/v1/targets/e2e-fake/plans/drop", DROP_PREVIEW);
   await page.goto("/#databases/e2e-fake");
-  await page.getByRole("button", { name: "Drop sales" }).click();
+  await chooseAction(page, "sales", "Drop sales");
 
   const dialog = page.getByRole("dialog", { name: "Drop sales" });
   const confirm = dialog.getByRole("textbox", { name: "Type sales to confirm" });
@@ -168,7 +175,7 @@ test("a drop that runs as a job links to it in Activity", async ({ page }) => {
     events: [],
   });
   await page.goto("/#databases/e2e-fake");
-  await page.getByRole("button", { name: "Drop sales" }).click();
+  await chooseAction(page, "sales", "Drop sales");
   const dialog = page.getByRole("dialog", { name: "Drop sales" });
   await dialog.getByRole("textbox", { name: "Type sales to confirm" }).fill("sales");
   await dialog.getByRole("button", { name: "Drop database" }).click();
