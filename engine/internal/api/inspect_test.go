@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -62,6 +64,9 @@ func parseSSE(body string) []sseEvent {
 
 func bakFile(t *testing.T) string {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the inspection refuses Windows paths (bind mount syntax, v2.0)")
+	}
 	p := filepath.Join(t.TempDir(), "app.bak")
 	if err := os.WriteFile(p, []byte("bak"), 0o600); err != nil {
 		t.Fatal(err)
@@ -79,7 +84,7 @@ func TestInspectStream(t *testing.T) {
 	}
 	doc := testConfig
 	h := newInspectServer(t, &doc, run)
-	rec := postJSON(h, "/api/v1/inspect", `{"paths":["`+file+`"],"target":"dev-sql","image":"localhost/mssql:2025"}`)
+	rec := postJSON(h, "/api/v1/inspect", `{"paths":[`+jstr(file)+`],"target":"dev-sql","image":"localhost/mssql:2025"}`)
 	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "text/event-stream" {
 		t.Fatalf("status %d: %s", rec.Code, rec.Body)
 	}
@@ -107,7 +112,7 @@ func TestInspectStreamError(t *testing.T) {
 	}
 	// Without a target the configuration is not needed.
 	h := newInspectServer(t, nil, run)
-	rec := postJSON(h, "/api/v1/inspect", `{"paths":["`+bakFile(t)+`"]}`)
+	rec := postJSON(h, "/api/v1/inspect", `{"paths":[`+jstr(bakFile(t))+`]}`)
 	events := parseSSE(rec.Body.String())
 	if rec.Code != http.StatusOK || len(events) != 3 || events[1].name != "notice" ||
 		!strings.Contains(events[1].data, "inspection stopped: no container runtime") || events[2].data != `{"ok":false}` {
@@ -130,13 +135,13 @@ func TestInspectRejects(t *testing.T) {
 		want   string
 	}{
 		{"not JSON", &doc, `paths`, http.StatusBadRequest, "invalid body"},
-		{"unknown field", &doc, `{"paths":["` + file + `"],"password":"x"}`, http.StatusBadRequest, "unknown field"},
+		{"unknown field", &doc, `{"paths":[` + jstr(file) + `],"password":"x"}`, http.StatusBadRequest, "unknown field"},
 		{"no paths", &doc, `{"paths":[]}`, http.StatusBadRequest, "no .bak file"},
 		{"relative path", &doc, `{"paths":["app.bak"]}`, http.StatusBadRequest, "must be absolute"},
-		{"missing file", &doc, `{"paths":["` + file + `.missing"]}`, http.StatusBadRequest, "no such file"},
-		{"bad image", &doc, `{"paths":["` + file + `"],"image":"--privileged"}`, http.StatusBadRequest, "invalid image"},
-		{"unknown target", &doc, `{"paths":["` + file + `"],"target":"nope"}`, http.StatusNotFound, "unknown target"},
-		{"target without configuration", nil, `{"paths":["` + file + `"],"target":"dev-sql"}`, http.StatusConflict, "no such file"},
+		{"missing file", &doc, `{"paths":[` + jstr(file+".missing") + `]}`, http.StatusBadRequest, noSuchFile},
+		{"bad image", &doc, `{"paths":[` + jstr(file) + `],"image":"--privileged"}`, http.StatusBadRequest, "invalid image"},
+		{"unknown target", &doc, `{"paths":[` + jstr(file) + `],"target":"nope"}`, http.StatusNotFound, "unknown target"},
+		{"target without configuration", nil, `{"paths":[` + jstr(file) + `],"target":"dev-sql"}`, http.StatusConflict, noSuchFile},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -147,3 +152,22 @@ func TestInspectRejects(t *testing.T) {
 		})
 	}
 }
+
+// jstr is s as a JSON string: Windows paths have backslashes.
+func jstr(s string) string {
+	b, err := json.Marshal(s)
+	if err != nil {
+		panic(err)
+	}
+	return string(b)
+}
+
+// noSuchFile is the text the OS gives for a missing file.
+var noSuchFile = func() string {
+	_, err := os.Open(filepath.Join(os.TempDir(), "dialga-test-missing-file"))
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return pe.Err.Error()
+	}
+	return "no such file"
+}()

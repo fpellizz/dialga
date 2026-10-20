@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"testing"
 	"time"
@@ -87,11 +88,11 @@ func TestJournalRoundTrip(t *testing.T) {
 	closeT(t, m)
 
 	info, err := os.Stat(dir)
-	if err != nil || info.Mode().Perm() != 0o700 {
+	if err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o700) { // no POSIX modes on Windows
 		t.Fatalf("journal dir: %v %v", info.Mode(), err)
 	}
 	file := filepath.Join(dir, job.ID+".json")
-	if info, err := os.Stat(file); err != nil || info.Mode().Perm() != 0o600 {
+	if info, err := os.Stat(file); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o600) {
 		t.Fatalf("job file: %v", err)
 	}
 	if tmps, _ := filepath.Glob(filepath.Join(dir, ".*.tmp")); len(tmps) != 0 {
@@ -377,6 +378,9 @@ func TestDefaultDir(t *testing.T) {
 		{"windows", "", "/cfg/dialga/jobs"},
 	}
 	for _, tc := range tests {
+		if tc.goos == "linux" && runtime.GOOS == "windows" {
+			continue // "/xdg/state" is not absolute on Windows
+		}
 		got, err := defaultDir(tc.goos, env(tc.xdg), home, config)
 		if err != nil || got != filepath.FromSlash(tc.want) {
 			t.Errorf("%s XDG_STATE_HOME=%q: %q, %v; want %q", tc.goos, tc.xdg, got, err, tc.want)

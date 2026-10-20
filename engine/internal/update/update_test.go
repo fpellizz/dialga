@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -169,7 +170,7 @@ func TestCacheFileHasPrivateMode(t *testing.T) {
 	c := f.checker(t, "1.0.0")
 	c.Check(context.Background(), false)
 	st, err := os.Stat(c.CacheFile)
-	if err != nil || st.Mode().Perm() != 0o600 {
+	if err != nil || (runtime.GOOS != "windows" && st.Mode().Perm() != 0o600) { // no POSIX modes on Windows
 		t.Fatalf("%v %v", st, err)
 	}
 }

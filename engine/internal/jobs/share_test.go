@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 	"time"
@@ -32,6 +33,7 @@ func running(t *testing.T, m *Manager, name string) (Job, chan struct{}) {
 }
 
 func TestOtherProcessJobIsListedFollowedAndLeftAlone(t *testing.T) {
+	needsLocks(t)
 	dir := t.TempDir()
 	cli := openT(t, dir, Options{Origin: OriginCLI})
 	job, release := running(t, cli, "sales")
@@ -86,6 +88,7 @@ func TestOtherProcessJobIsListedFollowedAndLeftAlone(t *testing.T) {
 }
 
 func TestNewJobOfAnotherProcessAppearsInTheList(t *testing.T) {
+	needsLocks(t)
 	dir := t.TempDir()
 	app := openT(t, dir, Options{})
 	defer closeT(t, app)
@@ -123,6 +126,7 @@ func TestOrphanOfAnotherProcessIsInterrupted(t *testing.T) {
 }
 
 func TestResumeTakesTheLockOfTheJob(t *testing.T) {
+	needsLocks(t)
 	dir, id := interruptedJournal(t)
 	a := openT(t, dir, Options{})
 	defer closeT(t, a)
@@ -197,7 +201,7 @@ func TestRecordRefusedJob(t *testing.T) {
 		got.EndedAt == nil || len(got.Events) != 1 || got.Events[0].Type != EventJobFailed {
 		t.Fatalf("recorded %+v", got)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "."+j.ID+".lock")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "."+j.ID+".lock")); err != nil && runtime.GOOS != "windows" {
 		t.Fatalf("lock file left for the retention to remove: %v", err)
 	}
 	if _, err := m.Record(Finished{Kind: Operation, Target: "dev", State: Failed}); err == nil {
@@ -229,5 +233,16 @@ func TestRetentionRemovesLockFilesAcrossOrigins(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(dir, "."+id+".lock")); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("lock file of the removed job %s: %v", id, err)
 		}
+	}
+}
+
+// needsLocks skips the tests of several processes sharing a journal where the
+// job lock does not exist yet: lockFile is a no-op outside the Unix systems
+// (v1 ships for Linux; LockFileEx comes with the v2.0 Windows build), so a
+// job of another process looks like an orphan and is marked interrupted.
+func needsLocks(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("job locks are not implemented on Windows yet (v2.0)")
 	}
 }

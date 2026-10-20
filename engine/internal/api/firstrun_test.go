@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -176,7 +177,7 @@ func TestSaveTargetFirstRunThenReplace(t *testing.T) {
 	if err != nil || cfg.Targets["prod-sql"].SQL.Password != "env:PROD_SQL_PASSWORD" {
 		t.Fatalf("Load: %v", err)
 	}
-	if info, _ := os.Stat(path); info.Mode().Perm() != 0o600 {
+	if info, _ := os.Stat(path); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 { // no POSIX modes on Windows
 		t.Fatalf("mode %v", info.Mode().Perm())
 	}
 
