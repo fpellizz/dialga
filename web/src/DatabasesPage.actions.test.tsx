@@ -5,6 +5,7 @@ import type { Database } from "./api";
 import { DatabasesPage } from "./DatabasesPage";
 import { CONFIG_PATH, DEV, renderI18n } from "./test/fixtures";
 import { ENGINE, json, mockFetch, type Route, requestsTo, sseStream } from "./test/http";
+import { chooseAction, openActions } from "./test/menu";
 import { DROP_PREVIEW, REPORT, RESTORE_PREVIEW } from "./test/plans";
 
 const TARGETS = "GET /api/v1/targets";
@@ -44,16 +45,17 @@ describe("DatabasesPage actions", () => {
     renderI18n(<DatabasesPage engine={ENGINE} engineError="" />);
     await screen.findByRole("columnheader", { name: "Actions" });
 
-    const sales = row("sales");
-    expect(sales.getByRole("button", { name: "Report of sales" })).toBeInTheDocument();
-    expect(sales.getByRole("button", { name: "Export sales" })).toBeInTheDocument();
-    expect(sales.getByRole("button", { name: "Drop sales" })).toBeInTheDocument();
-    expect(sales.queryByRole("button", { name: /^Finish restore/ })).toBeNull();
+    // Report stays on the row; the rest is in the menu.
+    expect(row("sales").getByRole("button", { name: "Report of sales" })).toBeInTheDocument();
+    expect(row("sales").queryByRole("button", { name: "Drop sales" })).toBeNull();
+    await openActions("sales");
+    const names = () => screen.getAllByRole("menuitem").map((i) => i.getAttribute("aria-label"));
+    expect(names()).toEqual(["Export sales", "Access to sales", "Drop sales"]);
+    await userEvent.keyboard("{Escape}");
 
-    const staged = row("staged");
-    expect(staged.getByRole("button", { name: "Finish restore of staged" })).toBeInTheDocument();
-    expect(staged.queryByRole("button", { name: "Export staged" })).toBeNull();
-    expect(staged.getByRole("button", { name: "Drop staged" })).toBeInTheDocument();
+    expect(row("staged").getByRole("button", { name: "Report of staged" })).toBeInTheDocument();
+    await openActions("staged");
+    expect(names()).toEqual(["Finish restore of staged", "Drop staged"]);
   });
 
   it("drops a database, then reloads the list and gives the focus back", async () => {
@@ -64,8 +66,7 @@ describe("DatabasesPage actions", () => {
     });
     renderI18n(<DatabasesPage engine={ENGINE} engineError="" />);
     await screen.findByRole("columnheader", { name: "Actions" });
-    const drop = row("sales").getByRole("button", { name: "Drop sales" });
-    await userEvent.click(drop);
+    const drop = await chooseAction("sales", "Drop sales");
 
     const dialog = within(screen.getByRole("dialog", { name: "Drop sales" }));
     await userEvent.type(
@@ -95,7 +96,7 @@ describe("DatabasesPage actions", () => {
     const fetch = serve({ "POST /api/v1/targets/dev-sql/plans/drop": () => json(DROP_PREVIEW) });
     renderI18n(<DatabasesPage engine={ENGINE} engineError="" />);
     await screen.findByRole("columnheader", { name: "Actions" });
-    await userEvent.click(row("sales").getByRole("button", { name: "Drop sales" }));
+    await chooseAction("sales", "Drop sales");
     await screen.findByRole("textbox", { name: "Type sales to confirm" });
     await userEvent.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).toBeNull();

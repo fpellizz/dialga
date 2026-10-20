@@ -6,6 +6,7 @@ import { DatabasesPage } from "./DatabasesPage";
 import { ACCESS, accessPreview, LOGINS } from "./test/access";
 import { CONFIG_PATH, DEV, renderI18n, renderWithPassword } from "./test/fixtures";
 import { ENGINE, json, mockFetch, type Route, requestsTo, sseStream, text } from "./test/http";
+import { chooseAction } from "./test/menu";
 
 const TARGETS = "GET /api/v1/targets";
 const DATABASES = "GET /api/v1/targets/dev-sql/databases";
@@ -40,7 +41,7 @@ function serve(routes: Record<string, Route> = {}) {
 
 async function openPanel() {
   await screen.findByRole("columnheader", { name: "Actions" });
-  await userEvent.click(screen.getByRole("button", { name: "Access to sales" }));
+  await chooseAction("sales", "Access to sales");
   const dialog = screen.getByRole("dialog", { name: "Access to sales" });
   await within(dialog).findByRole("table", { name: "Users of sales" });
   return within(dialog);
@@ -97,7 +98,7 @@ describe("the access panel", () => {
     });
     renderWithPassword(<DatabasesPage engine={ENGINE} engineError="" />);
     await screen.findByRole("columnheader", { name: "Actions" });
-    await userEvent.click(screen.getByRole("button", { name: "Access to sales" }));
+    await chooseAction("sales", "Access to sales");
     const dialog = within(screen.getByRole("dialog", { name: "Access to sales" }));
     expect(await dialog.findByText("The SQL password for dev-sql is needed")).toBeInTheDocument();
     expect(dialog.getByRole("button", { name: "Enter password for dev-sql" })).toBeInTheDocument();
@@ -107,7 +108,7 @@ describe("the access panel", () => {
     serve({ [ACCESS_URL]: () => text("cannot reach the instance\n", 502) });
     renderI18n(<DatabasesPage engine={ENGINE} engineError="" />);
     await screen.findByRole("columnheader", { name: "Actions" });
-    await userEvent.click(screen.getByRole("button", { name: "Access to sales" }));
+    await chooseAction("sales", "Access to sales");
     expect(await screen.findByText("cannot reach the instance")).toBeInTheDocument();
   });
 });

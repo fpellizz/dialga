@@ -3,6 +3,8 @@ import { createContext, type ReactNode, useContext, useEffect, useMemo, useState
 const en = {
   "app.tagline": "Import and export via S3",
   "nav.label": "Main navigation",
+  "nav.collapse": "Collapse sidebar",
+  "nav.expand": "Expand sidebar",
   "nav.operations": "Operations",
   "nav.instances": "Instances",
   "nav.import": "Import",
@@ -554,6 +556,7 @@ const en = {
   "databases.jobRunning": "The operation on {target} keeps running.",
   "databases.dismiss": "Dismiss",
   "dbaction.report": "Report",
+  "dbaction.menu": "Actions for {database}",
   "dbaction.reportOf": "Report of {database}",
   "dbaction.export": "Export",
   "dbaction.exportOf": "Export {database}",
@@ -909,6 +912,8 @@ export type Lang = "en" | "it";
 const it: Record<MessageKey, string> = {
   "app.tagline": "Import ed export via S3",
   "nav.label": "Navigazione principale",
+  "nav.collapse": "Comprimi la barra laterale",
+  "nav.expand": "Espandi la barra laterale",
   "nav.operations": "Operazioni",
   "nav.instances": "Istanze",
   "nav.import": "Importa",
@@ -1469,6 +1474,7 @@ const it: Record<MessageKey, string> = {
   "databases.jobRunning": "L'operazione su {target} continua.",
   "databases.dismiss": "Chiudi",
   "dbaction.report": "Report",
+  "dbaction.menu": "Azioni per {database}",
   "dbaction.reportOf": "Report di {database}",
   "dbaction.export": "Esporta",
   "dbaction.exportOf": "Esporta {database}",
