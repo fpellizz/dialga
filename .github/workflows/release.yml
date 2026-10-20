@@ -192,7 +192,13 @@ jobs:
 
       # beforeBuildCommand in tauri.conf.json builds web/ first.
       - name: tauri build
-        run: pnpm -C desktop tauri build --target "$TARGET" --bundles "$BUNDLES"
+        # AppImage: linuxdeploy and its plugin are AppImages themselves; the
+        # hosted runners have no FUSE, so they run extracted. NO_STRIP: the
+        # strip of linuxdeploy fails on binaries built by recent toolchains.
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: "1"
+          NO_STRIP: "true"
+        run: pnpm -C desktop tauri build --target "$TARGET" --bundles "$BUNDLES" --verbose
 
       - name: collect bundles
         run: |
