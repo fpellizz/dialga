@@ -9,6 +9,17 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ## [Non rilasciato]
 
+## [0.6.5] - 2026-10-20
+
+### Corretto
+
+- La barra laterale resta visibile mentre una pagina lunga scorre (prima si
+  allungava con la pagina e la parte bassa usciva dalla finestra).
+
+### Modificato
+
+- *Settings* e *About* sono subito sotto *Activity* nella barra laterale.
+
 ## [0.6.4] - 2026-10-20
 
 ### Aggiunto
