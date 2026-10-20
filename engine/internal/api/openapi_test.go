@@ -18,6 +18,7 @@ import (
 	"github.com/decisyon/dialga/engine/internal/ops"
 	"github.com/decisyon/dialga/engine/internal/pipeline"
 	"github.com/decisyon/dialga/engine/internal/transfer"
+	"github.com/decisyon/dialga/engine/internal/update"
 )
 
 type openAPIDoc struct {
@@ -155,6 +156,7 @@ func TestOpenAPISchemasMatchTheGoTypes(t *testing.T) {
 		"TunnelState":      {TunnelState{}},
 		"TunnelList":       {TunnelList{}},
 
+		"UpdateInfo":            {update.Info{}},
 		"UploadsRequest":        {UploadsRequest{}},
 		"DownloadRequest":       {DownloadRequest{}},
 		"TransferPlan":          {transfer.Batch{}},

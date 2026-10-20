@@ -47,20 +47,47 @@ struct ReadyLine {
 /// this one address: the shell plugin stays hidden from it.
 const REPOSITORY_URL: &str = "https://github.com/fpellizz/dialga";
 
-/// Opens the repository in the default browser (a webview link would stay
-/// inside the app or do nothing).
-#[tauri::command]
-fn open_repository() -> Result<(), String> {
+/// Opens an address in the default browser (a webview link would stay inside
+/// the app or do nothing). Only called with addresses built here.
+fn open_in_browser(url: &str) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     let mut cmd = std::process::Command::new("xdg-open");
     #[cfg(target_os = "macos")]
     let mut cmd = std::process::Command::new("open");
     #[cfg(target_os = "windows")]
     let mut cmd = std::process::Command::new("explorer");
-    cmd.arg(REPOSITORY_URL)
+    cmd.arg(url)
         .spawn()
         .map(|_| ())
-        .map_err(|e| format!("cannot open {REPOSITORY_URL}: {e}"))
+        .map_err(|e| format!("cannot open {url}: {e}"))
+}
+
+/// Opens the repository in the default browser.
+#[tauri::command]
+fn open_repository() -> Result<(), String> {
+    open_in_browser(REPOSITORY_URL)
+}
+
+/// True for a release tag, exactly vMAJOR.MINOR.PATCH (ASCII digits).
+fn is_release_tag(tag: &str) -> bool {
+    let Some(version) = tag.strip_prefix('v') else {
+        return false;
+    };
+    let parts: Vec<&str> = version.split('.').collect();
+    parts.len() == 3
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// Opens the GitHub page of a release. The frontend passes only the tag and
+/// it must look like vX.Y.Z: never an arbitrary address.
+#[tauri::command]
+fn open_release(tag: String) -> Result<(), String> {
+    if !is_release_tag(&tag) {
+        return Err("not a release tag".into());
+    }
+    open_in_browser(&format!("{REPOSITORY_URL}/releases/tag/{tag}"))
 }
 
 #[tauri::command]
@@ -142,7 +169,11 @@ fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .manage(Engine::default())
-        .invoke_handler(tauri::generate_handler![engine_info, open_repository])
+        .invoke_handler(tauri::generate_handler![
+            engine_info,
+            open_repository,
+            open_release
+        ])
         .setup(|app| {
             start_engine(app.handle())?;
             Ok(())
@@ -175,4 +206,32 @@ fn stop_engine(handle: &AppHandle) {
         }
     }
     let _ = child.kill();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_release_tag;
+
+    #[test]
+    fn release_tags() {
+        for ok in ["v0.1.0", "v1.20.300"] {
+            assert!(is_release_tag(ok), "{ok}");
+        }
+        for bad in [
+            "",
+            "v",
+            "1.2.3",
+            "v1.2",
+            "v1.2.3.4",
+            "v1.2.3-rc.1",
+            "v1..3",
+            "v1.2.3\n",
+            "vа.1.2",
+            "v1.2.3/../x",
+            "https://evil.example",
+            "v1.2.3 --flag",
+        ] {
+            assert!(!is_release_tag(bad), "{bad:?}");
+        }
+    }
 }

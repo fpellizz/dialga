@@ -26,6 +26,7 @@ import (
 	"github.com/decisyon/dialga/engine/internal/session"
 	"github.com/decisyon/dialga/engine/internal/transfer"
 	"github.com/decisyon/dialga/engine/internal/tunnels"
+	"github.com/decisyon/dialga/engine/internal/update"
 )
 
 // version is overridden at build time by ci/build-engine.sh
@@ -76,6 +77,9 @@ type app struct {
 	// tunnel mode (cmd_job.go; nil: ops.OpenWith and the integrated tunnel).
 	openOpsVia func(session.Sessions) func(context.Context, string, config.Target, string) (*ops.Session, func(), error)
 	jobTunnel  tunnels.Opener
+	// checkUpdate asks whether a newer release exists (nil: update.New, the
+	// 12 hour cache and one GET to GitHub; tests replace it).
+	checkUpdate func(ctx context.Context, force bool) update.Info
 }
 
 func main() {
@@ -150,18 +154,6 @@ func (a *app) rootCmd() *cobra.Command {
 //
 //	func init() { commands = append(commands, (*app).uploadCmd) }
 var commands []func(*app) *cobra.Command
-
-func (a *app) versionCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "version",
-		Short: "Print the version",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			_, err := fmt.Fprintf(cmd.OutOrStdout(), "dialga %s\n", version)
-			return err
-		},
-	}
-}
 
 func (a *app) serveCmd() *cobra.Command {
 	return &cobra.Command{

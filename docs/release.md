@@ -57,7 +57,7 @@ git push origin vX.Y.Z
 | 3 | Cross-build dell'engine | Sei archivi della CLI e il sidecar Linux con la versione del tag |
 | 4 | Bundle desktop Linux | Si ferma se `tauri.conf.json` non ha la versione del tag; crea il deb e l'rpm |
 | 5 | **Release: upload to Bitbucket Downloads** | **Manuale** (pulsante *Run*) |
-| 6 | Mirror su GitHub | Spento fino alla v2.0 |
+| 6 | Mirror su GitHub | Spento fino alla v2.0. Quando è attivo, il workflow `release.yml` crea la release GitHub **già pubblicata** (non bozza; `-rc`/`-beta` come prerelease) |
 
 Se uno step fallisce, la pipeline si ferma prima dell'upload: non viene
 pubblicato nulla.
@@ -193,6 +193,21 @@ sudo dnf downgrade ./Dialga-<previous>-1.x86_64.rpm                 # Fedora
 Nella `0.x` la configurazione può cambiare tra versioni minor: prima
 dell'aggiornamento tieni una copia di `config.yaml`, e dopo un downgrade
 controllala con `dialga config validate`.
+
+## Avviso di nuova versione
+
+L'app e `dialga version` leggono `releases/latest` del mirror pubblico
+`fpellizz/dialga` (una GET non autenticata) e avvisano se la versione
+pubblicata è più recente. Conseguenze per chi rilascia:
+
+- la release GitHub deve essere **pubblicata**, non in bozza, e non
+  prerelease: il tag `vX.Y.Z` è l'unico passo deliberato, il workflow
+  `release.yml` la crea e la pubblica da solo (se esiste una bozza la
+  pubblica);
+- finché il mirror GitHub è spento (v1) non ci sono release su GitHub e
+  l'avviso non compare: i pacchetti restano nei Downloads di Bitbucket;
+- per ritirare una release sbagliata: eliminala o riportala in bozza su
+  GitHub; gli utenti la smettono di vederla entro 12 ore (cache).
 
 ## Limiti noti
 

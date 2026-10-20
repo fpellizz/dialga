@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/decisyon/dialga/engine/internal/check"
+	"github.com/decisyon/dialga/engine/internal/update"
 )
 
 const testConfig = `apiVersion: v1
@@ -42,6 +43,8 @@ func testApp(t *testing.T, doc string, statuses ...check.Status) (*app, *check.R
 		configPath: path,
 		stdin:      strings.NewReader(""),
 		getenv:     envMap{"TEST_SQL_PASSWORD": "s3cret"}.get,
+		// Never the network: tests that care replace this.
+		checkUpdate: func(context.Context, bool) update.Info { return update.Info{} },
 		readPassword: func(string) (string, error) {
 			t.Fatal("unexpected password prompt")
 			return "", nil

@@ -50,6 +50,31 @@ paths:
               schema: { type: string }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+  /api/v1/update:
+    get:
+      summary: Is a newer release published?
+      description: |
+        Looks at the latest published release (not a prerelease) of the public
+        GitHub mirror and compares it with the running version; a `dev` build
+        is never behind. The answer is cached for 12 hours in the user cache
+        directory; `force=1` asks GitHub again. A failed check is not an HTTP
+        error: the last good answer comes back with the reason in `error`.
+        Set `DIALGA_NO_UPDATE_CHECK=1` in the engine's environment to turn the
+        check off (no network access; `error` says so). The only request ever
+        made is one unauthenticated GET to api.github.com.
+      parameters:
+        - name: force
+          in: query
+          description: "`1` ignores the cache."
+          schema: { type: string, enum: ["1"] }
+      responses:
+        "200":
+          description: The update state.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdateInfo" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
   /api/v1/targets:
     get:
       summary: The configured targets
@@ -1179,6 +1204,18 @@ components:
       properties:
         status: { type: string, const: ok }
         version: { type: string }
+    UpdateInfo:
+      type: object
+      description: Whether a newer release is published; the last good answer plus the error when the check failed.
+      required: [current, newer]
+      properties:
+        current: { type: string, description: The running version. }
+        latest: { type: string, description: "Latest published release, without the v (absent: none published or never checked)." }
+        newer: { type: boolean, description: latest is higher than current (never true for a dev build). }
+        url: { type: string, description: "GitHub release page of latest." }
+        publishedAt: { type: string, format: date-time }
+        checkedAt: { type: string, format: date-time, description: When GitHub last answered. }
+        error: { type: string, description: Why the check failed (rate limit, offline, disabled). }
     TargetSummary:
       type: object
       description: A configured target as the GUI sees it; where its password comes from, never the password.

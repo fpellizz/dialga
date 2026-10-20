@@ -146,6 +146,32 @@ export async function listTargets(engine: EngineInfo): Promise<TargetList> {
   return (await response.json()) as TargetList;
 }
 
+/** GET /api/v1/update: whether a newer release is published on GitHub. */
+export interface UpdateInfo {
+  current: string;
+  /** The latest published release, without the v. */
+  latest?: string;
+  newer: boolean;
+  /** Its GitHub release page. */
+  url?: string;
+  publishedAt?: string;
+  /** When GitHub last answered. */
+  checkedAt?: string;
+  /** Why the check failed; the rest is then the last good answer. */
+  error?: string;
+}
+
+/** `force` asks GitHub again instead of using the engine's 12 hour cache. */
+export async function getUpdateInfo(engine: EngineInfo, force = false): Promise<UpdateInfo> {
+  const response = await fetch(`${engine.url}/api/v1/update${force ? "?force=1" : ""}`, {
+    headers: authHeaders(engine),
+  });
+  if (!response.ok) {
+    throw await failure(response);
+  }
+  return (await response.json()) as UpdateInfo;
+}
+
 function passwordURL(engine: EngineInfo, name: string): string {
   return `${engine.url}/api/v1/targets/${encodeURIComponent(name)}/password`;
 }

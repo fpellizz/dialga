@@ -9,6 +9,28 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ## [Non rilasciato]
 
+### Aggiunto
+
+- **Avviso di nuova versione**: l'app e `dialga version` segnalano una release
+  più recente pubblicata sul mirror GitHub `fpellizz/dialga`. Attivo di
+  default, si spegne da *Settings → Check for updates* (app) o con
+  `DIALGA_NO_UPDATE_CHECK=1` (CLI). Una sola GET non autenticata a
+  `api.github.com`, in cache 12 ore.
+  - Engine: `GET /api/v1/update` (`?force=1` ignora la cache).
+  - CLI: riga "Dialga X.Y.Z is available" dopo la versione;
+    `dialga version --check` forza il controllo; con `-o json` c'è l'oggetto
+    `update`.
+  - App: avviso nella barra laterale (pallino a barra compressa) con
+    *View release* e *Dismiss*, riga in *About*, *Last checked* e
+    *Check now* in *Settings*. Il guscio desktop apre solo
+    `…/releases/tag/vX.Y.Z` (comando `open_release`).
+
+### Modificato
+
+- `release.yml`: la release GitHub viene creata già **pubblicata**, non in
+  bozza (le `-rc`/`-beta` restano prerelease), perché l'avviso legge l'ultima
+  release pubblicata; se esiste come bozza viene pubblicata.
+
 ## [0.6.5] - 2026-10-20
 
 ### Corretto

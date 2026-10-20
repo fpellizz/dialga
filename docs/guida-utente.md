@@ -535,6 +535,21 @@ $ dialga completion bash|zsh|fish|powershell   # shell completion script
 
 Il pacchetto stampa la versione del rilascio; una build locale di sviluppo stampa `dialga dev`.
 
+**Avviso di nuova versione.** Se sul mirror pubblico GitHub (`fpellizz/dialga`) c'è una release più recente, `dialga version` aggiunge una riga:
+
+```bash
+$ dialga version
+dialga 0.6.5
+Dialga 0.7.0 is available: https://github.com/fpellizz/dialga/releases/tag/v0.7.0
+```
+
+- La risposta è in cache per 12 ore (cartella cache dell'utente, `dialga/update-check.json`); il controllo non fa mai fallire il comando e lo rallenta al massimo di 3 secondi; se è offline o GitHub non risponde, la riga non compare.
+- Una build `dev` (o con una versione che non è `X.Y.Z`) non risulta mai indietro. Le prerelease e le bozze sono ignorate.
+- `dialga version --check` ignora la cache e stampa sempre il risultato (anche "aggiornato" o "nessuna release pubblicata"); offline esce comunque con 0 e l'errore va su stderr.
+- Con `-o json` l'output è `{"version": …, "update": {…}}` (oggetto `update` come `GET /api/v1/update`).
+- `DIALGA_NO_UPDATE_CHECK=1` spegne il controllo automatico (`version` e `serve`); `version --check`, chiesto esplicitamente, funziona comunque.
+- L'unica richiesta è una GET non autenticata a `api.github.com`: non viene inviato altro che lo `User-Agent` `dialga/<versione>`.
+
 ### 5.10 Import ed export
 
 I comandi che modificano qualcosa (`upload`, `download`, `restore`, `export`, `finish`, `cancel`, `drop`) seguono tutti la stessa regola.
@@ -949,6 +964,7 @@ Ogni azione che modifica qualcosa (Restore, Export, Finish, Drop, Cancel) apre l
 | *Appearance* (Aspetto) | *Language*: English, Italiano. *Theme*: System, Light, Dark (Sistema, Chiaro, Scuro). Le scelte restano su questo computer |
 | *Prerequisites* (Prerequisiti) | Una riga per *Session Manager plugin* e *Container runtime* (come `dialga doctor`, §5.11): *Found* (*Trovato*), *Missing* (*Mancante*) o *Update needed* (*Da aggiornare*, plugin troppo vecchio per il tunnel integrato). Per ciò che manca c'è *Install on <distribuzione>* con il comando da copiare; *Check again* (*Controlla di nuovo*) rilegge |
 | *Targets* (Target) | Le istanze del file di configurazione. *Remove* (*Rimuovi*) chiede di scrivere il nome del target (*Type … to confirm*) e lo toglie dal file: su AWS non cambia nulla |
+| *Updates* (Aggiornamenti) | *Check for updates* (*Controlla gli aggiornamenti*), **attivo di default**: all'avvio e ogni 12 ore l'app chiede all'engine se esiste una release più recente (una GET a `api.github.com`, nient'altro). Sotto: *Last checked …* (*Ultimo controllo …*) e *Check now* (*Controlla ora*, ignora la cache e dice l'esito). Se c'è una versione nuova compare in fondo alla barra laterale, sopra lo stato dell'engine, *Version X.Y.Z available* con *View release* (apre la pagina della release nel browser di sistema) e *Dismiss* (nasconde l'avviso per quella versione; una versione ancora più nuova lo riporta). A barra compressa resta un'icona con nome accessibile. La stessa informazione è in *About*. La scelta resta su questo computer; per la CLI vedi `DIALGA_NO_UPDATE_CHECK` (§5.9) |
 | *Configuration file* (File di configurazione) | Percorso del file in uso; eventuali errori del file |
 | *About* (Informazioni) | Versione dell'engine e indirizzo dell'API locale |
 

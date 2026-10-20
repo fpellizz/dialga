@@ -44,6 +44,7 @@ Dialga wraps the native RDS procedures (`rds_restore_database`, `rds_backup_data
 | Post-restore report (files, logins, orphan users, objects) | `dialga post` | Databases → *Report* |
 | **Database access**: grant a SQL login read / read-write / owner access and the right to back the database up, revoke, fix orphan users, create logins | `dialga access list\|logins\|grant\|revoke\|fix-orphan` | Databases → *Access…* |
 | SQL password from prompt, keyring, environment or Secrets Manager | `dialga password set\|forget\|status` | Password dialog, *Remember* |
+| Notice of a new release (on by default, can be turned off) | `dialga version`, `dialga version --check`, `DIALGA_NO_UPDATE_CHECK=1` | Sidebar notice, Settings → *Check for updates* |
 
 ## 2. How it works
 
@@ -324,6 +325,7 @@ The complete reference, with every option and screen, is the user guide: [`docs/
 - **Restore over an existing database** keeps the old one (swap: renamed to `<db>_old_<stamp>`) or backs it up to S3 first (drop).
 - **Secrets**: SQL passwords only as references; the password of a new login only in the executed `CREATE LOGIN`, masked (`****`) everywhere else, never in the journal or logs.
 - **Local API** on `127.0.0.1` only, with a per-session bearer token and `Host`/`Origin` checks.
+- **Privacy**: the only network access that is not AWS or your instance is the update check, one unauthenticated `GET` of the latest release to `api.github.com` (at most every 12 hours; nothing about you or your machine is sent). Turn it off in Settings or with `DIALGA_NO_UPDATE_CHECK=1`.
 - Dialga never changes the master user, `sa`, `rdsa` or system principals, and never drops logins.
 
 ## 9. Troubleshooting

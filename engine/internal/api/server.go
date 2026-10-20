@@ -43,6 +43,7 @@ import (
 	"github.com/decisyon/dialga/engine/internal/session"
 	"github.com/decisyon/dialga/engine/internal/transfer"
 	"github.com/decisyon/dialga/engine/internal/tunnels"
+	"github.com/decisyon/dialga/engine/internal/update"
 	"github.com/decisyon/dialga/engine/internal/validate"
 )
 
@@ -98,6 +99,9 @@ type Options struct {
 	// environment, handed to the step factories). Default: the pipeline's
 	// own, like the jobs this engine starts.
 	JobEnv func(ctx context.Context, name string, t config.Target, password string) (any, error)
+	// Updates answers GET /api/v1/update (default: update.New(Version), which
+	// asks GitHub; tests replace it).
+	Updates *update.Checker
 }
 
 // Server is the HTTP API of the engine.
@@ -197,6 +201,9 @@ func New(opts Options) (*Server, error) {
 	}
 	if opts.Jobs == nil {
 		opts.Jobs = jobs.New(jobs.Options{Log: opts.Log})
+	}
+	if opts.Updates == nil {
+		opts.Updates = update.New(opts.Version)
 	}
 	s := &Server{opts: opts, mux: http.NewServeMux()}
 	if s.opts.JobEnv == nil {

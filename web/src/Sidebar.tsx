@@ -14,6 +14,7 @@ import dialgaUrl from "./assets/dialga.svg";
 import type { EngineInfo } from "./engine";
 import { type MessageKey, useI18n } from "./i18n";
 import { TunnelSummary } from "./TunnelIndicator";
+import { UpdateNotice } from "./UpdateNotice";
 
 export type Page =
   | "instances"
@@ -197,6 +198,8 @@ export function Sidebar({
           <span className="nav-label">{t("nav.about")}</span>
         </a>
       </nav>
+
+      <UpdateNotice collapsed={collapsed} />
 
       <div className="engine" title={engineError || (collapsed ? status : undefined)}>
         <span className={dot} />
