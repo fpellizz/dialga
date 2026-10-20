@@ -9,6 +9,12 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ## [Non rilasciato]
 
+### Modificato
+
+- Nella pipeline dei tag il mirror su GitHub parte prima dell'upload manuale
+  nei Downloads di Bitbucket: la release GitHub, e l'avviso agli utenti,
+  arrivano appena il tag è verde.
+
 ## [0.7.0] - 2026-10-20
 
 ### Aggiunto
@@ -32,9 +38,6 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 - `release.yml`: la release GitHub viene creata già **pubblicata**, non in
   bozza (le `-rc`/`-beta` restano prerelease), perché l'avviso legge l'ultima
   release pubblicata; se esiste come bozza viene pubblicata.
-
-### Modificato
-
 - La pagina About porta al repository pubblico su GitHub
   (`github.com/fpellizz/dialga`), aperto nel browser di sistema.
 - Il repository è rispecchiato su GitHub: ogni tag pubblica lì una release con

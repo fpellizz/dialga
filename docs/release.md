@@ -56,8 +56,8 @@ git push origin vX.Y.Z
 | 2 | Test di integrazione dell'engine | SQL Server 2022 + mock `rds_*` + MinIO |
 | 3 | Cross-build dell'engine | Sei archivi della CLI e il sidecar Linux con la versione del tag |
 | 4 | Bundle desktop Linux | Si ferma se `tauri.conf.json` non ha la versione del tag; crea il deb e l'rpm |
-| 5 | **Release: upload to Bitbucket Downloads** | **Manuale** (pulsante *Run*) |
-| 6 | Mirror su GitHub | Spento fino alla v2.0. Quando è attivo, il workflow `release.yml` crea la release GitHub **già pubblicata** (non bozza; `-rc`/`-beta` come prerelease) |
+| 5 | Mirror su GitHub | Automatico (attivo dal 2026-10-20, repo `fpellizz/dialga`): spinge il tag, e il workflow `release.yml` di GitHub crea la release **già pubblicata** (non bozza; `-rc`/`-beta` come prerelease) |
+| 6 | **Release: upload to Bitbucket Downloads** | **Manuale** (pulsante *Run*) |
 
 Se uno step fallisce, la pipeline si ferma prima dell'upload: non viene
 pubblicato nulla.
@@ -204,8 +204,11 @@ pubblicata è più recente. Conseguenze per chi rilascia:
   prerelease: il tag `vX.Y.Z` è l'unico passo deliberato, il workflow
   `release.yml` la crea e la pubblica da solo (se esiste una bozza la
   pubblica);
-- finché il mirror GitHub è spento (v1) non ci sono release su GitHub e
-  l'avviso non compare: i pacchetti restano nei Downloads di Bitbucket;
+- il mirror spinge il tag appena la pipeline è verde, prima dell'upload
+  manuale nei Downloads: l'avviso arriva agli utenti senza altri passi;
+- le versioni fino alla 0.6.5 non hanno una release su GitHub (il mirror è
+  stato attivato dopo); la 0.7.0 ci arriva quando si esegue il suo upload
+  manuale, perché la sua pipeline ha ancora il vecchio ordine degli step;
 - per ritirare una release sbagliata: eliminala o riportala in bozza su
   GitHub; gli utenti la smettono di vederla entro 12 ore (cache).
 
