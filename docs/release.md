@@ -206,8 +206,9 @@ pubblicata è più recente. Conseguenze per chi rilascia:
   pubblica);
 - il mirror spinge il tag appena la pipeline è verde, prima dell'upload
   manuale nei Downloads: l'avviso arriva agli utenti senza altri passi;
-- le versioni fino alla 0.7.0 compresa non hanno una release su GitHub (il
-  mirror è stato attivato dopo il loro tag);
+- le versioni fino alla 0.6.5 non hanno una release su GitHub (il mirror è
+  stato attivato dopo); la 0.7.0 ci arriva quando si esegue il suo upload
+  manuale, perché la sua pipeline ha ancora il vecchio ordine degli step;
 - per ritirare una release sbagliata: eliminala o riportala in bozza su
   GitHub; gli utenti la smettono di vederla entro 12 ore (cache).
 
