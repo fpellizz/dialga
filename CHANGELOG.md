@@ -9,6 +9,8 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ## [Non rilasciato]
 
+## [0.7.1] - 2026-10-20
+
 ### Corretto
 
 - Il pacchetto AppImage (release GitHub) non si costruiva: mancava l'icona
@@ -20,6 +22,7 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 - Nella pipeline dei tag il mirror su GitHub parte prima dell'upload manuale
   nei Downloads di Bitbucket: la release GitHub, e l'avviso agli utenti,
   arrivano appena il tag è verde.
+- I test dell'engine girano anche su macOS e Windows (CI del mirror GitHub).
 
 ## [0.7.0] - 2026-10-20
 

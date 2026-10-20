@@ -6,7 +6,7 @@ Dialga wraps the native RDS procedures (`rds_restore_database`, `rds_backup_data
 
 | | |
 |---|---|
-| **Version** | 0.7.0 ([CHANGELOG](CHANGELOG.md)) |
+| **Version** | 0.7.1 ([CHANGELOG](CHANGELOG.md)) |
 | **Platforms** | Linux x86_64: desktop app + CLI (deb, rpm). CLI only: Linux, macOS, Windows (amd64, arm64) |
 | **Full user guide** | [`docs/guida-utente.md`](docs/guida-utente.md) (Italian) |
 | **License** | MIT ([LICENSE](LICENSE)) |
