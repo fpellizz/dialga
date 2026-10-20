@@ -5,10 +5,14 @@ name: release
 # This workflow adds the Windows and macOS desktop bundles in v2.0, once
 # the Bitbucket -> GitHub mirror is enabled (decision of 2026-10-15).
 #
-# Builds every distributable and, on a v* tag, creates a DRAFT GitHub
-# release with all of them: publishing stays a manual, deliberate step.
+# Builds every distributable and, on a v* tag, creates a PUBLISHED GitHub
+# release with all of them (-rc/-beta tags: marked prerelease). Publishing is
+# automatic because the apps tell their users about new releases by reading
+# the latest published one (GET /repos/<repo>/releases/latest), so a release
+# left as a draft would never be announced. The deliberate step is pushing
+# the tag.
 #
-#   tag vX.Y.Z (pushed by the Bitbucket mirror step) -> build + draft release
+#   tag vX.Y.Z (pushed by the Bitbucket mirror step) -> build + publish release
 #   workflow_dispatch                                -> build only (artifacts)
 #
 # Outputs:
@@ -210,7 +214,7 @@ jobs:
           retention-days: 14
 
   publish:
-    name: draft GitHub release
+    name: GitHub release
     needs: [meta, engine, desktop]
     if: >-
       !cancelled() && needs.meta.outputs.is_tag == 'true' &&
@@ -240,14 +244,20 @@ jobs:
           sha256sum -- * >SHA256SUMS
           cat SHA256SUMS
 
-      # Draft only: review it and press "Publish" on GitHub. Re-runs replace
-      # the assets of the existing draft instead of failing.
-      - name: create or update the draft release
+      # Published right away. Re-runs replace the assets of the existing
+      # release instead of failing; a release that exists as a draft (made
+      # by hand, or by an older version of this workflow) gets published.
+      - name: create or update the release
         run: |
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release upload "$TAG" dist/* --clobber
+            if [[ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" == true ]]; then
+              flags=(--draft=false)
+              if [[ "$PRERELEASE" == true ]]; then flags+=(--prerelease); fi
+              gh release edit "$TAG" "${flags[@]}"
+            fi
           else
-            flags=(--draft --verify-tag --generate-notes --title "$APP $TAG")
+            flags=(--verify-tag --generate-notes --title "$APP $TAG")
             if [[ "$PRERELEASE" == true ]]; then flags+=(--prerelease); fi
             gh release create "$TAG" "${flags[@]}" dist/*
           fi
