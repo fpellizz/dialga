@@ -257,7 +257,14 @@ func TestThrottledSavesAreFlushed(t *testing.T) {
 		}),
 	}}}})
 	eventually(t, "the last progress on disk", func() bool {
-		j := readJob(t, dir, job.ID)
+		// The timer renames a new file over this one while we poll: on Windows
+		// a reader that collides with the rename gets a sharing violation, so
+		// a failed read is just "not yet".
+		data, err := os.ReadFile(filepath.Join(dir, job.ID+".json"))
+		var j Job
+		if err != nil || json.Unmarshal(data, &j) != nil {
+			return false
+		}
 		return j.Items[0].Transfer != nil && j.Items[0].Transfer.Bytes == 70
 	})
 	close(gate)
