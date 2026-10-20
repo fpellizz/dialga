@@ -83,6 +83,13 @@ body {
   background: var(--sidebar);
   color: var(--sidebar-foreground);
   border-right: 1px solid var(--sidebar-border);
+  /* Stays in view while a long page scrolls; scrolls itself if the window is very short. */
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: 100vh;
+  box-sizing: border-box;
+  overflow-y: auto;
   transition:
     width 0.18s ease,
     padding 0.18s ease;
@@ -269,9 +276,6 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius-full);
   font-size: 11px;
-}
-.nav-bottom {
-  margin-top: auto;
 }
 .engine {
   display: inline-flex;
@@ -794,6 +798,9 @@ h3 {
     width: auto;
     border-right: none;
     border-bottom: 1px solid var(--sidebar-border);
+    position: static;
+    height: auto;
+    overflow-y: visible;
   }
   .page {
     padding: 16px;
@@ -1567,12 +1574,6 @@ summary:focus-visible {
 [data-theme="dark"] .banner-warn {
   background: color-mix(in oklab, var(--warning) 14%, transparent);
   border-color: color-mix(in oklab, var(--warning) 45%, transparent);
-}
-
-@media (max-width: 720px) {
-  .nav-bottom {
-    margin-top: 12px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

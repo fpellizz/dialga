@@ -180,7 +180,7 @@ export function Sidebar({
         </a>
         <a
           href="#settings"
-          className="nav-link nav-bottom"
+          className="nav-link"
           aria-current={current("settings")}
           title={tip("nav.settings")}
         >
