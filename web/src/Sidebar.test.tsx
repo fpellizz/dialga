@@ -152,4 +152,73 @@ describe("Sidebar", () => {
     expect(screen.getByRole("button", { name: "Vai al contenuto" })).toBeInTheDocument();
     expect(document.title).toBe("Impostazioni · Dialga");
   });
+
+  describe("collapse", () => {
+    beforeEach(() => localStorage.clear());
+
+    const toggle = () => screen.getByRole("button", { name: /sidebar$/ });
+
+    it("is expanded by default, with a toggle that says what it does", () => {
+      renderI18n(<Sidebar page="instances" engine={ENGINE} engineError="" />);
+      expect(toggle()).toHaveAccessibleName("Collapse sidebar");
+      expect(toggle()).toHaveAttribute("aria-expanded", "true");
+      expect(toggle()).toHaveAttribute("aria-controls", "sidebar-nav");
+      expect(document.getElementById("sidebar-nav")).toBe(
+        screen.getByRole("navigation", { name: "Main navigation" }),
+      );
+      expect(document.querySelector(".sidebar-collapsed")).toBeNull();
+    });
+
+    it("collapses to the rail: names and tooltips stay, current page too", async () => {
+      renderI18n(<Sidebar page="databases" engine={ENGINE} engineError="" />);
+      await userEvent.click(toggle());
+      expect(toggle()).toHaveAccessibleName("Expand sidebar");
+      expect(toggle()).toHaveAttribute("aria-expanded", "false");
+      expect(document.querySelector(".sidebar-collapsed")).not.toBeNull();
+      const databases = screen.getByRole("link", { name: "Databases" });
+      expect(databases).toHaveAttribute("title", "Databases");
+      expect(databases).toHaveAttribute("aria-current", "page");
+      expect(screen.getByRole("link", { name: "About" })).toHaveAttribute("title", "About");
+    });
+
+    it("has no tooltips on the links while expanded", () => {
+      renderI18n(<Sidebar page="instances" engine={ENGINE} engineError="" />);
+      expect(screen.getByRole("link", { name: "About" })).not.toHaveAttribute("title");
+    });
+
+    it("remembers the choice", async () => {
+      const first = renderI18n(<Sidebar page="instances" engine={ENGINE} engineError="" />);
+      await userEvent.click(toggle());
+      expect(localStorage.getItem("dialga.sidebar.collapsed")).toBe("1");
+      first.unmount();
+      renderI18n(<Sidebar page="instances" engine={ENGINE} engineError="" />);
+      expect(toggle()).toHaveAttribute("aria-expanded", "false");
+      await userEvent.click(toggle());
+      expect(localStorage.getItem("dialga.sidebar.collapsed")).toBe("0");
+    });
+
+    it("renders and toggles when the storage throws", async () => {
+      // Only the sidebar key fails; the language and theme have their own storage handling.
+      const getItem = Storage.prototype.getItem;
+      const setItem = Storage.prototype.setItem;
+      const deny = (key: string) => {
+        if (key === "dialga.sidebar.collapsed") {
+          throw new Error("denied");
+        }
+      };
+      vi.spyOn(Storage.prototype, "getItem").mockImplementation(function (this: Storage, key) {
+        deny(key);
+        return getItem.call(this, key);
+      });
+      vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, v) {
+        deny(key);
+        setItem.call(this, key, v);
+      });
+      renderI18n(<Sidebar page="instances" engine={ENGINE} engineError="" />);
+      expect(toggle()).toHaveAttribute("aria-expanded", "true");
+      await userEvent.click(toggle());
+      expect(toggle()).toHaveAttribute("aria-expanded", "false");
+      vi.restoreAllMocks();
+    });
+  });
 });

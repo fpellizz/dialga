@@ -9,7 +9,7 @@ const REPO_URL = "https://github.com/TODO/dialga";
 export function AboutPage({ engine }: { engine: EngineInfo | null }) {
   const { t } = useI18n();
   return (
-    <div className="page">
+    <div className="page page-narrow">
       <header className="page-head">
         <div>
           <h1>{t("about.title")}</h1>

@@ -260,3 +260,28 @@ test("checks the prerequisites and removes a target after its name is retyped", 
   expect(text).toContain("e2e-fake:");
   expect(text).not.toContain("e2e-env:");
 });
+
+test("collapses the sidebar to an icon rail and remembers it", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto("/");
+  const toggle = page.getByRole("button", { name: "Collapse sidebar" });
+  const sidebar = page.locator("aside.sidebar");
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  const wide = (await sidebar.boundingBox())?.width ?? 0;
+  expect(wide).toBeGreaterThan(200);
+
+  await toggle.click();
+  await expect(page.getByRole("button", { name: "Expand sidebar" })).toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+  await expect.poll(async () => (await sidebar.boundingBox())?.width ?? 0).toBeLessThan(70);
+  // Names survive in the rail.
+  const databases = page.getByRole("navigation").getByRole("link", { name: "Databases" });
+  await expect(databases).toHaveAttribute("title", "Databases");
+
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Expand sidebar" })).toBeVisible();
+  await page.getByRole("button", { name: "Expand sidebar" }).click();
+  await expect(page.getByRole("button", { name: "Collapse sidebar" })).toBeVisible();
+});
