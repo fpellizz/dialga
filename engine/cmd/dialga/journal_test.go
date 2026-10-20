@@ -15,7 +15,7 @@ import (
 // journalOf points the journal at a new folder and reads it back.
 func journalOf(t *testing.T) func() []jobs.Job {
 	t.Helper()
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	isolateUserDirs(t)
 	dir, err := jobs.DefaultDir()
 	if err != nil {
 		t.Fatal(err)

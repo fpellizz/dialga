@@ -131,14 +131,17 @@ func TestJobsListJSONAndUnfinished(t *testing.T) {
 
 func TestJobsEmptyAndDefaultDir(t *testing.T) {
 	a, _, _ := testApp(t, testConfig)
-	state := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", state)
+	isolateUserDirs(t)
+	dir, err := jobs.DefaultDir()
+	if err != nil {
+		t.Fatal(err)
+	}
 	code, out, _ := run(a, "jobs")
-	want := "No jobs in " + filepath.Join(state, "dialga", "jobs") + " yet"
+	want := "No jobs in " + dir + " yet"
 	if code != 0 || !strings.HasPrefix(out, want) {
 		t.Fatalf("code %d, out %q, want prefix %q", code, out, want)
 	}
-	if _, err := os.Stat(filepath.Join(state, "dialga")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Dir(dir)); !os.IsNotExist(err) {
 		t.Fatal("dialga jobs created the journal directory")
 	}
 	code, out, _ = run(a, "-o", "json", "jobs")

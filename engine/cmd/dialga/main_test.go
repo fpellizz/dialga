@@ -17,7 +17,9 @@ func TestMain(m *testing.M) {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	_ = os.Setenv("XDG_STATE_HOME", state)
+	for k, v := range userDirEnv(state) {
+		_ = os.Setenv(k, v)
+	}
 	code := m.Run()
 	_ = os.RemoveAll(state)
 	os.Exit(code)
