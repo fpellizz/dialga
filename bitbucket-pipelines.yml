@@ -352,8 +352,11 @@ pipelines:
       - step: *engine-integration
       - step: *engine-dist
       - step: *desktop-linux
-      - step: *publish-downloads
+      # The mirror runs once everything above is green, before the manual
+      # upload: the tag reaches GitHub, whose release workflow publishes the
+      # release that the update check of the app reports.
       - step: *mirror-github
+      - step: *publish-downloads
 
   custom:
     checks:

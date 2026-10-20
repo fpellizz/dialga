@@ -65,7 +65,7 @@ Su richiesta dell'utente ("che sto attrezzo veda la luce il prima possibile", me
 
 | Percorso | Cosa fa |
 |---|---|
-| `bitbucket-pipelines.yml` | PR: check (engine, web, desktop, secrets) con condizioni `changesets` + integrazione (`go test -tags integration -p 1`). `main`: secrets + mirror. Tag: tutto, con verifica della versione (`ci/bump-version.sh --check`) già nel primo gruppo, CLI per 6 piattaforme, pacchetti Linux deb/rpm (immagine `node:24-bookworm`, glibc 2.36) e upload **manuale** nei Downloads. Custom: `checks`, `integration`, `release-dry-run`, `mirror-to-github` |
+| `bitbucket-pipelines.yml` | PR: check (engine, web, desktop, secrets) con condizioni `changesets` + integrazione (`go test -tags integration -p 1`). `main`: secrets + mirror. Tag: tutto, con verifica della versione (`ci/bump-version.sh --check`) già nel primo gruppo, CLI per 6 piattaforme, pacchetti Linux deb/rpm (immagine `node:24-bookworm`, glibc 2.36), mirror del tag su GitHub (che pubblica la release) e poi upload **manuale** nei Downloads. Custom: `checks`, `integration`, `release-dry-run`, `mirror-to-github` |
 | `.github/workflows/ci.yml` | Check su GitHub: engine su Linux, Windows e macOS, lint, integrazione, web, desktop, gitleaks. Gira solo col mirror attivo |
 | `.github/workflows/release.yml` | Percorso di rilascio **v2.0**: bundle per i tre OS → release GitHub **pubblicata** (non bozza: l'avviso di nuova versione legge `releases/latest`; `-rc`/`-beta` prerelease; una bozza esistente viene pubblicata) |
 | `ci/build-engine.sh` | Cross-build della CLI (`dist`) o del sidecar Tauri (`sidecar`), condiviso dalle due CI |
