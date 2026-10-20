@@ -208,10 +208,10 @@ describe("AddInstanceDialog", () => {
     expect(await screen.findByRole("radio", { name: /^my-sqlserver/ })).toBeChecked();
 
     await userEvent.clear(field("Target name"));
-    await userEvent.type(field("Target name"), "dev-mssql");
+    await userEvent.type(field("Target name"), "dev-sql");
     await discover();
     await waitFor(() => expect(screen.getByRole("radio", { name: /^my-sqlserver/ })).toBeChecked());
-    expect(field("Target name")).toHaveValue("dev-mssql");
+    expect(field("Target name")).toHaveValue("dev-sql");
   });
 
   it("says when the profile sees no instance, or why discovery failed", async () => {

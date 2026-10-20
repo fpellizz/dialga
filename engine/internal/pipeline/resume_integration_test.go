@@ -72,7 +72,7 @@ func TestIntegrationResumeInterruptedJobs(t *testing.T) {
 	env := Env{
 		Name: "it", Target: target, S3: s3c, TaskInterval: 300 * time.Millisecond,
 		OpenOps: func(context.Context) (*ops.Session, func(), error) {
-			return &ops.Session{Name: "it", Target: target, SQL: mssql.Session{DB: in.god},
+			return &ops.Session{Name: "it", Target: target, SQL: mssql.Session{DB: in.admin},
 				Bucket: awsx.Bucket{Client: c, Name: itBucket}}, func() {}, nil
 		},
 	}

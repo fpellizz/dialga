@@ -60,9 +60,9 @@ func newReplaceLab(t *testing.T, free int64, wrap func(mssql.Session) ops.SQL) r
 	env := Env{
 		Name: "it", Target: target, S3: c, TaskInterval: 300 * time.Millisecond,
 		OpenOps: func(context.Context) (*ops.Session, func(), error) {
-			var q ops.SQL = mssql.Session{DB: in.god}
+			var q ops.SQL = mssql.Session{DB: in.admin}
 			if wrap != nil {
-				q = wrap(mssql.Session{DB: in.god})
+				q = wrap(mssql.Session{DB: in.admin})
 			}
 			return &ops.Session{Name: "it", Target: target, SQL: q, Bucket: awsx.Bucket{Client: c, Name: itBucket},
 				FreeStorage: func(context.Context) (int64, error) { return free, nil }}, func() {}, nil
@@ -71,12 +71,12 @@ func newReplaceLab(t *testing.T, free int64, wrap func(mssql.Session) ops.SQL) r
 	return replaceLab{in: in, c: c, env: env}
 }
 
-// existing creates a database with a marker table, owned by god.
+// existing creates a database with a marker table, owned by admin.
 func (l replaceLab) existing(t *testing.T, db string) {
 	t.Helper()
 	for _, stmt := range []string{
 		"CREATE DATABASE [" + db + "]",
-		"ALTER AUTHORIZATION ON DATABASE::[" + db + "] TO god",
+		"ALTER AUTHORIZATION ON DATABASE::[" + db + "] TO admin",
 		"CREATE TABLE [" + db + "].dbo.marker(v nvarchar(10))",
 		"INSERT [" + db + "].dbo.marker VALUES (N'old')",
 	} {
@@ -215,8 +215,8 @@ func TestIntegrationReplaceSwapCompensatesTheSecondRename(t *testing.T) {
 	if got := l.names(t, "it_comp%"); len(got) != 2 || got[1] != "it_comp_dialga_new_"+p.Stamp {
 		t.Fatalf("databases %v: the new copy must stay under its temporary name", got)
 	}
-	// open to every session: god can use it
-	if _, err := l.in.god.Exec("SELECT 1 FROM [it_comp].dbo.marker"); err != nil {
+	// open to every session: admin can use it
+	if _, err := l.in.admin.Exec("SELECT 1 FROM [it_comp].dbo.marker"); err != nil {
 		t.Fatalf("it_comp is not usable: %v", err)
 	}
 }

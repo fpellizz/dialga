@@ -121,7 +121,7 @@ RDS rifiuta un restore nativo sopra un database che esiste. Con `replace` Dialga
 | `drop` | backup di `<db>` in `<prefisso export>/<db>_before_replace_<stamp>.bak` (se `backupFirst`), attesa, `rds_drop_database`, restore, attesa, report post | il backup di sicurezza su S3 |
 | `auto` | `swap` se due copie stanno nello spazio libero, altrimenti `drop` (con il backup) | come la strategia scelta |
 
-Le rinomine usano `EXEC rdsadmin.dbo.rds_modify_db_name`, verificata su `mssql-dev` il 2026-10-19 (`@old_db_name`, `@new_db_name`). Se la seconda rinomina fallisce, il database vecchio riprende il suo nome e il nuovo resta col nome temporaneo; un job interrotto tra le due rinomine riprende leggendo i nomi attuali prima di agire.
+Le rinomine usano `EXEC rdsadmin.dbo.rds_modify_db_name`, verificata su un'istanza di sviluppo il 2026-10-19 (`@old_db_name`, `@new_db_name`). Se la seconda rinomina fallisce, il database vecchio riprende il suo nome e il nuovo resta col nome temporaneo; un job interrotto tra le due rinomine riprende leggendo i nomi attuali prima di agire.
 
 **Conferma e controlli**: serve riscrivere il nome del database (o del target se è protetto). Nuovi controlli: sessioni attive sul database (avviso: saranno disconnesse), nomi temporaneo e vecchio liberi e di al massimo 128 caratteri, spazio libero per strategia, chiave del backup di sicurezza libera.
 

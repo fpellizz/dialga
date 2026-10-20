@@ -22,7 +22,7 @@ import (
 // Defaults of a new target.
 const (
 	defaultRegion    = "us-east-1"
-	defaultLocalPort = 11433 // the dev-mssql port of open-dloop-tunnels.sh
+	defaultLocalPort = 11433 // the conventional local port for a tunnel opened by another tool
 )
 
 // stdinIsTerminal reports whether the config commands can ask questions;
@@ -317,7 +317,7 @@ func (a *app) runInit(cmd *cobra.Command, f *targetFlags, name string, noBucketC
 			modes := []string{config.ModeTunnel, config.ModeExternal, config.ModeDirect}
 			i, err := p.choose("Connection", modes, []string{
 				"tunnel: Dialga opens the SSM tunnel (recommended)",
-				"external: a tunnel already open on 127.0.0.1 (open-dloop-tunnels.sh)",
+				"external: a tunnel already open on 127.0.0.1 (e.g. an SSM port-forwarding script)",
 				"direct: the RDS endpoint itself (from inside the VPC)",
 			}, 0)
 			if err != nil {

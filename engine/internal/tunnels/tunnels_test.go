@@ -84,7 +84,7 @@ func (t *fakeTunnel) emit(st tunnel.Status, detail string) {
 	t.onState(tunnel.State{Status: st, Time: time.Now(), LocalPort: 41433, Endpoint: "db.example:1433", Bridge: "i-1", Detail: detail})
 }
 
-var target = config.Target{AccountID: "123456789012", Region: "us-east-1", AWSProfile: "sales", Instance: "mssql-dev",
+var target = config.Target{AccountID: "123456789012", Region: "us-east-1", AWSProfile: "sales", Instance: "dev-sql",
 	Connect: config.Connect{Mode: config.ModeTunnel, LocalPort: 41433}}
 
 func newManager(t *testing.T, opts Options) (*Manager, *fakeOpener) {

@@ -11,7 +11,7 @@ import {
 } from "./tunnel";
 
 function tunnel(status: TunnelStatus, more: Partial<TunnelState> = {}): TunnelState {
-  return { target: "mssql-dev", status, users: 0, keepOpen: false, ...more };
+  return { target: "dev-sql", status, users: 0, keepOpen: false, ...more };
 }
 
 const STATUSES: TunnelStatus[] = ["connecting", "ready", "reconnecting", "closed"];
@@ -58,11 +58,11 @@ describe("tunnelAnnouncement", () => {
   });
 
   it("names the target and the port", () => {
-    expect(translate("en")("tunnel.announce.ready", { target: "mssql-dev", port: 41433 })).toBe(
-      "Tunnel to mssql-dev connected on port 41433",
+    expect(translate("en")("tunnel.announce.ready", { target: "dev-sql", port: 41433 })).toBe(
+      "Tunnel to dev-sql connected on port 41433",
     );
-    expect(translate("it")("tunnel.announce.ready", { target: "mssql-dev", port: 41433 })).toBe(
-      "Tunnel verso mssql-dev connesso sulla porta 41433",
+    expect(translate("it")("tunnel.announce.ready", { target: "dev-sql", port: 41433 })).toBe(
+      "Tunnel verso dev-sql connesso sulla porta 41433",
     );
   });
 });

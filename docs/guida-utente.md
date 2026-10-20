@@ -5,7 +5,7 @@
 | **Data** | 2026-10-16 |
 | **Autore** | Fabio Pellizzaro (con Claude Code) |
 | **Versione documentata** | `0.6.5` |
-| **Destinatari** | Sviluppatori e amministratori DLOOP che importano o esportano database SQL Server su Amazon RDS |
+| **Destinatari** | Sviluppatori e amministratori che importano o esportano database SQL Server su Amazon RDS |
 | **Piattaforma** | Linux x86_64 (app desktop e CLI); solo CLI su Windows e macOS |
 
 > **Sintesi**
@@ -243,7 +243,7 @@ read -rs DIALGA_SQL_PASSWORD && export DIALGA_SQL_PASSWORD && dialga-desktop
 
 | `connect.mode` | Quando usarla | Cosa fa Dialga |
 |---|---|---|
-| `external` | Hai già un tunnel aperto (per esempio un altro `dialga tunnel` o `open-dloop-tunnels.sh`) | Si collega a `127.0.0.1:<local_port>` |
+| `external` | Hai già un tunnel aperto (per esempio un altro `dialga tunnel` o uno script di port forwarding SSM) | Si collega a `127.0.0.1:<local_port>` |
 | `direct` | La workstation è dentro il VPC | Si collega all'endpoint RDS |
 | `tunnel` | Caso normale, workstation fuori dal VPC | Apre da sé il tunnel SSM attraverso il bridge. Un comando della CLI lo apre, lo usa e lo chiude alla fine; l'app lo tiene condiviso (sotto) |
 
@@ -612,7 +612,7 @@ RDS rifiuta un restore nativo sopra un database che esiste già, e per questo `d
 
 **Backup prima di `drop`**: di default `drop` salva prima il database su S3 (`backupFirst`). `--no-backup-first` lo salta: il database corrente è perso per sempre, e l'anteprima lo segnala con un `WARN`. Con `auto` il backup c'è sempre quando sceglie `drop`.
 
-**Sicurezza**: è un'operazione distruttiva, quindi vale tutto il modello di sempre: dry run di default, controlli in sola lettura, T-SQL esatto nell'anteprima, e `--apply` chiede di riscrivere il **nome del database** (il nome del target, se il target è protetto). I controlli avvisano delle sessioni attive sul database (saranno disconnesse) e verificano che i nomi temporanei e il backup di sicurezza siano liberi. Un replace segue i task fino alla fine: `--no-wait` non è ammesso. Le rinomine usano `rdsadmin.dbo.rds_modify_db_name`, verificata su `mssql-dev` il 2026-10-19 (`@old_db_name`, `@new_db_name`).
+**Sicurezza**: è un'operazione distruttiva, quindi vale tutto il modello di sempre: dry run di default, controlli in sola lettura, T-SQL esatto nell'anteprima, e `--apply` chiede di riscrivere il **nome del database** (il nome del target, se il target è protetto). I controlli avvisano delle sessioni attive sul database (saranno disconnesse) e verificano che i nomi temporanei e il backup di sicurezza siano liberi. Un replace segue i task fino alla fine: `--no-wait` non è ammesso. Le rinomine usano `rdsadmin.dbo.rds_modify_db_name`, verificata su `dev-sql` il 2026-10-19 (`@old_db_name`, `@new_db_name`).
 
 ```bash
 dialga restore sales sales.bak -t dev-sql --replace auto            # anteprima
@@ -1118,7 +1118,7 @@ RDS **non ripristina un backup di una versione più recente** del suo motore (un
 5. **Import BACPAC** su RDS attraverso il tunnel: `dialga tunnel <target>` in un terminale, poi SqlPackage (`/Action:Import /TargetServerName:"127.0.0.1,<porta>"`, la via indicata da AWS) o VS Code (*Import BACPAC*, da provare su RDS). L'import vuole un database nuovo o vuoto.
 6. Al termine: login dell'applicazione e utenti orfani. Un `.bacpac` porta gli utenti, non i login.
 
-Dettagli, limiti e ripieghi: runbook di import, procedura C (`runbook-import-db-mssql-dev.md`). TODO: confermare dove pubblicare il runbook per gli utenti di Dialga.
+Dettagli, limiti e ripieghi: runbook di import, procedura C (runbook di import). TODO: confermare dove pubblicare il runbook per gli utenti di Dialga.
 
 Se capita spesso, valuta con l'amministratore un aggiornamento di major version del motore RDS.
 
