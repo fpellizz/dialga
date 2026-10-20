@@ -139,7 +139,7 @@ func (c *Checker) fetch(ctx context.Context) (cached, error) {
 		endpoint = LatestURL
 	}
 	u, err := url.Parse(endpoint)
-	if err != nil || (u.Scheme != "https" && !(c.insecure && u.Scheme == "http")) {
+	if err != nil || (u.Scheme != "https" && (!c.insecure || u.Scheme != "http")) {
 		return cached{}, errors.New("update check: the endpoint must be an https URL")
 	}
 	ctx, cancel := context.WithTimeout(ctx, Timeout)
