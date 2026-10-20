@@ -7,7 +7,7 @@ export type PasswordKind = "prompt" | "env";
 /** The integrated tunnel first: the default, and what the user guide recommends. */
 export const CONNECT_MODES: ConnectMode[] = ["tunnel", "external", "direct"];
 export const DEFAULT_REGION = "us-east-1";
-/** The dev-mssql port of open-dloop-tunnels.sh. */
+/** The conventional local port for a tunnel opened by another tool. */
 export const DEFAULT_LOCAL_PORT = 11433;
 
 /** The add-instance form: text inputs keep strings, the engine validates again. */

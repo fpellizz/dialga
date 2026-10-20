@@ -197,7 +197,7 @@ func TestSaveFollowsASymlink(t *testing.T) {
 }
 
 func TestValidators(t *testing.T) {
-	if !ValidTargetName("mssql-dev") || ValidTargetName("Mssql") || ValidTargetName("") {
+	if !ValidTargetName("dev-sql") || ValidTargetName("Mssql") || ValidTargetName("") {
 		t.Error("ValidTargetName")
 	}
 	if !ValidProfile("sales") || ValidProfile("a b") {

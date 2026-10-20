@@ -1,8 +1,8 @@
 // Package tunnel opens the SSM port-forwarding tunnel to an RDS endpoint
 // through the bridge instance of its VPC, the way "aws ssm start-session"
 // does: StartSession through the SDK, then session-manager-plugin with that
-// session. It is the Go counterpart of the dev-mssql target of
-// open-dloop-tunnels.sh: bridge tagged Name=ssm-bridge in the VPC of the
+// session. It is the Go counterpart of an SSM port-forwarding bash script:
+// bridge tagged Name=ssm-bridge in the VPC of the
 // target and running, document AWS-StartPortForwardingSessionToRemoteHost.
 //
 // The tunnel listens on 127.0.0.1. When the plugin exits or the port stops

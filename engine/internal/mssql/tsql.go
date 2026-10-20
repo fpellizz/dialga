@@ -75,7 +75,7 @@ func SetMultiUser(db string) string {
 }
 
 // RenameDatabase renames a database the RDS way (the database must be in
-// SINGLE_USER mode); confirmed on mssql-dev (@old_db_name, @new_db_name).
+// SINGLE_USER mode); confirmed on dev-sql (@old_db_name, @new_db_name).
 func RenameDatabase(from, to string) string {
 	return "EXEC rdsadmin.dbo.rds_modify_db_name " + Str(from) + ", " + Str(to) + ";"
 }

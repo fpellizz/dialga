@@ -40,7 +40,7 @@ function filled(): TargetForm {
 describe("target form", () => {
   it("suggests a target name like the engine", () => {
     expect(suggestName("Dev-SQLServer")).toBe("dev-sqlserver");
-    expect(suggestName("mssql_dev.01")).toBe("mssql-dev-01");
+    expect(suggestName("dev_sql.01")).toBe("dev-sql-01");
     expect(suggestName("--x--")).toBe("x");
     expect(suggestName("a".repeat(70))).toBe("a".repeat(63));
     expect(suggestName("a-".repeat(40))).toMatch(/^[a-z0-9][a-z0-9-]{0,62}$/);
@@ -66,14 +66,14 @@ describe("target form", () => {
     expect(form.name).toBe("prod-sqlserver");
     expect(form.protected).toBe(true);
     const edited = applyInstance(
-      { ...form, sqlUser: "god", name: "mine", protected: false },
+      { ...form, sqlUser: "admin", name: "mine", protected: false },
       { ...instance, identifier: "other", masterUser: "sa" },
       "123456789012",
       new Set<FormField | "protected">(["sqlUser", "name", "protected"]),
     );
     expect(edited).toMatchObject({
       instance: "other",
-      sqlUser: "god",
+      sqlUser: "admin",
       name: "mine",
       protected: false,
     });

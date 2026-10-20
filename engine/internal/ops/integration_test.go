@@ -31,10 +31,10 @@ import (
 
 // The integration tests run the operations against SQL Server 2022 in a
 // container, with the rds_* procedures mocked (internal/testdata/mock-rds.sql)
-// and the bucket in memory. They connect as "god", the non-sysadmin login of
+// and the bucket in memory. They connect as "admin", the non-sysadmin login of
 // the mock that plays the RDS master user; "sa" prepares the fixtures.
 var (
-	sa, god *sql.DB
+	sa, admin *sql.DB
 	// instanceAddr is host:port of the container
 	instanceAddr string
 	// the image the CI pulls; override with DIALGA_MSSQL_IMAGE
@@ -52,7 +52,7 @@ BEGIN
   EXEC (@s);
 END
 GO
-GRANT EXECUTE ON dbo.rds_finish_restore TO god;
+GRANT EXECUTE ON dbo.rds_finish_restore TO admin;
 GO
 USE master;
 RESTORE DATABASE staged_db FROM DISK = N'/bak/app_db_2022.bak' WITH NORECOVERY,
@@ -86,7 +86,7 @@ func runWithContainer(m *testing.M) int {
 		fmt.Fprintln(os.Stderr, "fixtures:", err)
 		return 1
 	}
-	defer func() { _ = sa.Close(); _ = god.Close() }()
+	defer func() { _ = sa.Close(); _ = admin.Close() }()
 	return m.Run()
 }
 
@@ -119,18 +119,18 @@ func setUp(ctx context.Context, ctr *tcmssql.MSSQLServerContainer, saPassword st
 	if err := runScript(ctx, sa, string(mock)+"\nGO\n"+extraMock); err != nil {
 		return err
 	}
-	// The mock creates god with a fixed password: replace it with one that
+	// The mock creates admin with a fixed password: replace it with one that
 	// exists only in this process.
 	if _, err := sa.ExecContext(ctx, `DECLARE @s nvarchar(400) =
-		N'ALTER LOGIN god WITH PASSWORD = ' + QUOTENAME(@pw, '''') + N';'; EXEC (@s);`,
+		N'ALTER LOGIN admin WITH PASSWORD = ' + QUOTENAME(@pw, '''') + N';'; EXEC (@s);`,
 		sql.Named("pw", godPassword)); err != nil {
 		return err
 	}
-	god, err = openPlain(ctx, hostPort, "god", godPassword)
+	admin, err = openPlain(ctx, hostPort, "admin", godPassword)
 	if err != nil {
 		return err
 	}
-	god.SetMaxOpenConns(1) // like mssql.Open: one connection per session
+	admin.SetMaxOpenConns(1) // like mssql.Open: one connection per session
 	return nil
 }
 
@@ -202,7 +202,7 @@ func goldenSession(bucket fakeBucket) *Session {
 	t := testTarget
 	t.Bucket = "golden-bucket"
 	quiet := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return &Session{Name: "it", Target: t, SQL: mssql.Session{DB: god, Log: quiet}, Bucket: bucket,
+	return &Session{Name: "it", Target: t, SQL: mssql.Session{DB: admin, Log: quiet}, Bucket: bucket,
 		Now: func() time.Time { return time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC) }}
 }
 
@@ -324,7 +324,7 @@ func TestIntegrationGoldenLifecycle(t *testing.T) {
 	if _, err := p.Execute(ctx, ExecOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	if got, err := (mssql.Session{DB: god}).Get(ctx, 42); err != nil || got.Lifecycle != mssql.Cancelled {
+	if got, err := (mssql.Session{DB: admin}).Get(ctx, 42); err != nil || got.Lifecycle != mssql.Cancelled {
 		t.Fatalf("cancelled task %+v, err %v", got, err)
 	}
 	// Cancelling it again is refused by the pre-flight.
@@ -443,7 +443,7 @@ func TestIntegrationStartTaskReadsTheAnswer(t *testing.T) {
 func TestIntegrationPost(t *testing.T) {
 	ctx := context.Background()
 	s := goldenSession(fakeBucket{})
-	s.Target.SQL.User = "god"
+	s.Target.SQL.User = "admin"
 
 	r, err := s.Post(ctx, "app_db")
 	if err != nil {
@@ -477,7 +477,7 @@ func TestIntegrationPost(t *testing.T) {
 
 	// A database the login cannot enter, like a restored one owned by rdsa.
 	r, err = s.Post(ctx, "sa_only_db")
-	if err != nil || r.OK || r.Access || r.Findings[1].Step != "access" || !strings.Contains(r.Findings[1].Detail, "god cannot enter sa_only_db") {
+	if err != nil || r.OK || r.Access || r.Findings[1].Step != "access" || !strings.Contains(r.Findings[1].Detail, "admin cannot enter sa_only_db") {
 		t.Fatalf("no access: err %v, report %+v", err, r)
 	}
 	// A database left RESTORING.

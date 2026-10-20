@@ -1,5 +1,5 @@
 -- Mock of the msdb.dbo.rds_* procedures for a plain SQL Server, used by the integration tests.
--- Copied from ~/Claudio/AWS/Sales/mssql-import/test/mock-rds.sql (the end-to-end test of mssql-import.sh).
+-- Derived from a mock kept outside this repository (the original bash scripts mssql-import.sh / mssql-bak-inspect.sh).
 -- Load it into a throwaway SQL Server 2022 container, one batch per GO; the last batch needs a writable /bak directory.
 USE msdb;
 GO
@@ -44,7 +44,7 @@ CREATE PROCEDURE dbo.rds_cancel_task @task_id int AS
   UPDATE dbo.mock_tasks SET lifecycle = 'CANCELLED', last_updated = GETDATE() WHERE task_id = @task_id;
 GO
 -- rdsadmin.dbo.rds_modify_db_name, the RDS way to rename a database (it wants SINGLE_USER first).
--- TODO: confermare su mssql-dev. Not in mssql-import.sh/test/mock-rds.sql: added for the restore-over-existing tests.
+-- TODO: confermare su dev-sql. Not in the original bash mock: added for the restore-over-existing tests.
 CREATE DATABASE rdsadmin;
 GO
 USE rdsadmin;
@@ -55,16 +55,16 @@ BEGIN
   EXEC (@s);
 END
 GO
--- A "god" login like the RDS master user, and a DB with an orphaned user
+-- A "admin" login like the RDS master user, and a DB with an orphaned user
 USE master;
-CREATE LOGIN god WITH PASSWORD = 'Mock-god-1!', CHECK_POLICY = OFF;
-ALTER SERVER ROLE dbcreator ADD MEMBER god;
+CREATE LOGIN admin WITH PASSWORD = 'Mock-admin-1!', CHECK_POLICY = OFF;
+ALTER SERVER ROLE dbcreator ADD MEMBER admin;
 CREATE LOGIN appuser WITH PASSWORD = 'Mock-app-1!', CHECK_POLICY = OFF;
 GO
 CREATE DATABASE app_db;
 GO
 USE app_db;
-CREATE USER god FOR LOGIN god; ALTER ROLE db_owner ADD MEMBER god;
+CREATE USER admin FOR LOGIN admin; ALTER ROLE db_owner ADD MEMBER admin;
 CREATE USER appuser FOR LOGIN appuser;
 CREATE TABLE dbo.t1(id int PRIMARY KEY, v nvarchar(50));
 INSERT dbo.t1 VALUES (1, N'a'), (2, N'b');
@@ -76,13 +76,13 @@ DROP LOGIN appuser;   -- appuser is now orphaned in app_db
 GO
 USE msdb;
 GRANT SELECT ON dbo.rds_fn_task_status TO public;
-CREATE USER god FOR LOGIN god;
-GRANT EXECUTE ON dbo.rds_backup_database TO god; GRANT EXECUTE ON dbo.rds_restore_database TO god;
-GRANT EXECUTE ON dbo.rds_drop_database TO god; GRANT EXECUTE ON dbo.rds_cancel_task TO god;
+CREATE USER admin FOR LOGIN admin;
+GRANT EXECUTE ON dbo.rds_backup_database TO admin; GRANT EXECUTE ON dbo.rds_restore_database TO admin;
+GRANT EXECUTE ON dbo.rds_drop_database TO admin; GRANT EXECUTE ON dbo.rds_cancel_task TO admin;
 GO
 USE rdsadmin;
-CREATE USER god FOR LOGIN god;
-GRANT EXECUTE ON dbo.rds_modify_db_name TO god;
+CREATE USER admin FOR LOGIN admin;
+GRANT EXECUTE ON dbo.rds_modify_db_name TO admin;
 GO
 -- the test .bak for the inspect script (2022 -> version 16, must be KO)
 BACKUP DATABASE app_db TO DISK = N'/bak/app_db_2022.bak' WITH COMPRESSION, CHECKSUM, INIT;

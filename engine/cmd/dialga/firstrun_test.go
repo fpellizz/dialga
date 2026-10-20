@@ -350,7 +350,7 @@ func TestDoctorPasswordWarning(t *testing.T) {
 func TestSuggestName(t *testing.T) {
 	for in, want := range map[string]string{
 		"Dev-SQLServer":          "dev-sqlserver",
-		"mssql_dev.01":           "mssql-dev-01",
+		"dev_sql.01":             "dev-sql-01",
 		"--x--":                  "x",
 		strings.Repeat("a", 70):  strings.Repeat("a", 63),
 		strings.Repeat("a-", 40): strings.TrimRight(strings.Repeat("a-", 32)[:63], "-"),

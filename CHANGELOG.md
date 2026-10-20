@@ -86,7 +86,7 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
   stdin (`CHECK_POLICY ON`, mostrata una sola volta); revocare livello, backup
   o utente; legare un utente orfano al suo login (`fix-orphan`, o `grant`
   con un login dello stesso nome, anche creato al momento). Un `db_owner` con i
-  permessi in msdb conta come abilitato al backup. Collaudato su `mssql-dev`
+  permessi in msdb conta come abilitato al backup. Collaudato su un'istanza RDS di sviluppo
   con un login usa e getta: grant con backup, backup lanciato dal login, revoke. CLI
   `dialga access list|logins|grant|revoke|fix-orphan` (dry run di default,
   `--apply`); API `GET …/logins`, `GET …/databases/{db}/access` e piani
@@ -97,7 +97,7 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 ### Modificato
 
 - La rinomina di un restore con sostituzione (`rdsadmin.dbo.rds_modify_db_name`)
-  è verificata su `mssql-dev` (2026-10-19).
+  è verificata su un'istanza RDS di sviluppo (2026-10-19).
 
 ## [0.5.0] - 2026-10-19
 
@@ -132,7 +132,7 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
   perché nel controllo `replace`. Conferma riscrivendo il nome del database,
   controlli su sessioni attive e nomi liberi, T-SQL esatto in anteprima, e
   ripresa sicura dei job interrotti. Le rinomine usano
-  `rdsadmin.dbo.rds_modify_db_name` (TODO: confermare su mssql-dev).
+  `rdsadmin.dbo.rds_modify_db_name` (TODO: confermare su un'istanza di sviluppo).
 - **Elenco dei bucket**. *Add instance* mostra il bucket come campo con
   elenco (combobox accessibile) riempito con i bucket dell'account nella
   regione scelta, con filtro mentre si scrive; un nome digitato resta sempre

@@ -13,7 +13,7 @@ import (
 // Prerequisite ids.
 const (
 	// PrereqSSMPlugin is the Session Manager plugin, which every SSM tunnel
-	// needs (the integrated one and open-dloop-tunnels.sh).
+	// needs (the integrated one or an SSM port-forwarding script).
 	PrereqSSMPlugin = "session-manager-plugin"
 	// PrereqContainerRuntime is podman or docker, which inspect uses to read
 	// a .bak in a throwaway SQL Server.

@@ -7,7 +7,7 @@ import (
 )
 
 func TestRequestValidate(t *testing.T) {
-	valid := Request{Profile: "sales", Region: "us-east-1", Instance: "mssql-dev", LocalPort: 11433, SQLUser: "god"}
+	valid := Request{Profile: "sales", Region: "us-east-1", Instance: "dev-sql", LocalPort: 11433, SQLUser: "admin"}
 	tests := []struct {
 		name    string
 		mutate  func(*Request)
@@ -23,7 +23,7 @@ func TestRequestValidate(t *testing.T) {
 		{"instance with quote", func(r *Request) { r.Instance = "db'x" }, true},
 		{"port zero", func(r *Request) { r.LocalPort = 0 }, true},
 		{"port too high", func(r *Request) { r.LocalPort = 70000 }, true},
-		{"login with semicolon", func(r *Request) { r.SQLUser = "god;x" }, true},
+		{"login with semicolon", func(r *Request) { r.SQLUser = "admin;x" }, true},
 		{"expected account", func(r *Request) { r.ExpectedAccount = "123456789012" }, false},
 		{"expected account too short", func(r *Request) { r.ExpectedAccount = "12345" }, true},
 		{"direct needs no local port", func(r *Request) { r.Direct = true; r.LocalPort = 0 }, false},
@@ -32,7 +32,7 @@ func TestRequestValidate(t *testing.T) {
 		{"tunnel negative port", func(r *Request) { r.Tunnel = true; r.LocalPort = -1 }, true},
 		{"tunnel and direct", func(r *Request) { r.Tunnel = true; r.Direct = true }, true},
 		{"bridge tag with comma", func(r *Request) { r.Tunnel = true; r.BridgeTag = "a,b" }, true},
-		{"bucket", func(r *Request) { r.Bucket = "mssql-dev-backups-123456789012" }, false},
+		{"bucket", func(r *Request) { r.Bucket = "my-sqlserver-backups-123456789012" }, false},
 		{"bucket with dots", func(r *Request) { r.Bucket = "my.backups.bucket" }, false},
 		{"bucket upper case", func(r *Request) { r.Bucket = "My-Bucket" }, true},
 		{"bucket with slash", func(r *Request) { r.Bucket = "bucket/key" }, true},
@@ -50,8 +50,8 @@ func TestRequestValidate(t *testing.T) {
 }
 
 func TestRequestFor(t *testing.T) {
-	base := config.Target{AccountID: "123456789012", Region: "us-east-1", AWSProfile: "sales", Instance: "mssql-dev",
-		Bucket: "mssql-dev-backups", SQL: config.SQL{User: "god"}}
+	base := config.Target{AccountID: "123456789012", Region: "us-east-1", AWSProfile: "sales", Instance: "dev-sql",
+		Bucket: "my-sqlserver-backups", SQL: config.SQL{User: "admin"}}
 	tests := []struct {
 		name    string
 		connect config.Connect
@@ -68,7 +68,7 @@ func TestRequestFor(t *testing.T) {
 			tgt := base
 			tgt.Connect = tc.connect
 			req, err := RequestFor(tgt)
-			if err != nil || !tc.want(req) || req.ExpectedAccount != "123456789012" || req.Bucket != "mssql-dev-backups" {
+			if err != nil || !tc.want(req) || req.ExpectedAccount != "123456789012" || req.Bucket != "my-sqlserver-backups" {
 				t.Fatalf("RequestFor() = %+v, %v", req, err)
 			}
 		})

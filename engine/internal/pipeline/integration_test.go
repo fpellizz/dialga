@@ -101,9 +101,9 @@ func runScript(ctx context.Context, db *sql.DB, script string) error {
 	return flush()
 }
 
-// instance is SQL Server with the mock: sa plays RDS, god is the master user.
+// instance is SQL Server with the mock: sa plays RDS, admin is the master user.
 type instance struct {
-	sa, god *sql.DB
+	sa, admin *sql.DB
 }
 
 func startSQLServer(t *testing.T) instance {
@@ -140,15 +140,15 @@ func startSQLServer(t *testing.T) instance {
 	}
 	godPassword := throwawayPassword()
 	if _, err := sa.ExecContext(ctx, `DECLARE @s nvarchar(400) =
-		N'ALTER LOGIN god WITH PASSWORD = ' + QUOTENAME(@pw, '''') + N';'; EXEC (@s);`, sql.Named("pw", godPassword)); err != nil {
+		N'ALTER LOGIN admin WITH PASSWORD = ' + QUOTENAME(@pw, '''') + N';'; EXEC (@s);`, sql.Named("pw", godPassword)); err != nil {
 		t.Fatal(err)
 	}
-	god, err := openPlain(ctx, hostPort, "god", godPassword)
+	admin, err := openPlain(ctx, hostPort, "admin", godPassword)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = god.Close() })
-	return instance{sa: sa, god: god}
+	t.Cleanup(func() { _ = admin.Close() })
+	return instance{sa: sa, admin: admin}
 }
 
 func startMinIO(t *testing.T) *s3.Client {
@@ -256,7 +256,7 @@ func TestIntegrationImportThenExportJobs(t *testing.T) {
 	env := Env{
 		Name: "it", Target: target, S3: c, TaskInterval: 300 * time.Millisecond,
 		OpenOps: func(context.Context) (*ops.Session, func(), error) {
-			return &ops.Session{Name: "it", Target: target, SQL: mssql.Session{DB: in.god},
+			return &ops.Session{Name: "it", Target: target, SQL: mssql.Session{DB: in.admin},
 				Bucket: awsx.Bucket{Client: c, Name: itBucket}}, func() {}, nil
 		},
 	}

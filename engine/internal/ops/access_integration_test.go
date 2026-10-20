@@ -13,24 +13,24 @@ import (
 	"github.com/decisyon/dialga/engine/internal/mssql"
 )
 
-// accessMock gives god what the RDS master user has for these operations
+// accessMock gives admin what the RDS master user has for these operations
 // (login management, users and grants in msdb) and the rds_task_status of
 // the backup permissions; the mock of mock-rds.sql has none of it.
-const accessMock = `GRANT ALTER ANY LOGIN TO god;
+const accessMock = `GRANT ALTER ANY LOGIN TO admin;
 GO
 USE msdb;
 GO
 IF OBJECT_ID(N'dbo.rds_task_status') IS NULL EXEC (N'CREATE PROCEDURE dbo.rds_task_status @db_name sysname = NULL, @task_id int = NULL AS SELECT 1');
-GRANT ALTER ANY USER TO god;
-GRANT VIEW DEFINITION TO god;
-GRANT EXECUTE ON dbo.rds_backup_database TO god WITH GRANT OPTION;
-GRANT EXECUTE ON dbo.rds_task_status TO god WITH GRANT OPTION;
-GRANT SELECT ON dbo.rds_fn_task_status TO god WITH GRANT OPTION;
+GRANT ALTER ANY USER TO admin;
+GRANT VIEW DEFINITION TO admin;
+GRANT EXECUTE ON dbo.rds_backup_database TO admin WITH GRANT OPTION;
+GRANT EXECUTE ON dbo.rds_task_status TO admin WITH GRANT OPTION;
+GRANT SELECT ON dbo.rds_fn_task_status TO admin WITH GRANT OPTION;
 GO
 USE master;
 GO`
 
-// bestEffortAccess is the real SQL session, except that databases god cannot
+// bestEffortAccess is the real SQL session, except that databases admin cannot
 // read do not hold back the msdb cleanup (the mock instance has some that
 // belong to other tests).
 type bestEffortAccess struct{ mssql.Session }
@@ -45,22 +45,22 @@ func TestIntegrationAccess(t *testing.T) {
 	if err := runScript(ctx, sa, accessMock); err != nil {
 		t.Fatal(err)
 	}
-	// acc_db belongs to god, like a database restored by the master user.
+	// acc_db belongs to admin, like a database restored by the master user.
 	for _, stmt := range []string{`DROP DATABASE IF EXISTS acc_db`, `CREATE DATABASE acc_db`} {
-		if _, err := god.ExecContext(ctx, stmt); err != nil {
+		if _, err := admin.ExecContext(ctx, stmt); err != nil {
 			t.Fatal(err)
 		}
 	}
 	t.Cleanup(func() {
-		_, _ = god.Exec(`DROP DATABASE IF EXISTS acc_db`)
+		_, _ = admin.Exec(`DROP DATABASE IF EXISTS acc_db`)
 		for _, l := range []string{"acc_dora", "acc_orph", "acc_orph2"} {
 			_, _ = sa.Exec(`IF SUSER_ID(N'` + l + `') IS NOT NULL DROP LOGIN ` + l)
 		}
 		_ = runScript(ctx, sa, "USE msdb;\nGO\nIF USER_ID(N'acc_dora') IS NOT NULL DROP USER acc_dora\nGO")
 	})
-	reads := mssql.Session{DB: god}
+	reads := mssql.Session{DB: admin}
 	s := goldenSession(nil)
-	s.SQL = bestEffortAccess{mssql.Session{DB: god}}
+	s.SQL = bestEffortAccess{mssql.Session{DB: admin}}
 	run := func(p *Prepared, err error, password string) {
 		t.Helper()
 		if err != nil || !p.Ready() {
@@ -72,7 +72,7 @@ func TestIntegrationAccess(t *testing.T) {
 	}
 	user := func(db, name string) *mssql.DatabaseUser {
 		t.Helper()
-		a, err := reads.DatabaseAccess(ctx, db, "god")
+		a, err := reads.DatabaseAccess(ctx, db, "admin")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -112,7 +112,7 @@ func TestIntegrationAccess(t *testing.T) {
 		t.Fatalf("after level change: %+v", u)
 	}
 
-	// the conservative path: a database god cannot read holds the msdb grants back
+	// the conservative path: a database admin cannot read holds the msdb grants back
 	strict := goldenSession(nil)
 	p, err = strict.Revoke(ctx, Params{Database: "acc_db", Login: "acc_dora", Remove: RemoveBackup})
 	if err != nil || ids(p) != "drop-role" || !strings.Contains(verdicts(p), "msdb:warning") {
@@ -156,7 +156,7 @@ func TestIntegrationAccess(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if _, err := god.ExecContext(ctx, `USE acc_db; CREATE USER acc_orph FOR LOGIN acc_orph;`); err != nil {
+	if _, err := admin.ExecContext(ctx, `USE acc_db; CREATE USER acc_orph FOR LOGIN acc_orph;`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := sa.ExecContext(ctx, `DROP LOGIN acc_orph`); err != nil {
