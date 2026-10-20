@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata: what software centers (KDE Discover, GNOME Software)
+     show for Dialga: name, summary, developer, license, icon. -->
+<component type="desktop-application">
+  <id>com.decisyon.dialga</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Dialga</name>
+  <summary>Import and export SQL Server databases on Amazon RDS via S3</summary>
+  <developer id="it.pellizzaro">
+    <name>Fabio Pellizzaro</name>
+  </developer>
+  <description>
+    <p>
+      Dialga imports and exports Microsoft SQL Server databases on Amazon RDS
+      through S3, with the native backup and restore of RDS, pre-flight checks,
+      a dry run that shows the exact T-SQL, and a journal of every operation.
+      It ships a desktop app and the dialga command line tool.
+    </p>
+    <ul>
+      <li>Restore and export databases, also many at once as one job</li>
+      <li>Restore over an existing database, keeping the old one or a backup</li>
+      <li>Integrated SSM tunnel to the instance, with verified TLS</li>
+      <li>Database access: grant, revoke and fix orphan users</li>
+    </ul>
+  </description>
+  <launchable type="desktop-id">Dialga.desktop</launchable>
+  <icon type="stock">dialga</icon>
+  <url type="homepage">https://bitbucket.org/decisyon/dialga</url>
+  <categories>
+    <category>Development</category>
+    <category>Database</category>
+  </categories>
+  <provides>
+    <binary>dialga</binary>
+    <binary>dialga-desktop</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+</component>
