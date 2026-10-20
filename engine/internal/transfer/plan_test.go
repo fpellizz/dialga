@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -58,7 +59,7 @@ func TestPlanUploadsRejectsWithReasons(t *testing.T) {
 		"with space.bak":   "no spaces or quotes allowed: rename the file",
 		"empty.bak":        "the file is empty",
 		filepath.Base(dir): "not a regular file",
-		"missing.bak":      "cannot read it: no such file or directory",
+		"missing.bak":      "cannot read it: " + noSuchFile,
 		"exists.bak":       "already in s3://dev-sqlserver-backups/import/exists.bak (10 B, same size): choose overwrite",
 		"sales.bak":        "same key as " + good,
 	}
@@ -289,3 +290,13 @@ func TestPlanDownload(t *testing.T) {
 		t.Fatalf("full disk: %+v, %v", b.Rejected, err)
 	}
 }
+
+// noSuchFile is the text the OS gives for a missing file.
+var noSuchFile = func() string {
+	_, err := os.Open(filepath.Join(os.TempDir(), "dialga-test-missing-file"))
+	var pe *fs.PathError
+	if errors.As(err, &pe) {
+		return pe.Err.Error()
+	}
+	return "no such file or directory"
+}()

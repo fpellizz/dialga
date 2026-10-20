@@ -249,7 +249,7 @@ items:
 	if code, _, errOut := run(a, "run", plan, "-t", "prod"); code != exitFailure || !strings.Contains(errOut, "the plan is for target dev-sql") {
 		t.Fatalf("other target: code %d, stderr %q", code, errOut)
 	}
-	if code, _, errOut := run(a, "run", filepath.Join(dir, "missing.yaml")); code != exitFailure || !strings.Contains(errOut, "no such file") {
+	if code, _, errOut := run(a, "run", filepath.Join(dir, "missing.yaml")); code != exitFailure || !strings.Contains(errOut, "dialga: open ") {
 		t.Fatalf("missing plan: code %d, stderr %q", code, errOut)
 	}
 }

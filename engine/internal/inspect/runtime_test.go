@@ -201,7 +201,8 @@ func TestValidateImage(t *testing.T) {
 }
 
 func TestResolvePaths(t *testing.T) {
-	dir := t.TempDir()
+	skipOnWindows(t)
+	dir := resolvedTempDir(t)
 	write := func(name string) string {
 		p := filepath.Join(dir, name)
 		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {

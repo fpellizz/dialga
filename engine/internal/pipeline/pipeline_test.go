@@ -325,7 +325,7 @@ func TestRequestValidation(t *testing.T) {
 		{"twice", importOf(ImportItem{Files: []string{abs}, Database: "Sales"}, ImportItem{Files: []string{abs}, Database: "sales"}), "twice"},
 		{"export items in an import", Request{Kind: jobs.Import, Export: []ExportItem{{Database: "a"}}}, "import items only"},
 		{"relative destination", Request{Kind: jobs.Export, Export: []ExportItem{{Database: "a", Destination: "out"}}}, "absolute path"},
-		{"export key with *", Request{Kind: jobs.Export, Export: []ExportItem{{Database: "a", Destination: "/tmp", Key: "export/a*.bak"}}}, "no * allowed"},
+		{"export key with *", Request{Kind: jobs.Export, Export: []ExportItem{{Database: "a", Destination: absTest("out"), Key: "export/a*.bak"}}}, "no * allowed"},
 		{"upload key with a quote", importOf(ImportItem{Files: []string{abs}, Database: "sales", Key: "import/it's.bak"}), "no spaces or quotes"},
 	}
 	env, _, _ := testEnv(t, testTarget)
@@ -339,7 +339,7 @@ func TestRequestValidation(t *testing.T) {
 	}
 	many := Request{Kind: jobs.Export}
 	for i := range MaxItems + 1 {
-		many.Export = append(many.Export, ExportItem{Database: fmt.Sprintf("db%d", i), Destination: "/tmp"})
+		many.Export = append(many.Export, ExportItem{Database: fmt.Sprintf("db%d", i), Destination: absTest("out")})
 	}
 	if err := many.Validate(testTarget); !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("%d items: %v", MaxItems+1, err)
@@ -604,13 +604,14 @@ func TestCancelLeavesTheNativeTaskRunning(t *testing.T) {
 
 func TestParseFile(t *testing.T) {
 	base := t.TempDir()
+	hr := absTest("data/hr.bak")
 	f, err := ParseFile([]byte(`apiVersion: v1
 kind: Import
 target: dev-sql
 skipFailing: true
 items:
   - { file: backups/sales.bak, database: sales }
-  - { file: /data/hr.bak, database: hr, key: import/hr.bak, noRecovery: true, overwrite: true }
+  - { file: '`+hr+`', database: hr, key: import/hr.bak, noRecovery: true, overwrite: true }
 `), base)
 	if err != nil {
 		t.Fatal(err)
@@ -618,7 +619,7 @@ items:
 	req := f.Request()
 	if f.Target != "dev-sql" || req.Kind != jobs.Import || !req.SkipFailing || len(req.Import) != 2 ||
 		!slices.Equal(req.Import[0].Files, []string{filepath.Join(base, "backups", "sales.bak")}) ||
-		!reflect.DeepEqual(req.Import[1], ImportItem{Files: []string{"/data/hr.bak"}, Database: "hr", Key: "import/hr.bak", NoRecovery: true, Overwrite: true}) {
+		!reflect.DeepEqual(req.Import[1], ImportItem{Files: []string{hr}, Database: "hr", Key: "import/hr.bak", NoRecovery: true, Overwrite: true}) {
 		t.Fatalf("file %+v, request %+v", f, req)
 	}
 	exp, err := ParseFile([]byte("apiVersion: v1\nkind: Export\nitems:\n  - { database: sales, destination: out }\n"), base)
@@ -815,13 +816,13 @@ func TestParseFileCapsTheSize(t *testing.T) {
 
 func TestValidateChecksThePrefixUpFront(t *testing.T) {
 	for _, prefix := range []string{"a b", "../x", "/abs", "it's"} {
-		req := Request{Kind: jobs.Import, Prefix: &prefix, Import: []ImportItem{{Files: []string{"/a.bak"}, Database: "a"}}}
+		req := Request{Kind: jobs.Import, Prefix: &prefix, Import: []ImportItem{{Files: []string{absTest("a.bak")}, Database: "a"}}}
 		if err := req.Validate(testTarget); err == nil || !strings.Contains(err.Error(), "invalid prefix") {
 			t.Fatalf("prefix %q: %v", prefix, err)
 		}
 	}
 	ok := "imports/2026"
-	req := Request{Kind: jobs.Import, Prefix: &ok, Import: []ImportItem{{Files: []string{"/a.bak"}, Database: "a"}}}
+	req := Request{Kind: jobs.Import, Prefix: &ok, Import: []ImportItem{{Files: []string{absTest("a.bak")}, Database: "a"}}}
 	if err := req.Validate(testTarget); err != nil {
 		t.Fatal(err)
 	}

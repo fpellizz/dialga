@@ -46,7 +46,7 @@ func TestStatementsMatchMssqlImport(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := tc.got + "\n"; got != string(want) {
+			if got := tc.got + "\n"; got != strings.ReplaceAll(string(want), "\r\n", "\n") {
 				t.Fatalf("statement differs from mssql-import.sh\n got: %q\nwant: %q", got, want)
 			}
 		})

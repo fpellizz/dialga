@@ -394,3 +394,7 @@ VITE_ENGINE_URL=http://127.0.0.1:<N> VITE_ENGINE_TOKEN=$(tr -d '\n' < token) pnp
 - **GUI**: `UpdateProvider` (`UpdateProvider.tsx`, contesto inerte senza provider) controlla all'avvio e ogni 12 h se l'impostazione è attiva (`localStorage` `dialga.updates.check`, `"0"` = spento; `dialga.updates.dismissed` = versione nascosta; entrambe in try/catch). Errori silenziosi: li mostra solo *Check now*. `UpdateNotice` nella sidebar sopra lo stato dell'engine (pallino con nome accessibile a barra compressa, senza *Dismiss*); un'unica regione `role="status"` sempre presente cambia testo solo quando compare una versione nuova (niente annunci ripetuti). Riga *Update* in About (anche dopo *Dismiss*). Test che renderizzano `<App>` devono mockare `GET /api/v1/update`.
 - **e2e**: `global-setup.ts` imposta `DIALGA_NO_UPDATE_CHECK=1` all'engine di prova.
 - **Rilascio**: serve una release GitHub *pubblicata* (vedi `docs/release.md`); finché il mirror è spento (v1) non ce ne sono e l'avviso non compare.
+
+## Test portabili (macOS/Windows)
+
+I test dell'engine girano anche su macOS e Windows (CI GitHub). Regole: isolare le directory utente con `isolateUserDirs(t)` (`engine/cmd/dialga/userdirs_test.go`: HOME, USERPROFILE, XDG_*, APPDATA, LOCALAPPDATA), non con le sole `XDG_*`; ricavare il percorso del journal da `jobs.DefaultDir()`; niente asserzioni sui permessi POSIX su Windows (`runtime.GOOS`); niente testo di errore specifico dell'OS (`no such file or directory`); test con `syscall` unix-only in file `_unix_test.go`.

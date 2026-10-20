@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -116,7 +117,7 @@ func TestConfigInitNonInteractive(t *testing.T) {
 	if strings.Join(fake.asked, "; ") != "instances sales/eu-south-1; bucket sales dev-backups" {
 		t.Fatalf("AWS calls: %v", fake.asked)
 	}
-	if info, _ := os.Stat(a.configPath); info.Mode().Perm() != 0o600 {
+	if info, _ := os.Stat(a.configPath); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 { // no POSIX modes on Windows
 		t.Fatalf("mode %v", info.Mode().Perm())
 	}
 }

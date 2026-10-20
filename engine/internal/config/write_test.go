@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -51,7 +52,7 @@ func TestUpdateAddReplaceRemoveRoundTrip(t *testing.T) {
 	if cfg.Targets["prod-sql"] != want || cfg.Targets["dev-sql"].Instance != "dev-sqlserver" {
 		t.Fatalf("targets after add: %+v", cfg.Targets)
 	}
-	if m := mode(t, path); m != 0o600 {
+	if m := mode(t, path); runtime.GOOS != "windows" && m != 0o600 { // no POSIX modes on Windows
 		t.Fatalf("mode %v, want 0600", m)
 	}
 	data, _ := os.ReadFile(path)
@@ -105,10 +106,10 @@ func TestUpdateCreatesTheDirectory(t *testing.T) {
 	if err := Update(path, func(c *Config) error { return c.SetTarget("prod-sql", newTarget(), false) }); err != nil {
 		t.Fatal(err)
 	}
-	if m := mode(t, filepath.Dir(path)); m != 0o700 {
+	if m := mode(t, filepath.Dir(path)); runtime.GOOS != "windows" && m != 0o700 {
 		t.Fatalf("directory mode %v, want 0700", m)
 	}
-	if m := mode(t, path); m != 0o600 {
+	if m := mode(t, path); runtime.GOOS != "windows" && m != 0o600 {
 		t.Fatalf("file mode %v, want 0600", m)
 	}
 	if _, err := os.Stat(path + ".bak"); !errors.Is(err, fs.ErrNotExist) {
@@ -157,14 +158,20 @@ func TestUpdateBuildsOnAnEmptyDocument(t *testing.T) {
 
 func TestFailedWriteLeavesTheOldFile(t *testing.T) {
 	path := writeDoc(t, validDoc)
+	// Save resolves links and 8.3 short names (Windows, macOS /var), so it
+	// renames onto the resolved path.
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	renameFile = func(oldpath, newpath string) error {
-		if newpath == path {
+		if newpath == resolved {
 			return errors.New("disk full")
 		}
 		return os.Rename(oldpath, newpath)
 	}
 	t.Cleanup(func() { renameFile = os.Rename })
-	err := Update(path, func(c *Config) error { return c.SetTarget("prod-sql", newTarget(), false) })
+	err = Update(path, func(c *Config) error { return c.SetTarget("prod-sql", newTarget(), false) })
 	if err == nil || !strings.Contains(err.Error(), "disk full") {
 		t.Fatalf("err %v", err)
 	}

@@ -37,8 +37,7 @@ func TestReadToken(t *testing.T) {
 }
 
 func TestServeKeepsTheJobJournal(t *testing.T) {
-	state := t.TempDir()
-	t.Setenv("XDG_STATE_HOME", state)
+	isolateUserDirs(t)
 	stdinR, stdinW := io.Pipe()
 	stdoutR, stdoutW := io.Pipe()
 	code := make(chan int, 1)
@@ -53,7 +52,10 @@ func TestServeKeepsTheJobJournal(t *testing.T) {
 	if err != nil || !strings.Contains(line, `"event":"ready"`) {
 		t.Fatalf("ready line %q, %v", line, err)
 	}
-	dir := filepath.Join(state, "dialga", "jobs")
+	dir, err := jobs.DefaultDir()
+	if err != nil {
+		t.Fatal(err)
+	}
 	// A CLI run opens the same journal while the engine serves: no lock of
 	// the directory, only one per running job.
 	cli, err := jobs.Open(dir, jobs.Options{Origin: jobs.OriginCLI})

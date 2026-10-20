@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -233,6 +234,9 @@ func TestDownloadFileMode(t *testing.T) {
 	dest := filepath.Join(dir, "k")
 	if _, err := (Download{Bucket: testBucket, Key: "k", Path: dest}).Run(context.Background(), fake, quick(nil)); err != nil {
 		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("no POSIX file modes on Windows")
 	}
 	if st, _ := os.Stat(dest); st.Mode().Perm() != 0o644 {
 		t.Fatalf("new file mode %v, want 0644", st.Mode().Perm())

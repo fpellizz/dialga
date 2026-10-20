@@ -3,6 +3,8 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -37,12 +39,12 @@ func TestFactoriesRebuildTheSteps(t *testing.T) {
 		params any
 		res    jobs.Resource
 	}{
-		{KindUpload, jobs.StepInfo{ID: "upload", Title: "Upload sales.bak"}, UploadParams{Bucket: testBucket, Files: []UploadFile{{Path: "/x/sales.bak", Key: "import/sales.bak"}}}, jobs.ResourceTransfer},
+		{KindUpload, jobs.StepInfo{ID: "upload", Title: "Upload sales.bak"}, UploadParams{Bucket: testBucket, Files: []UploadFile{{Path: absTest("x/sales.bak"), Key: "import/sales.bak"}}}, jobs.ResourceTransfer},
 		{KindTask, jobs.StepInfo{ID: "restore", Title: "Restore sales"}, restoreParams("sales", "import/sales.bak"), jobs.ResourceRDSTask},
 		{KindTask, jobs.StepInfo{ID: "export", Title: "Export sales"}, exportParams("sales", "export/sales.bak"), jobs.ResourceRDSTask},
 		{KindWait, jobs.StepInfo{ID: "wait", Title: "Wait for the restore task"}, WaitParams{What: "restore"}, jobs.ResourceRDSTask},
 		{KindPost, jobs.StepInfo{ID: "post", Title: "Post-restore report of sales (read-only)"}, PostParams{Database: "sales"}, jobs.NoResource},
-		{KindDownload, jobs.StepInfo{ID: "download", Title: "Download sales.bak"}, DownloadParams{Database: "sales", Bucket: testBucket, Key: "export/sales.bak", Path: "/x/sales.bak"}, jobs.ResourceTransfer},
+		{KindDownload, jobs.StepInfo{ID: "download", Title: "Download sales.bak"}, DownloadParams{Database: "sales", Bucket: testBucket, Key: "export/sales.bak", Path: absTest("x/sales.bak")}, jobs.ResourceTransfer},
 	}
 	for _, tc := range tests {
 		t.Run(tc.step.ID, func(t *testing.T) {
@@ -93,11 +95,11 @@ func TestFactoriesRefuseWhatTheJournalNoLongerSupports(t *testing.T) {
 		params any
 		want   string
 	}{
-		{"upload bucket", rebuildUpload, jobs.StepInfo{ID: "upload"}, UploadParams{Bucket: "other", Files: []UploadFile{{Path: "/x/a.bak", Key: "a.bak"}}}, "bucket other"},
-		{"upload key", rebuildUpload, jobs.StepInfo{ID: "upload"}, UploadParams{Bucket: testBucket, Files: []UploadFile{{Path: "/x/a.bak", Key: "../a.bak"}}}, "invalid S3 key"},
+		{"upload bucket", rebuildUpload, jobs.StepInfo{ID: "upload"}, UploadParams{Bucket: "other", Files: []UploadFile{{Path: absTest("x/a.bak"), Key: "a.bak"}}}, "bucket other"},
+		{"upload key", rebuildUpload, jobs.StepInfo{ID: "upload"}, UploadParams{Bucket: testBucket, Files: []UploadFile{{Path: absTest("x/a.bak"), Key: "../a.bak"}}}, "invalid S3 key"},
 		{"upload path", rebuildUpload, jobs.StepInfo{ID: "upload"}, UploadParams{Bucket: testBucket, Files: []UploadFile{{Path: "a.bak", Key: "a.bak"}}}, "not an absolute path"},
-		{"download bucket", rebuildDownload, jobs.StepInfo{ID: "download"}, DownloadParams{Database: "sales", Bucket: "other", Key: "k", Path: "/x/k"}, "bucket other"},
-		{"download database", rebuildDownload, jobs.StepInfo{ID: "download"}, DownloadParams{Database: "master", Bucket: testBucket, Key: "k", Path: "/x/k"}, "system database"},
+		{"download bucket", rebuildDownload, jobs.StepInfo{ID: "download"}, DownloadParams{Database: "sales", Bucket: "other", Key: "k", Path: absTest("x/k")}, "bucket other"},
+		{"download database", rebuildDownload, jobs.StepInfo{ID: "download"}, DownloadParams{Database: "master", Bucket: testBucket, Key: "k", Path: absTest("x/k")}, "system database"},
 		{"download path", rebuildDownload, jobs.StepInfo{ID: "download"}, DownloadParams{Database: "sales", Bucket: testBucket, Key: "k", Path: "k"}, "not an absolute path"},
 		{"task statement", rebuildTask, jobs.StepInfo{ID: "restore"}, tampered, "not the one"},
 		{"task database", rebuildTask, jobs.StepInfo{ID: "restore"}, TaskParams{Statement: "x", Database: "a b", Key: "k"}, "invalid database name"},
@@ -313,4 +315,9 @@ func TestResumeAfterTheRestoreWasQueuedDoesNotRestoreAgain(t *testing.T) {
 	if end.State != jobs.Succeeded || len(rds.statements) != 1 || rds.states["sales"] != "ONLINE" {
 		t.Fatalf("job %s, %d restore(s): %+v", end.State, len(rds.statements), end.Items)
 	}
+}
+
+// absTest is an absolute path on every OS: "/x/a" is not absolute on Windows.
+func absTest(slash string) string {
+	return filepath.Join(os.TempDir(), filepath.FromSlash(slash))
 }

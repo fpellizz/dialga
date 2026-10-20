@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -68,7 +69,8 @@ func backupsQuerier(t *testing.T) *fakeQuerier {
 
 func testFiles(t *testing.T, names ...string) []string {
 	t.Helper()
-	dir := t.TempDir()
+	skipOnWindows(t)
+	dir := resolvedTempDir(t)
 	paths := make([]string, len(names))
 	for i, n := range names {
 		paths[i] = filepath.Join(dir, n)
@@ -324,4 +326,25 @@ func TestInspectStripedOutOfOrder(t *testing.T) {
 	if b := res.Backups[0]; !slices.Equal(b.Files, []string{paths[1], paths[0]}) || b.Outcome != Read || b.Header.DatabaseName != "t2022" {
 		t.Fatalf("striped: %+v", b)
 	}
+}
+
+// skipOnWindows skips the tests that hand real paths to the container
+// runtime: the bind mount source:target syntax cannot carry "C:\...", so the
+// inspection refuses such paths (v1 ships for Linux; Windows is v2.0).
+func skipOnWindows(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("inspection of local paths needs a drive-letter-aware bind mount (v2.0)")
+	}
+}
+
+// resolvedTempDir is a temporary directory without symbolic links in its
+// path (on macOS /var is a link to /private/var), as ResolvePaths returns.
+func resolvedTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }

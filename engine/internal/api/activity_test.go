@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -295,6 +296,9 @@ func mustMarshal(t *testing.T, v any) []byte {
 // A job of a CLI run shows up in the list of the app engine while it runs,
 // and the engine can follow it; it cannot stop it.
 func TestCLIJobAppearsInTheAppList(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("job locks are not implemented on Windows yet (v2.0): a job of another process looks interrupted")
+	}
 	dir := t.TempDir()
 	appJobs, err := jobs.Open(dir, jobs.Options{})
 	if err != nil {

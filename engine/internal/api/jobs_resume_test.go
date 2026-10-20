@@ -192,7 +192,7 @@ func TestResumeJobErrors(t *testing.T) {
 		{"unknown job", m, "/api/v1/jobs/20200101T000000Z-00000000/resume", &doc, resumePassword, &resumeEnv{}, "", 404, "job not found"},
 		{"bad body", m, path, &doc, resumePassword, &resumeEnv{}, "{", 400, "invalid body"},
 		{"unknown field", m, path, &doc, resumePassword, &resumeEnv{}, `{"force":true}`, 400, "unknown field"},
-		{"no configuration", m, path, nil, resumePassword, &resumeEnv{}, "", 409, "no such file"},
+		{"no configuration", m, path, nil, resumePassword, &resumeEnv{}, "", 409, noSuchFile},
 		{"target gone", m, path, &otherTarget, resumePassword, &resumeEnv{}, "", 422, "target dev-sql of this job is not in the configuration"},
 		{"other instance", m, path, &otherInstance, resumePassword, &resumeEnv{}, "", 422, "now points at instance other-sqlserver, the job ran on dev-sqlserver"},
 		{"other account", m, path, &otherAccount, resumePassword, &resumeEnv{}, "", 422, "the job ran on 123456789012/eu-west-1/dev-sqlserver, the target is on 999999999999/"},
