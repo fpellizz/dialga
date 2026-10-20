@@ -9,6 +9,12 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ## [Non rilasciato]
 
+### Corretto
+
+- Il pacchetto AppImage (release GitHub) non si costruiva: mancava l'icona
+  `dialga` usata dalla voce di menu dalla 0.6.2; la release 0.7.0 su GitHub
+  non è stata pubblicata per questo.
+
 ### Modificato
 
 - Nella pipeline dei tag il mirror su GitHub parte prima dell'upload manuale
