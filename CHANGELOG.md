@@ -9,6 +9,24 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ## [Non rilasciato]
 
+## [0.6.4] - 2026-10-20
+
+### Aggiunto
+
+- Barra laterale **comprimibile**: un pulsante la riduce a una colonna di sole
+  icone, e la scelta resta ricordata.
+- Menu **Actions** su ogni riga della pagina Databases: *Report* resta
+  visibile, Export, Finish restore, Access… e Drop (in fondo, separato) sono
+  nel menu, utilizzabile anche da tastiera.
+- Licenza **MIT** (`LICENSE`) e metadati AppStream: KDE Discover e GNOME
+  Software mostrano nome, autore, licenza e icona dell'app installata.
+
+### Modificato
+
+- Le pagine con tabelle (Databases e le altre) usano tutta la larghezza della
+  finestra; la tabella scorre in orizzontale se la finestra è troppo stretta,
+  invece di tagliare le azioni.
+
 ## [0.6.3] - 2026-10-20
 
 ### Aggiunto
