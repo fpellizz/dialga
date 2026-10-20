@@ -904,6 +904,23 @@ const en = {
   "export.result.following": "Stopped following: the export goes on in the engine.",
   "export.result.activity": "Follow it in Activity",
   "export.result.download": "Download",
+  "update.region": "Update",
+  "update.available": "Version {version} available",
+  "update.view": "View release",
+  "update.dismiss": "Dismiss",
+  "settings.updates": "Updates",
+  "settings.updatesCheck": "Check for updates",
+  "settings.updatesHint":
+    "Asks api.github.com once at start and every 12 hours whether a newer release exists. Nothing else is sent. The same switch for the command line: DIALGA_NO_UPDATE_CHECK=1.",
+  "update.lastChecked": "Last checked {when}",
+  "update.neverChecked": "Not checked yet",
+  "update.checkNow": "Check now",
+  "update.checking": "Checking…",
+  "update.upToDate": "Dialga is up to date.",
+  "update.none": "No release is published yet.",
+  "update.failed": "Could not check for updates.",
+  "update.failedWith": "Could not check for updates: {error}",
+  "about.update": "Update",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -1826,6 +1843,23 @@ const it: Record<MessageKey, string> = {
   "export.result.following": "Hai smesso di seguirlo: l'export continua nell'engine.",
   "export.result.activity": "Seguilo in Attività",
   "export.result.download": "Download",
+  "update.region": "Aggiornamento",
+  "update.available": "Versione {version} disponibile",
+  "update.view": "Vedi la release",
+  "update.dismiss": "Nascondi",
+  "settings.updates": "Aggiornamenti",
+  "settings.updatesCheck": "Controlla gli aggiornamenti",
+  "settings.updatesHint":
+    "Chiede ad api.github.com, all'avvio e ogni 12 ore, se esiste una release più recente. Non viene inviato altro. Lo stesso interruttore per la riga di comando: DIALGA_NO_UPDATE_CHECK=1.",
+  "update.lastChecked": "Ultimo controllo {when}",
+  "update.neverChecked": "Non ancora controllato",
+  "update.checkNow": "Controlla ora",
+  "update.checking": "Controllo in corso…",
+  "update.upToDate": "Dialga è aggiornato.",
+  "update.none": "Non c'è ancora nessuna release pubblicata.",
+  "update.failed": "Impossibile controllare gli aggiornamenti.",
+  "update.failedWith": "Impossibile controllare gli aggiornamenti: {error}",
+  "about.update": "Aggiornamento",
 };
 
 export const messages: Record<Lang, Record<MessageKey, string>> = { en, it };

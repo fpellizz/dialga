@@ -44,6 +44,7 @@ describe("App and the jobs", () => {
     return mockFetch({
       "GET /api/v1/targets": () => json({ configPath: CONFIG_PATH, targets: [] }),
       "GET /api/v1/tunnels": () => json({ tunnels: [] }),
+      "GET /api/v1/update": () => json({ current: "dev", newer: false }),
       [JOBS]: (_req, call) => json({ jobs: lists[Math.min(call, lists.length - 1)] }),
     });
   }
@@ -84,6 +85,7 @@ describe("App and the jobs", () => {
     mockFetch({
       "GET /api/v1/targets": () => json({ configPath: CONFIG_PATH, targets: [] }),
       "GET /api/v1/tunnels": () => json({ tunnels: [] }),
+      "GET /api/v1/update": () => json({ current: "dev", newer: false }),
       [JOBS]: () => text("not found\n", 404),
     });
     render(<App />);

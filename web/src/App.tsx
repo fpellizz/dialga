@@ -14,6 +14,7 @@ import { SettingsPage } from "./SettingsPage";
 import { type Page, Sidebar } from "./Sidebar";
 import { TunnelsProvider } from "./TunnelIndicator";
 import { applyTheme, loadThemePref, saveThemePref, type ThemePref } from "./theme";
+import { UpdateProvider } from "./UpdateProvider";
 import { useJobList } from "./useJobs";
 
 function pageFromHash(): Page {
@@ -88,27 +89,33 @@ export function App() {
     <I18nProvider>
       <PasswordProvider engine={engine}>
         <TunnelsProvider>
-          <div className="layout">
-            <Sidebar
-              page={page}
-              engine={engine}
-              engineError={engineError}
-              runningJobs={runningJobs}
-            />
-            <main id="main" className="main" tabIndex={-1}>
-              {page === "settings" && (
-                <SettingsPage engine={engine} theme={theme} onThemeChange={changeTheme} />
-              )}
-              {page === "about" && <AboutPage engine={engine} />}
-              {page === "databases" && <DatabasesPage engine={engine} engineError={engineError} />}
-              {page === "export" && <ExportPage engine={engine} engineError={engineError} />}
-              {page === "activity" && (
-                <ActivityPage engine={engine} engineError={engineError} jobs={jobs} />
-              )}
-              {page === "instances" && <InstancesPage engine={engine} engineError={engineError} />}
-              {page === "import" && <ImportPage engine={engine} engineError={engineError} />}
-            </main>
-          </div>
+          <UpdateProvider engine={engine}>
+            <div className="layout">
+              <Sidebar
+                page={page}
+                engine={engine}
+                engineError={engineError}
+                runningJobs={runningJobs}
+              />
+              <main id="main" className="main" tabIndex={-1}>
+                {page === "settings" && (
+                  <SettingsPage engine={engine} theme={theme} onThemeChange={changeTheme} />
+                )}
+                {page === "about" && <AboutPage engine={engine} />}
+                {page === "databases" && (
+                  <DatabasesPage engine={engine} engineError={engineError} />
+                )}
+                {page === "export" && <ExportPage engine={engine} engineError={engineError} />}
+                {page === "activity" && (
+                  <ActivityPage engine={engine} engineError={engineError} jobs={jobs} />
+                )}
+                {page === "instances" && (
+                  <InstancesPage engine={engine} engineError={engineError} />
+                )}
+                {page === "import" && <ImportPage engine={engine} engineError={engineError} />}
+              </main>
+            </div>
+          </UpdateProvider>
         </TunnelsProvider>
       </PasswordProvider>
     </I18nProvider>

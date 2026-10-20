@@ -109,6 +109,8 @@ function engineEnv(dir: string): NodeJS.ProcessEnv {
     // The job journal of the engine under test, never the user's.
     XDG_STATE_HOME: path.join(dir, "state"),
     DIALGA_DEV: "1",
+    // The engine under test never asks GitHub whether a release is newer.
+    DIALGA_NO_UPDATE_CHECK: "1",
     // A bus that is not there: the keyring of the user is never reached, and unusable.
     DBUS_SESSION_BUS_ADDRESS: `unix:path=${path.join(dir, "no-bus")}`,
     AWS_CONFIG_FILE: awsConfig,

@@ -17,6 +17,8 @@ function devEngine() {
     "GET /api/v1/tunnels": () => json({ tunnels: [] }),
     // The Activity badge of the sidebar.
     "GET /api/v1/jobs": () => json({ jobs: [] }),
+    // The update check at start (on by default).
+    "GET /api/v1/update": () => json({ current: "dev", newer: false }),
   });
 }
 

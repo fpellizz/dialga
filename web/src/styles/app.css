@@ -2123,3 +2123,43 @@ a.btn {
   flex: 1 1 220px;
   min-width: 0;
 }
+
+/* Update notice (UpdateNotice.tsx) and setting (SettingsPage.tsx) */
+.update-notice {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in oklab, var(--primary) 35%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--primary) 8%, transparent);
+  font-size: 13px;
+}
+.update-text {
+  margin: 0;
+  font-weight: 500;
+}
+.update-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.update-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-lg);
+  color: var(--primary);
+}
+.update-dot:hover {
+  background: color-mix(in oklab, var(--primary) 12%, transparent);
+}
+.update-check {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}

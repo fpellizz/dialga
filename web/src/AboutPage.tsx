@@ -3,6 +3,8 @@ import type { MouseEvent } from "react";
 import dialgaUrl from "./assets/dialga.svg";
 import type { EngineInfo } from "./engine";
 import { useI18n } from "./i18n";
+import { ReleaseLink } from "./UpdateNotice";
+import { useUpdates } from "./UpdateProvider";
 
 // The public mirror of the Bitbucket repository (also REPOSITORY_URL in the
 // desktop shell, which opens it in the system browser).
@@ -19,6 +21,7 @@ function openRepository(event: MouseEvent<HTMLAnchorElement>) {
 /** The product, its versions, its author and where to find it. */
 export function AboutPage({ engine }: { engine: EngineInfo | null }) {
   const { t } = useI18n();
+  const { available } = useUpdates();
   return (
     <div className="page page-narrow">
       <header className="page-head">
@@ -44,6 +47,15 @@ export function AboutPage({ engine }: { engine: EngineInfo | null }) {
           <dd className="mono">{engine?.version ?? "—"}</dd>
           <dt>{t("about.api")}</dt>
           <dd className="mono">{engine ? `v1 · ${engine.url}` : "—"}</dd>
+          {available && (
+            <>
+              <dt>{t("about.update")}</dt>
+              <dd>
+                {t("update.available", { version: available.version })} ·{" "}
+                <ReleaseLink release={available} />
+              </dd>
+            </>
+          )}
           <dt>{t("about.author")}</dt>
           <dd>Fabio Pellizzaro</dd>
           <dt>{t("about.repository")}</dt>
