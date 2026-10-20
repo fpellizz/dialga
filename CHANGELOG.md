@@ -9,6 +9,8 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ## [Non rilasciato]
 
+## [0.7.0] - 2026-10-20
+
 ### Aggiunto
 
 - **Avviso di nuova versione**: l'app e `dialga version` segnalano una release
@@ -30,6 +32,13 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 - `release.yml`: la release GitHub viene creata già **pubblicata**, non in
   bozza (le `-rc`/`-beta` restano prerelease), perché l'avviso legge l'ultima
   release pubblicata; se esiste come bozza viene pubblicata.
+
+### Modificato
+
+- La pagina About porta al repository pubblico su GitHub
+  (`github.com/fpellizz/dialga`), aperto nel browser di sistema.
+- Il repository è rispecchiato su GitHub: ogni tag pubblica lì una release con
+  i pacchetti, quella che il controllo degli aggiornamenti segnala.
 
 ## [0.6.5] - 2026-10-20
 

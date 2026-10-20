@@ -4,7 +4,7 @@
 |---|---|
 | **Data** | 2026-10-16 |
 | **Autore** | Fabio Pellizzaro (con Claude Code) |
-| **Versione documentata** | `0.6.5` |
+| **Versione documentata** | `0.7.0` |
 | **Destinatari** | Sviluppatori e amministratori che importano o esportano database SQL Server su Amazon RDS |
 | **Piattaforma** | Linux x86_64 (app desktop e CLI); solo CLI su Windows e macOS |
 
