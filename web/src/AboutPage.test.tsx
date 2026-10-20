@@ -1,8 +1,16 @@
-import { screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
-import { AboutPage } from "./AboutPage";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { fireEvent, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { AboutPage, REPO_URL } from "./AboutPage";
 import { renderI18n } from "./test/fixtures";
 import { ENGINE } from "./test/http";
+
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(), isTauri: vi.fn(() => false) }));
+
+afterEach(() => {
+  vi.mocked(invoke).mockReset();
+  vi.mocked(isTauri).mockReturnValue(false);
+});
 
 describe("AboutPage", () => {
   it("shows the versions, the author and the repository link", () => {
@@ -29,5 +37,20 @@ describe("AboutPage", () => {
     renderI18n(<AboutPage engine={null} />, "it");
     expect(screen.getByRole("heading", { level: 1, name: "Informazioni" })).toBeInTheDocument();
     expect(screen.getByText("Autore")).toBeInTheDocument();
+  });
+
+  it("links to the GitHub repository", () => {
+    renderI18n(<AboutPage engine={null} />);
+    expect(REPO_URL).toBe("https://github.com/fpellizz/dialga");
+    fireEvent.click(screen.getByRole("link", { name: REPO_URL }));
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("asks the desktop shell to open the repository in the browser", () => {
+    vi.mocked(isTauri).mockReturnValue(true);
+    renderI18n(<AboutPage engine={null} />);
+    const click = fireEvent.click(screen.getByRole("link", { name: REPO_URL }));
+    expect(click).toBe(false); // default prevented: the webview does not navigate
+    expect(invoke).toHaveBeenCalledWith("open_repository");
   });
 });

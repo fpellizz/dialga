@@ -1,9 +1,20 @@
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import type { MouseEvent } from "react";
 import dialgaUrl from "./assets/dialga.svg";
 import type { EngineInfo } from "./engine";
 import { useI18n } from "./i18n";
 
-// TODO: the real GitHub repository
-const REPO_URL = "https://github.com/TODO/dialga";
+// The public mirror of the Bitbucket repository (also REPOSITORY_URL in the
+// desktop shell, which opens it in the system browser).
+export const REPO_URL = "https://github.com/fpellizz/dialga";
+
+/** In the desktop app a link would not reach the browser: the shell opens it. */
+function openRepository(event: MouseEvent<HTMLAnchorElement>) {
+  if (isTauri()) {
+    event.preventDefault();
+    void invoke("open_repository");
+  }
+}
 
 /** The product, its versions, its author and where to find it. */
 export function AboutPage({ engine }: { engine: EngineInfo | null }) {
@@ -37,7 +48,7 @@ export function AboutPage({ engine }: { engine: EngineInfo | null }) {
           <dd>Fabio Pellizzaro</dd>
           <dt>{t("about.repository")}</dt>
           <dd>
-            <a href={REPO_URL} target="_blank" rel="noreferrer">
+            <a href={REPO_URL} target="_blank" rel="noreferrer" onClick={openRepository}>
               {REPO_URL}
             </a>
           </dd>
