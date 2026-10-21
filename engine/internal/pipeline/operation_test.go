@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/decisyon/dialga/engine/internal/jobs"
 	"github.com/decisyon/dialga/engine/internal/mssql"
@@ -41,11 +42,6 @@ func stepList(spec jobs.Spec) string {
 }
 
 func TestOperationSpecSteps(t *testing.T) {
-	env, rds, s3 := testEnv(t, testTarget)
-	s3.Put(testBucket, "import/sales.bak", []byte("x"), "")
-	rds.states["hr"] = "RESTORING"
-	rds.states["old"] = "ONLINE"
-	rds.tasks[7] = &mssql.Task{ID: 7, Type: "RESTORE_DB", Database: "old", Lifecycle: mssql.InProgress}
 	tests := []struct {
 		op     string
 		p      ops.Params
@@ -62,6 +58,13 @@ func TestOperationSpecSteps(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.op+"/"+tc.item, func(t *testing.T) {
+			// A fresh instance per case: the job started below changes it (the
+			// restore brings sales ONLINE), and the next case must not see that.
+			env, rds, s3 := testEnv(t, testTarget)
+			s3.Put(testBucket, "import/sales.bak", []byte("x"), "")
+			rds.states["hr"] = "RESTORING"
+			rds.states["old"] = "ONLINE"
+			rds.tasks[7] = &mssql.Task{ID: 7, Type: "RESTORE_DB", Database: "old", Lifecycle: mssql.InProgress}
 			prep := prepare(t, env, tc.op, tc.p)
 			spec, err := OperationSpec(env, prep, tc.noWait)
 			if err != nil {
@@ -75,8 +78,16 @@ func TestOperationSpecSteps(t *testing.T) {
 			if first := spec.Items[0].Steps[0]; first.Title() != prep.Plan.Actions[0].Title {
 				t.Fatalf("title %q, plan %q", first.Title(), prep.Plan.Actions[0].Title)
 			}
-			if _, err := jobs.New(jobs.Options{}).Start(spec); err != nil {
+			m := jobs.New(jobs.Options{})
+			job, err := m.Start(spec)
+			if err != nil {
 				t.Fatalf("the spec does not start: %v", err)
+			}
+			// The job must not outlive the case.
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if _, err := m.Wait(ctx, job.ID); err != nil {
+				t.Fatalf("the job does not end: %v", err)
 			}
 		})
 	}
