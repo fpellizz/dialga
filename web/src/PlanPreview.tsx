@@ -46,8 +46,8 @@ export function stepLabel(
     key: request.key ?? "",
     id: request.taskId ?? "",
   };
-  // The steps of a job are prefixed with the database: <db>/restore.
-  const id = s.step.slice(s.step.lastIndexOf("/") + 1);
+  // The steps of a job are prefixed with the database (<db>/restore); repeats have a "#n".
+  const id = s.step.slice(s.step.lastIndexOf("/") + 1).replace(/#[0-9]+$/, "");
   if (isAccessRequest(request)) {
     // "backup" is also the safety backup of a drop: not here. The actions
     // (add-role, create-user...) keep the engine's title, which names the role and the user.

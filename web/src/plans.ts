@@ -307,6 +307,18 @@ export function stepKeys(steps: readonly { step: string }[]): string[] {
   });
 }
 
+/**
+ * "swap" when the steps include the rename of the restored database, "drop"
+ * for a replace that drops first, "" otherwise: a job does not say it.
+ */
+export function replaceStrategy(ids: readonly string[]): string {
+  const plain = ids.map((id) => id.slice(id.lastIndexOf("/") + 1).replace(/#[0-9]+$/, ""));
+  if (plain.includes("rename-new")) {
+    return "swap";
+  }
+  return plain.includes("drop") && plain.includes("restore") ? "drop" : "";
+}
+
 /** The plan can run: no check failed, the values were not edited, the confirmation matches. */
 export function canExecute(preview: PlanPreview, typed: string, stale: boolean): boolean {
   return preview.ready && !stale && (!preview.confirmation || typed === preview.confirmation);

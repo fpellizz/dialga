@@ -46,6 +46,8 @@ export interface ExportItemRun {
   key: string;
   state: ItemState;
   step?: ItemStep;
+  /** How a restore replaces an existing database: "swap", "drop" or "" (not a replace). */
+  strategy?: string;
   /** The steps the engine reported: the backup, the wait, the download. */
   steps: StepEvent[];
   task?: Task;
