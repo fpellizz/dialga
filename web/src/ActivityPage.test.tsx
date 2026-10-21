@@ -28,11 +28,12 @@ function renderList(jobs: JobSummary[] | null, error = "", lang: "en" | "it" = "
 /** The detail asks for the targets (the protected ones need a confirmation to resume). */
 const NO_TARGETS = () => json({ configPath: CONFIG_PATH, targets: [] });
 
-function renderDetail() {
+function renderDetail(lang: "en" | "it" = "en") {
   window.location.hash = `#activity/${JOB_ID}`;
   const refresh = vi.fn();
   renderI18n(
     <ActivityPage engine={ENGINE} engineError="" jobs={{ jobs: [], error: "", refresh }} />,
+    lang,
   );
   return refresh;
 }
@@ -159,6 +160,61 @@ describe("ActivityPage list", () => {
 describe("ActivityPage detail", () => {
   afterEach(() => {
     Reflect.deleteProperty(window.navigator, "clipboard");
+  });
+
+  it("shows the steps of a swap in Italian and a plain restore as the engine titles them", async () => {
+    const swap = runningJob();
+    swap.items[0] = {
+      name: "sales",
+      state: "running",
+      step: "rename-old",
+      percent: 40,
+      task: { id: 7, type: "RESTORE_DB", lifecycle: "IN_PROGRESS", percent: 40 },
+      steps: [
+        {
+          id: "restore",
+          title: "Restore sales_tmp from s3://b/in/sales.bak (temporary name)",
+          status: "succeeded",
+        },
+        {
+          id: "rename-old",
+          title: "Rename sales to sales_old (the current database is kept)",
+          status: "running",
+        },
+        {
+          id: "rename-new",
+          title: "Rename sales_tmp to sales (the restored database takes its place)",
+          status: "pending",
+        },
+      ],
+    };
+    mockFetch({ [JOB]: () => json(swap), [EVENTS]: () => sseStream().response });
+    renderDetail("it");
+    const steps = await screen.findByRole("list", { name: "Passaggi di sales" });
+    expect(
+      within(steps)
+        .getAllByRole("listitem")
+        .map((li) => li.querySelector("span:nth-child(2)")?.textContent),
+    ).toEqual([
+      "Ripristina sales accanto a quello attuale (nome temporaneo)",
+      "Rinomina sales col nome vecchio (il database attuale resta)",
+      "Rinomina il database ripristinato in sales",
+    ]);
+    expect(
+      screen.getAllByText("Rinomina sales col nome vecchio (il database attuale resta)"),
+    ).toHaveLength(2);
+    expect(
+      screen.getByRole("progressbar", {
+        name: "sales: Rinomina sales col nome vecchio (il database attuale resta)",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the engine titles of a plain restore", async () => {
+    mockFetch({ [JOB]: () => json(runningJob()), [EVENTS]: () => sseStream().response });
+    renderDetail("it");
+    const steps = await screen.findByRole("list", { name: "Passaggi di sales" });
+    expect(within(steps).getByText("Restore sales")).toBeInTheDocument();
   });
 
   it("follows a running job live, then reads it once more at the end", async () => {

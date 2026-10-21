@@ -36,7 +36,8 @@ import {
   sortJobs,
 } from "./jobs";
 import { PasswordNeededBanner } from "./PasswordProvider";
-import { replaceStrategy, stepLabel } from "./PlanPreview";
+import { stepLabel } from "./PlanPreview";
+import { replaceStrategy } from "./plans";
 import type { JobList } from "./useJobs";
 
 const STATE_BADGE: Record<JobShownState, string> = {
@@ -1025,6 +1026,9 @@ export function jobStepTitle(t: Translate, step: JobStep, item: JobItem): string
   }
   // The key is only in the engine's title: "Restore db from s3://bucket/key (...)".
   const key = /\bfrom (s3:\/\/\S+)/.exec(step.title)?.[1] ?? "";
+  if (id === "restore" && strategy === "drop" && !key) {
+    return step.title;
+  }
   const event = { step: id, label: step.title, status: "ok" as const };
   return stepLabel(t, event, { database: item.name, key }, strategy);
 }

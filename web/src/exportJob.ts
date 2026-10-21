@@ -11,7 +11,7 @@ import { ApiError, failure, type StepEvent, type StepStatus, type Task } from ".
 import type { EngineInfo } from "./engine";
 import type { ExportItemRun, ItemState } from "./exportRun";
 import type { JobChecksum } from "./jobs";
-import type { ReplaceOutcomeInfo, ReplacePlan } from "./plans";
+import { type ReplaceOutcomeInfo, type ReplacePlan, replaceStrategy } from "./plans";
 import { createSseParser } from "./sse";
 
 export interface JobItemRequest {
@@ -351,6 +351,8 @@ export function mapJob(job: Job, plan: JobPlan, bucket?: string): ExportItemRun[
       key: planned?.key ?? "",
       state: ITEM_STATE[item.state] ?? "running",
       step: item.step === "download" ? "download" : "backup",
+      // The engine announces every step up front (pending ones too): the strategy is known from the start.
+      strategy: planned?.replace?.strategy || replaceStrategy(item.steps.map((s) => s.id)),
       steps: item.steps
         .filter((s) => s.status !== "pending")
         .map((s) => ({

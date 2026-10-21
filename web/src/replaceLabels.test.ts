@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 import { jobStepTitle } from "./ActivityPage";
 import { translate } from "./i18n";
 import type { JobItem, JobStep } from "./jobs";
-import { replaceStrategy, stepLabel } from "./PlanPreview";
+import { stepLabel } from "./PlanPreview";
+import { replaceStrategy } from "./plans";
 
 const it_ = translate("it");
 const en = translate("en");
@@ -67,6 +68,16 @@ describe("replace step labels", () => {
       "Attesa del task",
     ]);
     expect(jobStepTitle(en, step("drop#2", "x"), drop)).toBe("Drop database db");
+  });
+
+  it("matches a repeated id (#n) and keeps the title when the key is unknown", () => {
+    const drop = item(DROP);
+    const repeated = { ...step("wait#2", "Wait for the restore task") };
+    expect(jobStepTitle(it_, repeated, drop)).toBe("Attesa del task");
+    const stepEvent = { step: "wait#2", label: "x", status: "ok" as const };
+    expect(stepLabel(it_, stepEvent, { database: "db" })).toBe("Attesa del task");
+    const noKey = item([step("drop", "Drop database db"), step("restore", "Restore db")]);
+    expect(jobStepTitle(it_, noKey.steps[1], noKey)).toBe("Restore db");
   });
 
   it("keeps the engine title outside a replace", () => {

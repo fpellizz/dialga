@@ -26,7 +26,7 @@ import {
 } from "./importWizard";
 import type { InspectResult } from "./inspect";
 import { PlanDialog } from "./PlanDialog";
-import { PlanPreviewView, replaceStrategy, stepLabel } from "./PlanPreview";
+import { PlanPreviewView, stepLabel } from "./PlanPreview";
 import { type DatabaseReport, getDatabaseReport, type PlanPreview as Preview } from "./plans";
 import { ReplaceOutcome } from "./ReplaceOutcome";
 import { StepList } from "./StepList";
@@ -364,7 +364,7 @@ function UploadProgress({ item }: { item: ExportItemRun }) {
 /** The label of an import step: the replace steps in the user's language, the rest as the engine says. */
 function importStepLabel(t: Translate, s: StepEvent, item: ExportItemRun): string {
   const request = { database: item.database, key: item.key };
-  return stepLabel(t, s, request, replaceStrategy(item.steps.map((x) => x.step)));
+  return stepLabel(t, s, request, item.strategy ?? "");
 }
 
 /** 5. Each database of the job: its steps, the upload and the native task. */
