@@ -79,6 +79,18 @@ export function stepLabel(
   return key ? t(key) : s.label;
 }
 
+/**
+ * "swap" when the steps include the rename of the restored database, "drop"
+ * for a replace that drops first, "" otherwise: a job does not say it.
+ */
+export function replaceStrategy(ids: readonly string[]): string {
+  const plain = ids.map((id) => id.slice(id.lastIndexOf("/") + 1).replace(/#[0-9]+$/, ""));
+  if (plain.includes("rename-new")) {
+    return "swap";
+  }
+  return plain.includes("drop") && plain.includes("restore") ? "drop" : "";
+}
+
 /** Every failed check is one the caller expects: the plan is ready for it. */
 export function readyWith(preview: PlanPreview, pending: PendingChecks = {}): boolean {
   const failed = preview.checks.filter((c) => c.status === "failed");

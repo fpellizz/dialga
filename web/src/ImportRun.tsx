@@ -1,6 +1,6 @@
 import { ArrowLeft, Database, Play, RefreshCw, Square } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ApiError, errorText, type TargetSummary } from "./api";
+import { ApiError, errorText, type StepEvent, type TargetSummary } from "./api";
 import { databasesHref, formatBytes } from "./databases";
 import type { EngineInfo } from "./engine";
 import {
@@ -13,7 +13,7 @@ import {
 } from "./exportJob";
 import { type ExportItemRun, type ItemState, tally } from "./exportRun";
 import { ErrorBanner } from "./Feedback";
-import { type MessageKey, useI18n } from "./i18n";
+import { type MessageKey, type Translate, useI18n } from "./i18n";
 import {
   baseName,
   type Destination,
@@ -26,7 +26,7 @@ import {
 } from "./importWizard";
 import type { InspectResult } from "./inspect";
 import { PlanDialog } from "./PlanDialog";
-import { PlanPreviewView } from "./PlanPreview";
+import { PlanPreviewView, replaceStrategy, stepLabel } from "./PlanPreview";
 import { type DatabaseReport, getDatabaseReport, type PlanPreview as Preview } from "./plans";
 import { ReplaceOutcome } from "./ReplaceOutcome";
 import { StepList } from "./StepList";
@@ -361,6 +361,12 @@ function UploadProgress({ item }: { item: ExportItemRun }) {
   );
 }
 
+/** The label of an import step: the replace steps in the user's language, the rest as the engine says. */
+function importStepLabel(t: Translate, s: StepEvent, item: ExportItemRun): string {
+  const request = { database: item.database, key: item.key };
+  return stepLabel(t, s, request, replaceStrategy(item.steps.map((x) => x.step)));
+}
+
 /** 5. Each database of the job: its steps, the upload and the native task. */
 export function ImportProgress({
   run,
@@ -384,7 +390,9 @@ export function ImportProgress({
                 {t(`export.state.${item.state}`)}
               </span>
             </div>
-            {item.steps.length > 0 && <StepList steps={item.steps} />}
+            {item.steps.length > 0 && (
+              <StepList steps={item.steps} label={(s) => importStepLabel(t, s, item)} />
+            )}
             {item.transfer && item.state === "running" && !item.task && (
               <UploadProgress item={item} />
             )}
@@ -565,7 +573,9 @@ export function ImportResult({
                 </span>
               )}
             </div>
-            {item && item.steps.length > 0 && <StepList steps={item.steps} />}
+            {item && item.steps.length > 0 && (
+              <StepList steps={item.steps} label={(s) => importStepLabel(t, s, item)} />
+            )}
             {item?.error !== undefined && <ErrorBanner error={item.error} />}
           </section>
         );

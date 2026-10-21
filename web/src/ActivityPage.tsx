@@ -24,6 +24,7 @@ import {
   type JobRefusal,
   type JobShownState,
   type JobState,
+  type JobStep,
   type JobStepStatus,
   type JobSummary,
   lastSeq,
@@ -35,6 +36,7 @@ import {
   sortJobs,
 } from "./jobs";
 import { PasswordNeededBanner } from "./PasswordProvider";
+import { replaceStrategy, stepLabel } from "./PlanPreview";
 import type { JobList } from "./useJobs";
 
 const STATE_BADGE: Record<JobShownState, string> = {
@@ -995,6 +997,38 @@ function ResumeNeedsPanel({ job }: { job: Job }) {
   );
 }
 
+/** The steps only a replace has (a swap, a drop with or without a backup). */
+const REPLACE_STEPS = new Set([
+  "restore",
+  "wait",
+  "single-user",
+  "rename-old",
+  "rename-new",
+  "multi-user",
+  "multi-user-old",
+  "backup",
+  "wait-backup",
+  "drop",
+  "post",
+]);
+
+/**
+ * The title of a step: the steps of a replace in the user's language (the
+ * engine's title names the S3 key, the old name... in English), the rest as
+ * the engine says.
+ */
+export function jobStepTitle(t: Translate, step: JobStep, item: JobItem): string {
+  const strategy = replaceStrategy(item.steps.map((s) => s.id));
+  const id = step.id.slice(step.id.lastIndexOf("/") + 1).replace(/#[0-9]+$/, "");
+  if (!strategy || !REPLACE_STEPS.has(id)) {
+    return step.title;
+  }
+  // The key is only in the engine's title: "Restore db from s3://bucket/key (...)".
+  const key = /\bfrom (s3:\/\/\S+)/.exec(step.title)?.[1] ?? "";
+  const event = { step: id, label: step.title, status: "ok" as const };
+  return stepLabel(t, event, { database: item.name, key }, strategy);
+}
+
 function ItemCard({ item }: { item: JobItem }) {
   const { t, lang } = useI18n();
   const step = item.steps.find((s) => s.id === item.step);
@@ -1020,14 +1054,16 @@ function ItemCard({ item }: { item: JobItem }) {
       <div className="job-item-head">
         <span className="mono job-item-name">{item.name}</span>
         <span className={`badge ${STATE_BADGE[item.state]}`}>{t(`jobState.${item.state}`)}</span>
-        {isJobActive(item.state) && step && <span className="muted">{step.title}</span>}
+        {isJobActive(item.state) && step && (
+          <span className="muted">{jobStepTitle(t, step, item)}</span>
+        )}
       </div>
       {progress && (
         <>
           <div
             className="progress"
             role="progressbar"
-            aria-label={`${item.name}: ${step?.title ?? ""}`}
+            aria-label={`${item.name}: ${step ? jobStepTitle(t, step, item) : ""}`}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={item.percent}
@@ -1046,7 +1082,7 @@ function ItemCard({ item }: { item: JobItem }) {
         {item.steps.map((s) => (
           <li key={s.id} className="job-step">
             <span className={`badge ${STEP_BADGE[s.status]}`}>{t(`jobStep.${s.status}`)}</span>
-            <span>{s.title}</span>
+            <span>{jobStepTitle(t, s, item)}</span>
             {s.detail && <span className="muted job-step-detail">{s.detail}</span>}
           </li>
         ))}
