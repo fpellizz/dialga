@@ -9,6 +9,18 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ## [Non rilasciato]
 
+## [0.7.2] - 2026-10-21
+
+### Corretto
+
+- I passi della sostituzione di un database esistente (swap, drop, backup
+  preventivo) seguono la lingua dell'interfaccia: nell'avanzamento e nel
+  riepilogo dell'import e nel dettaglio di Attività comparivano i titoli
+  inglesi dell'engine. La strategia è nota dal primo passo, anche quando i
+  passi successivi sono ancora in attesa.
+- Il test `TestOperationSpecSteps` non fallisce più a caso sui runner lenti:
+  ogni caso usa una propria istanza finta e aspetta la fine del suo job.
+
 ## [0.7.1] - 2026-10-20
 
 ### Corretto
