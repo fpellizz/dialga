@@ -66,6 +66,10 @@ export function doneText(
       });
     case "fix-orphan":
       return t("plan.done.fixOrphan", { user: request.user ?? "", database });
+    case "set-collation":
+      return t("plan.done.setCollation", { database, collation: request.collation ?? "" });
+    case "convert-columns":
+      return t("plan.done.convertColumns", { database, collation: request.collation ?? "" });
   }
 }
 
@@ -216,7 +220,7 @@ export function PlanRunView({
           <span className="banner-text">{n}</span>
         </div>
       ))}
-      <StepList steps={run.steps} label={(s) => stepLabel(t, s, request, strategy)} />
+      <StepList steps={run.steps} label={(s) => stepLabel(t, s, request, strategy, operation)} />
       {run.task && <TaskProgress task={run.task} />}
       {run.status === "running" && run.jobId && <p className="hint">{t("plan.keepsRunning")}</p>}
       {run.status === "running" && !run.jobId && run.task && isActive(run.task) && (

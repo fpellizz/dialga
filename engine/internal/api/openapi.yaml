@@ -343,7 +343,7 @@ paths:
         - name: operation
           in: path
           required: true
-          schema: { type: string, enum: [restore, export, finish, cancel, drop, grant, revoke, fix-orphan] }
+          schema: { type: string, enum: [restore, export, finish, cancel, drop, grant, revoke, fix-orphan, set-collation, convert-columns] }
       requestBody:
         required: true
         content:
@@ -356,7 +356,7 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/PlanPreview" }
         "400":
-          description: Invalid body or parameters (database name, S3 key, task id).
+          description: Invalid body or parameters (database name, S3 key, task id, login, collation, tables).
           content:
             text/plain:
               schema: { type: string }
@@ -403,7 +403,7 @@ paths:
         - name: operation
           in: path
           required: true
-          schema: { type: string, enum: [restore, export, finish, cancel, drop, grant, revoke, fix-orphan] }
+          schema: { type: string, enum: [restore, export, finish, cancel, drop, grant, revoke, fix-orphan, set-collation, convert-columns] }
       requestBody:
         required: true
         content:
@@ -416,7 +416,7 @@ paths:
             text/event-stream:
               schema: { type: string }
         "400":
-          description: Invalid body or parameters (database name, S3 key, task id).
+          description: Invalid body or parameters (database name, S3 key, task id, login, collation, tables).
           content:
             text/plain:
               schema: { type: string }
@@ -557,6 +557,132 @@ paths:
         "428": { $ref: "#/components/responses/PasswordNeeded" }
         "502":
           description: AWS or SQL Server did not answer (credentials, tunnel, login, database not online).
+          content:
+            text/plain:
+              schema: { type: string }
+  /api/v1/targets/{name}/collation:
+    get:
+      summary: The collations of a target (read-only)
+      description: |
+        The collation of the server (fixed when the RDS instance is created:
+        serverFixed is always true on RDS), that of tempdb (always the
+        server's, so every #temp table has it) and the default collation of
+        each user database, flagged when it differs from the server's
+        (mismatchServer) and when its #temp tables compare with another
+        collation (tempTableRisk: not the tempdb collation and not a
+        contained database, "Cannot resolve the collation conflict", Msg
+        468). A read-only view: it leaves no job.
+      parameters:
+        - $ref: "#/components/parameters/TargetName"
+      responses:
+        "200":
+          description: The overview.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CollationOverview" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "422":
+          description: The password source (environment variable, Secrets Manager) gave no password.
+          content:
+            text/plain:
+              schema: { type: string }
+        "428": { $ref: "#/components/responses/PasswordNeeded" }
+        "502":
+          description: AWS or SQL Server did not answer (credentials, tunnel, login).
+          content:
+            text/plain:
+              schema: { type: string }
+  /api/v1/targets/{name}/collations:
+    get:
+      summary: The collations the instance knows (read-only)
+      description: |
+        sys.fn_helpcollations with the code page, the version and the traits
+        of each collation (case, accent, kana, width sensitivity, binary,
+        UTF-8, legacy SQL_ collations), by name: about 5,500 of them. A
+        read-only view: it leaves no job.
+      parameters:
+        - $ref: "#/components/parameters/TargetName"
+        - name: q
+          in: query
+          required: false
+          description: Only the collations whose name contains this text, ignoring case.
+          schema: { type: string, maxLength: 128 }
+      responses:
+        "200":
+          description: The collations, by name.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CollationList" }
+        "400":
+          description: Invalid q.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "409": { $ref: "#/components/responses/NoConfiguration" }
+        "422":
+          description: The password source (environment variable, Secrets Manager) gave no password.
+          content:
+            text/plain:
+              schema: { type: string }
+        "428": { $ref: "#/components/responses/PasswordNeeded" }
+        "502":
+          description: AWS or SQL Server did not answer (credentials, tunnel, login).
+          content:
+            text/plain:
+              schema: { type: string }
+  /api/v1/targets/{name}/databases/{db}/collation:
+    get:
+      summary: The collations of a database (read-only)
+      description: |
+        The default collation of the database beside those of the server and
+        tempdb, the collations its columns use (groups, with the number of
+        columns and tables) and the columns whose collation is not the
+        default of the database (at most 2000: truncated says there were
+        more), each with the reason convert-columns would leave it as it is
+        (unsupported). A read-only view: it leaves no job.
+      parameters:
+        - $ref: "#/components/parameters/TargetName"
+        - name: db
+          in: path
+          required: true
+          schema: { type: string, pattern: "^[A-Za-z0-9_][A-Za-z0-9_-]{0,99}$" }
+      responses:
+        "200":
+          description: The collations of the database.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DatabaseCollationView" }
+        "400":
+          description: Invalid database name.
+          content:
+            text/plain:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404":
+          description: Unknown target, or no such database on the instance.
+          content:
+            text/plain:
+              schema: { type: string }
+        "409":
+          description: The configuration file is missing or invalid, or the database is not online.
+          content:
+            text/plain:
+              schema: { type: string }
+        "422":
+          description: The password source (environment variable, Secrets Manager) gave no password.
+          content:
+            text/plain:
+              schema: { type: string }
+        "428": { $ref: "#/components/responses/PasswordNeeded" }
+        "502":
+          description: AWS or SQL Server did not answer (credentials, tunnel, login).
           content:
             text/plain:
               schema: { type: string }
@@ -1541,7 +1667,9 @@ components:
         target prefix, s3://<bucket>/<key> must name the target bucket.
         Database access: database with login, level, backup and createLogin
         (grant), login and remove (revoke), user and optionally login
-        (fix-orphan).
+        (fix-orphan). Collations: database with collation (set-collation),
+        database with optionally collation, tables and skipDataChecks
+        (convert-columns).
       properties:
         database: { type: string, pattern: "^[A-Za-z0-9_][A-Za-z0-9_-]{0,99}$" }
         key: { type: string }
@@ -1557,6 +1685,13 @@ components:
         backup: { type: boolean, description: 'grant - also let the login back the database up: db_backupoperator here, a user in msdb with EXECUTE on rds_backup_database and rds_task_status and SELECT on rds_fn_task_status.' }
         createLogin: { type: boolean, description: grant - the login does not exist and is created (CREATE LOGIN with CHECK_POLICY ON); the plan shows its password as ****. }
         remove: { type: string, enum: [level, backup, user], description: 'revoke - level takes the user out of db_datareader, db_datawriter and db_owner; backup takes it out of db_backupoperator (and revokes the msdb grants when no other database lets that login back up); user drops the user from the database (destructive, asks to retype the login), and its msdb grants as for backup. The login always stays.' }
+        collation: { type: string, pattern: "^[A-Za-z][A-Za-z0-9_]{0,127}$", description: 'set-collation - the new default collation of the database (required); convert-columns - the collation the columns get ("" or absent = the default collation of the database; the preview request carries the one resolved, send it back). A name of GET .../collations.' }
+        tables:
+          type: array
+          maxItems: 200
+          description: convert-columns - only these tables (and those linked to them by foreign keys); absent = every table of the database.
+          items: { $ref: "#/components/schemas/TableRef" }
+        skipDataChecks: { type: boolean, description: 'convert-columns - skip the data checks (values that would collide in a unique key, references a foreign key would lose, characters the code page of the new collation cannot hold): a single warning instead.' }
     ExecuteRequest:
       type: object
       description: The parameters of the preview (send back its request), plus how to run it.
@@ -1575,6 +1710,13 @@ components:
         backup: { type: boolean, description: 'grant - also let the login back the database up: db_backupoperator here, a user in msdb with EXECUTE on rds_backup_database and rds_task_status and SELECT on rds_fn_task_status.' }
         createLogin: { type: boolean, description: grant - the login does not exist and is created (CREATE LOGIN with CHECK_POLICY ON); the plan shows its password as ****. }
         remove: { type: string, enum: [level, backup, user], description: 'revoke - level takes the user out of db_datareader, db_datawriter and db_owner; backup takes it out of db_backupoperator (and revokes the msdb grants when no other database lets that login back up); user drops the user from the database (destructive, asks to retype the login), and its msdb grants as for backup. The login always stays.' }
+        collation: { type: string, pattern: "^[A-Za-z][A-Za-z0-9_]{0,127}$", description: 'set-collation - the new default collation of the database (required); convert-columns - the collation the columns get ("" or absent = the default collation of the database; the preview request carries the one resolved, send it back). A name of GET .../collations.' }
+        tables:
+          type: array
+          maxItems: 200
+          description: convert-columns - only these tables (and those linked to them by foreign keys); absent = every table of the database.
+          items: { $ref: "#/components/schemas/TableRef" }
+        skipDataChecks: { type: boolean, description: 'convert-columns - skip the data checks (values that would collide in a unique key, references a foreign key would lose, characters the code page of the new collation cannot hold): a single warning instead.' }
         loginPassword: { type: string, writeOnly: true, minLength: 12, maxLength: 128, description: 'grant with createLogin - the password of the new login. Execute only: never in a preview, a plan, an event, the journal or a log; the statement shown has ****. At least 12 characters from three of upper case, lower case, digits and symbols (SQL Server checks its own policy too: a refusal fails the action, nothing after it runs).' }
         confirm: { type: string, description: The confirmation of the preview, retyped by the user. }
         digest: { type: string, description: The digest of the preview; when set, a different plan is refused (412). }
@@ -1594,6 +1736,7 @@ components:
         preview: { type: string, description: The dry-run text, as the CLI prints it. }
         request: { $ref: "#/components/schemas/PlanRequest" }
         replace: { $ref: "#/components/schemas/Replacement" }
+        collation: { $ref: "#/components/schemas/CollationPlan" }
     ReplaceOutcome:
       type: object
       description: What a restore over an existing database did or kept, as far as it got (also on jobs.Item as replace).
@@ -1632,7 +1775,7 @@ components:
         error: { type: string }
         jobId: { type: string, description: The job the operation ran as (Activity). }
         task: { $ref: "#/components/schemas/Task" }
-        result: { type: string, description: What a replace kept - the old database or the safety backup. }
+        result: { type: string, description: "What a replace kept - the old database or the safety backup. For a ready plan with no action (nothing to do) it says so: no job is started, so jobId is absent." }
         replace: { $ref: "#/components/schemas/ReplaceOutcome" }
     DatabaseInfo:
       type: object
@@ -1810,7 +1953,7 @@ components:
         kind: { type: string, enum: [import, export, operation] }
         operation:
           type: string
-          enum: [restore, export, drop, finish, cancel, post]
+          enum: [restore, export, drop, finish, cancel, post, grant, revoke, fix-orphan, set-collation, convert-columns]
           description: The native operation of a job of kind operation; absent for import and export.
         origin:
           type: string
@@ -1838,7 +1981,7 @@ components:
         kind: { type: string, enum: [import, export, operation] }
         operation:
           type: string
-          enum: [restore, export, drop, finish, cancel, post]
+          enum: [restore, export, drop, finish, cancel, post, grant, revoke, fix-orphan, set-collation, convert-columns]
           description: The native operation of a job of kind operation; absent for import and export.
         origin:
           type: string
@@ -2190,3 +2333,136 @@ components:
       properties:
         reason: { type: string }
         plan: { $ref: "#/components/schemas/JobPlan" }
+    TableRef:
+      type: object
+      description: A user table.
+      required: [schema, name]
+      properties:
+        schema: { type: string, minLength: 1, maxLength: 128 }
+        name: { type: string, minLength: 1, maxLength: 128 }
+    CollationInfo:
+      type: object
+      description: A collation of the instance (sys.fn_helpcollations).
+      required: [name, description, codePage, version, caseSensitive, accentSensitive, kanaSensitive, widthSensitive, binary, utf8, legacy]
+      properties:
+        name: { type: string }
+        description: { type: string }
+        codePage: { type: integer, description: The code page of char and varchar; 0 = Unicode only. }
+        version: { type: integer, description: "COLLATIONPROPERTY 'Version' (0 to 3)." }
+        caseSensitive: { type: boolean }
+        accentSensitive: { type: boolean }
+        kanaSensitive: { type: boolean }
+        widthSensitive: { type: boolean }
+        binary: { type: boolean, description: A _BIN or _BIN2 collation. }
+        utf8: { type: boolean, description: A _UTF8 collation (varchar holds UTF-8). }
+        legacy: { type: boolean, description: A SQL Server collation (SQL_...), kept for compatibility. }
+    CollationList:
+      type: object
+      required: [collations]
+      properties:
+        collations:
+          type: array
+          items: { $ref: "#/components/schemas/CollationInfo" }
+    DatabaseCollationSummary:
+      type: object
+      description: A user database in the collation overview.
+      required: [name, state, containment, mismatchServer, tempTableRisk]
+      properties:
+        name: { type: string }
+        state: { type: string, description: state_desc (ONLINE, RESTORING...). }
+        collation: { type: string, description: The default collation; absent when the database is not online. }
+        containment: { type: string, enum: [NONE, PARTIAL] }
+        mismatchServer: { type: boolean, description: The default collation is not the server's. }
+        tempTableRisk: { type: boolean, description: 'Not the tempdb collation and not a contained database: #temp tables compare with another collation (Msg 468) unless they use COLLATE DATABASE_DEFAULT.' }
+    CollationOverview:
+      type: object
+      required: [target, instance, server, tempdb, serverFixed, databases]
+      properties:
+        target: { type: string }
+        instance: { type: string }
+        server: { type: string, description: "SERVERPROPERTY('Collation')." }
+        tempdb: { type: string, description: The collation of tempdb (the server's). }
+        serverFixed: { type: boolean, description: 'The server collation cannot be changed: always true on RDS (it is chosen when the instance is created; changing it means a new instance).' }
+        databases:
+          type: array
+          items: { $ref: "#/components/schemas/DatabaseCollationSummary" }
+    CollationGroup:
+      type: object
+      description: The columns of a database with one collation.
+      required: [collation, default, columns, tables, codePage]
+      properties:
+        collation: { type: string }
+        default: { type: boolean, description: The default collation of the database. }
+        columns: { type: integer }
+        tables: { type: integer }
+        codePage: { type: integer, description: 0 = Unicode only. }
+    CollationColumn:
+      type: object
+      description: A column of a user table that has a collation.
+      required: [schema, table, column, type, baseType, maxLength, nullable, collation]
+      properties:
+        schema: { type: string }
+        table: { type: string }
+        column: { type: string }
+        type: { type: string, description: 'char, varchar, nchar, nvarchar, text, ntext, sysname, or the name of an alias type.' }
+        baseType: { type: string, description: The system type under it. }
+        maxLength: { type: integer, description: 'sys.columns.max_length: bytes, -1 = max.' }
+        nullable: { type: boolean }
+        collation: { type: string }
+        computed: { type: boolean }
+        sparse: { type: boolean, description: Sparse column or column set. }
+        aliasType: { type: boolean, description: A user-defined alias type. }
+        encrypted: { type: boolean, description: Always Encrypted. }
+        unsupported: { type: string, description: Why convert-columns never touches it (computed, text/ntext, alias type, sparse, Always Encrypted); absent when it can be converted. }
+    DatabaseCollationView:
+      type: object
+      required: [target, instance, database, collation, server, tempdb, containment, mismatchServer, tempTableRisk, charColumns, groups, columns, truncated]
+      properties:
+        target: { type: string }
+        instance: { type: string }
+        database: { type: string }
+        collation: { type: string, description: The default collation of the database. }
+        server: { type: string }
+        tempdb: { type: string }
+        containment: { type: string, enum: [NONE, PARTIAL] }
+        mismatchServer: { type: boolean }
+        tempTableRisk: { type: boolean }
+        charColumns: { type: integer, description: The columns with a collation. }
+        groups:
+          type: array
+          items: { $ref: "#/components/schemas/CollationGroup" }
+        columns:
+          type: array
+          description: The columns whose collation is not the default of the database, at most 2000.
+          items: { $ref: "#/components/schemas/CollationColumn" }
+        truncated: { type: boolean, description: There were more than 2000 such columns. }
+    RefusedTable:
+      type: object
+      description: A table convert-columns leaves as it is, and why.
+      required: [schema, name, reason]
+      properties:
+        schema: { type: string }
+        name: { type: string }
+        reason: { type: string }
+    CollationPlan:
+      type: object
+      description: |
+        The summary of a collation plan. set-collation - database, from and
+        to. convert-columns - to and what it rebuilds: units (sets of tables
+        linked by foreign keys, one transaction each), tables, columns,
+        indexes, foreign keys, the size of the tables (dataMB) and the
+        tables it refuses.
+      required: [database, to, units, tables, columns, indexes, foreignKeys, dataMB]
+      properties:
+        database: { type: string }
+        from: { type: string, description: set-collation - the default collation of the database when planned. }
+        to: { type: string }
+        units: { type: integer }
+        tables: { type: integer }
+        columns: { type: integer }
+        indexes: { type: integer }
+        foreignKeys: { type: integer }
+        dataMB: { type: number }
+        refused:
+          type: array
+          items: { $ref: "#/components/schemas/RefusedTable" }

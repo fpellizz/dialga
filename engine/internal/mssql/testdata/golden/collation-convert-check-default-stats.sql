@@ -1,0 +1,20 @@
+USE [golden_db];
+SET XACT_ABORT ON;
+SET LOCK_TIMEOUT 30000;
+BEGIN TRY
+BEGIN TRANSACTION;
+ALTER TABLE [dbo].[accounts] DROP CONSTRAINT [CK_accounts_status];
+ALTER TABLE [dbo].[accounts] DROP CONSTRAINT [DF_accounts_status];
+DROP STATISTICS [dbo].[accounts].[_WA_Sys_00000002_0EA330E9];
+DROP STATISTICS [dbo].[accounts].[st_accounts_region];
+ALTER TABLE [dbo].[accounts] ALTER COLUMN [status] varchar(10) COLLATE Latin1_General_100_CS_AS NOT NULL;
+ALTER TABLE [dbo].[accounts] ALTER COLUMN [region] nchar(2) COLLATE Latin1_General_100_CS_AS NULL;
+CREATE STATISTICS [st_accounts_region] ON [dbo].[accounts] ([region], [status]) WHERE ([region] IS NOT NULL) WITH NORECOMPUTE;
+ALTER TABLE [dbo].[accounts] ADD CONSTRAINT [DF_accounts_status] DEFAULT ('open') FOR [status];
+ALTER TABLE [dbo].[accounts] WITH CHECK ADD CONSTRAINT [CK_accounts_status] CHECK ([status]='closed' OR [status]='open');
+COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+THROW;
+END CATCH;

@@ -5,6 +5,7 @@ import {
   cleanRequest,
   executePlan,
   getDatabaseReport,
+  isCollationOperation,
   planHint,
   planStepKey,
   previewPlan,
@@ -102,6 +103,14 @@ describe("plan helpers", () => {
     expect(canExecute(DROP_PREVIEW, "sales", true)).toBe(false);
     expect(canExecute({ ...DROP_PREVIEW, ready: false }, "sales", false)).toBe(false);
     expect(canExecute({ ...DROP_PREVIEW, confirmation: undefined }, "", false)).toBe(true);
+    // A plan without actions has nothing to run.
+    expect(
+      canExecute(
+        { ...DROP_PREVIEW, plan: { ...DROP_PREVIEW.plan, actions: [] }, confirmation: undefined },
+        "",
+        false,
+      ),
+    ).toBe(false);
   });
 
   it("compares requests without blanks and empty fields", () => {
@@ -153,5 +162,47 @@ describe("replaceOutcome", () => {
         backupKey: "p/sales_before_replace_9.bak",
       }),
     ).toEqual({ kept: "sales_old_9", backup: "s3://b/p/sales_before_replace_9.bak" });
+  });
+});
+
+describe("collation requests", () => {
+  it("keeps the collation, the tables and the data checks, and drops the empty ones", () => {
+    expect(
+      cleanRequest({
+        database: " sales ",
+        collation: " Latin1_General_100_CS_AS ",
+        tables: [],
+        skipDataChecks: false,
+      }),
+    ).toEqual({ database: "sales", collation: "Latin1_General_100_CS_AS" });
+    expect(
+      cleanRequest({
+        database: "sales",
+        tables: [{ schema: "dbo", name: "t" }],
+        skipDataChecks: true,
+      }),
+    ).toEqual({ database: "sales", tables: [{ schema: "dbo", name: "t" }], skipDataChecks: true });
+  });
+
+  it("compares the tables ignoring their order", () => {
+    const a = { schema: "dbo", name: "a" };
+    const b = { schema: "dbo", name: "b" };
+    expect(sameRequest({ database: "x", tables: [a, b] }, { database: "x", tables: [b, a] })).toBe(
+      true,
+    );
+    expect(sameRequest({ database: "x", tables: [a] }, { database: "x", tables: [a, b] })).toBe(
+      false,
+    );
+    expect(sameRequest({ database: "x", tables: [a] }, { database: "x" })).toBe(false);
+    expect(sameRequest({ database: "x", skipDataChecks: true }, { database: "x" })).toBe(false);
+    expect(
+      sameRequest({ database: "x", collation: "A_CI_AS" }, { database: "x", collation: "a_ci_as" }),
+    ).toBe(true);
+  });
+
+  it("knows the operations that change collations", () => {
+    expect(isCollationOperation("set-collation")).toBe(true);
+    expect(isCollationOperation("convert-columns")).toBe(true);
+    expect(isCollationOperation("drop")).toBe(false);
   });
 });

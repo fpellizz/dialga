@@ -35,6 +35,7 @@ func catalogServer(t *testing.T) *sql.DB {
 	}
 	u := url.URL{Scheme: "sqlserver", User: url.UserPassword("sa", password), Host: addr,
 		RawQuery: url.Values{"database": {"master"}, "encrypt": {"disable"}}.Encode()}
+	catalogURL = u
 	db, err := sql.Open("sqlserver", u.String())
 	if err != nil {
 		t.Fatal(err)
@@ -51,6 +52,10 @@ func catalogServer(t *testing.T) *sql.DB {
 	}
 	return db
 }
+
+// catalogURL is the sa URL of the last catalogServer: a test logs in as
+// another login on the same server with it.
+var catalogURL url.URL
 
 func execAll(t *testing.T, db *sql.DB, statements ...string) {
 	t.Helper()

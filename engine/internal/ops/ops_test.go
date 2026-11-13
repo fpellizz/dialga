@@ -12,11 +12,14 @@ import (
 	"github.com/decisyon/dialga/engine/internal/config"
 	"github.com/decisyon/dialga/engine/internal/core"
 	"github.com/decisyon/dialga/engine/internal/mssql"
+	"github.com/decisyon/dialga/engine/internal/ops/opstest"
 )
 
 // fakeSQL is an instance in memory: database states, tasks, and the
 // statements run against it.
 type fakeSQL struct {
+	// the collation reads: none, unless a test overrides them
+	opstest.NoCollation
 	states map[string]string
 	active map[string]int // by database, "" for all
 	// sessions are the other sessions in a database

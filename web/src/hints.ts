@@ -54,6 +54,15 @@ const RULES: { test: RegExp; hint: (m: RegExpMatchArray) => Hint }[] = [
   { test: /bucket is in another region/, hint: () => ({ key: "hint.bucketRegion" }) },
   { test: /bucket not found|NoSuchBucket/, hint: () => ({ key: "hint.bucket" }) },
   {
+    test: /is dependent on database collation/i,
+    hint: () => ({ key: "hint.collationDependent" }),
+  },
+  { test: /lock request time out/i, hint: () => ({ key: "hint.lockTimeout" }) },
+  {
+    test: /SINGLE_USER is not allowed on a Multi-AZ/i,
+    hint: () => ({ key: "hint.multiAz" }),
+  },
+  {
     test: /access ?denied|not authorized|UnauthorizedOperation/i,
     hint: () => ({ key: "hint.permission" }),
   },

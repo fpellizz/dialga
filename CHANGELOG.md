@@ -9,6 +9,18 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ## [Non rilasciato]
 
+### Aggiunto
+
+- Gestione delle collation, in sola lettura: `dialga collation show`, `db [--columns]` e `list [--filter]` e rotte `GET /api/v1/targets/{name}/collation`, `…/collations`, `…/databases/{db}/collation`. Mostrano collation del server (fissa su RDS) e di tempdb, quella di ogni database, le colonne raggruppate per collation, i database diversi dal server e quelli a rischio con le tabelle temporanee (`Msg 468`).
+- `dialga collation set <db> <collation>`: cambia la collation di default di un database (`ALTER DATABASE … COLLATE`) come piano con anteprima e job. Controlli preliminari su oggetti che dipendono dalla collation (viste e funzioni `SCHEMABINDING`, `CHECK`, colonne calcolate, funzioni a tabella), nomi che collidono, permessi, Multi-AZ (rifiutato), task nativi in corso e sessioni attive (disconnesse). Il database torna `MULTI_USER` anche in caso di errore.
+- `dialga collation convert <db> [--to] [--table] [--skip-data-checks]`: converte le colonne `char`/`varchar`/`nchar`/`nvarchar` a una collation. Le tabelle legate da chiavi esterne si convertono insieme in una transazione per unità (`LOCK_TIMEOUT` 30 s); indici, vincoli, statistiche e proprietà estese vengono ricreati con le stesse opzioni. Tabelle non supportate rifiutate con il motivo; controlli sui dati (unicità, riferimenti, code page); massimo 200 tabelle per piano; job riprendibile da Activity.
+- App: finestra *Collation…* nel menu azioni di Databases (viste, *Change default collation…*, *Convert columns…*, *Convert the columns (N)…* dopo un cambio del default), colonna *Collation* ordinabile, selettore delle collation con ricerca, *Show collation* nelle schede di Instances.
+- `convert` ripianifica ogni unità dal catalogo vivo prima di eseguirla («the tables changed since the plan: nothing done, preview again»), la esegue in `TRY/CATCH` (rollback totale) e rifiuta le tabelle con change tracking sulla PK, i filtri non leggibili; avvisa delle opzioni non conservate (*Options not kept*) e controlla i nomi. Un piano senza azioni non crea job: «Nothing to do», exit 0; nell'app Esegui è disabilitato.
+- Il rilevamento Multi-AZ non richiede più `VIEW SERVER STATE`; `set` non riapre un database `SINGLE_USER` che non ha lasciato lui così.
+- App: l'elenco tabelle di *Convert columns…* mostra le tabelle con colonne fuori dal default (disabilitate quelle non supportate, con il motivo); il selettore indica «Showing 100 of N»; il filtro di Databases cerca anche nella collation.
+- Documentazione: sezioni «Collation» in `docs/guida-utente.md` (§5.16, §6.4, §7.10).
+- Non ancora provato su RDS reale: permessi del master user, `ALTER DATABASE … COLLATE` e `SINGLE_USER`, rifiuto Multi-AZ (`TODO: confermare`).
+
 ## [0.7.2] - 2026-10-21
 
 ### Corretto

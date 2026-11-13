@@ -2163,3 +2163,74 @@ a.btn {
   align-items: center;
   gap: 12px;
 }
+
+/* Collation: the dialog, the summary in the instance card, the picker and the plan fields */
+.collation-dialog {
+  width: min(960px, calc(100vw - 32px));
+}
+.collation-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 32px;
+  margin: 0 0 12px;
+}
+.collation-facts dt {
+  font-size: 12px;
+  color: var(--muted-foreground);
+}
+.collation-facts dd {
+  margin: 0;
+}
+.db-table.collation-columns td,
+.db-table.collation-columns th {
+  overflow-wrap: anywhere;
+}
+.collation-filter {
+  margin-bottom: 8px;
+}
+.collation-summary {
+  margin: 4px 0 8px;
+}
+.collation-stats dd {
+  overflow-wrap: anywhere;
+}
+.collation-list .combo-option {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+.collation-traits {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+.collation-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.collation-tables {
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.collation-warning {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 0;
+  color: var(--tone-warning);
+  font-size: 13px;
+}
+.collation-plan-line {
+  margin: 4px 0;
+}
+.collation-refused {
+  margin: 4px 0 12px;
+  padding-left: 20px;
+}

@@ -39,6 +39,22 @@ func TestStatementsMatchMssqlImport(t *testing.T) {
 		{"access-drop-user.sql", DropUser("golden_db", "golden_user")},
 		{"access-backup-grants.sql", BackupGrants("golden_user")},
 		{"access-backup-revokes.sql", BackupRevokes("golden_user")},
+		// Collation of a database: written by hand too.
+		{"collation-set-database.sql", SetDatabaseCollation("golden_db", "Latin1_General_100_CI_AS")},
+		{"collation-set-database-quote.sql", SetDatabaseCollation("o-neil_db", "Latin1_General_100_CI_AS")},
+		{"collation-multi-user-if-single.sql", MultiUserIfSingle("golden_db")},
+		// Collation conversions (work package C): written by hand, checked
+		// against SQL Server by the integration tests.
+		{"collation-convert-simple.sql", ConvertUnit(goldenConvertSimple())},
+		{"collation-convert-pk-fk.sql", ConvertUnit(goldenConvertPKFK())},
+		{"collation-convert-index-options.sql", ConvertUnit(goldenConvertIndexOptions())},
+		{"collation-convert-check-default-stats.sql", ConvertUnit(goldenConvertCheckDefaultStats())},
+		{"collation-convert-nocheck.sql", ConvertUnit(goldenConvertNocheck())},
+		{"collation-convert-quote.sql", ConvertUnit(goldenConvertQuote())},
+		{"collation-convert-extended-properties.sql", ConvertUnit(goldenConvertExtendedProperties())},
+		{"collation-check-duplicates.sql", goldenDuplicates()},
+		{"collation-check-orphans.sql", goldenOrphans()},
+		{"collation-check-codepage.sql", goldenCodePage()},
 	}
 	for _, tc := range tests {
 		t.Run(tc.golden, func(t *testing.T) {

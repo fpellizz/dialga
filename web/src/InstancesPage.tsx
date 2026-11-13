@@ -18,6 +18,7 @@ import {
   type TargetList,
   type TargetSummary,
 } from "./api";
+import { CollationSummary } from "./CollationSummary";
 import type { EngineInfo } from "./engine";
 import { ErrorBanner, HintText } from "./Feedback";
 import { importHref } from "./ImportPage";
@@ -279,6 +280,8 @@ function TargetCard({ engine, target }: { engine: EngineInfo; target: TargetSumm
       {target.connectMode === "tunnel" && <TunnelIndicator engine={engine} target={target.name} />}
 
       <OverviewStrip engine={engine} target={target.name} />
+
+      <CollationSummary engine={engine} target={target.name} />
 
       <div className="actions">
         <a

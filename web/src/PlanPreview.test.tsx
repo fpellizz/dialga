@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { PlanPreviewView, readyWith } from "./PlanPreview";
 import type { PlanPreview } from "./plans";
+import { CONVERT_PREVIEW, SET_COLLATION_PREVIEW } from "./test/collation";
 import { renderI18n } from "./test/fixtures";
 import { DROP_PREVIEW, RESTORE_PREVIEW } from "./test/plans";
 
@@ -64,5 +65,38 @@ describe("PlanPreviewView", () => {
     await userEvent.type(input, "s{Enter}");
     expect(onConfirmChange).toHaveBeenLastCalledWith("sales");
     expect(onSubmit).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("PlanPreviewView, collation checks", () => {
+  const extra = [
+    { step: "data-checks", label: "engine", status: "ok" as const, detail: "skipped by request" },
+    { step: "storage", label: "engine", status: "ok" as const, detail: "enough space" },
+    { step: "columns", label: "engine", status: "ok" as const, detail: "2 to convert" },
+  ];
+
+  it("labels the data checks, the free space and the columns to convert", () => {
+    renderI18n(
+      <PlanPreviewView
+        preview={{ ...CONVERT_PREVIEW, checks: extra }}
+        confirm=""
+        onConfirmChange={() => {}}
+      />,
+    );
+    expect(screen.getByText("Data checks")).toBeInTheDocument();
+    expect(screen.getByText("Free space")).toBeInTheDocument();
+    expect(screen.getByText("Columns to convert")).toBeInTheDocument();
+    expect(screen.queryByText("Existing columns")).toBeNull();
+  });
+
+  it("keeps Existing columns for a new default collation", () => {
+    renderI18n(
+      <PlanPreviewView
+        preview={{ ...SET_COLLATION_PREVIEW, checks: [extra[2]] }}
+        confirm=""
+        onConfirmChange={() => {}}
+      />,
+    );
+    expect(screen.getByText("Existing columns")).toBeInTheDocument();
   });
 });

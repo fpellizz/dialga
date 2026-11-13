@@ -56,6 +56,14 @@ export function BucketField({
   const expanded = open && shown.length > 0;
   const optionId = (index: number) => `${listId}-${index}`;
 
+  // The highlighted option stays visible while the arrows move through a long list.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: optionId is stable per render of listId.
+  useEffect(() => {
+    if (expanded && active >= 0) {
+      document.getElementById(optionId(active))?.scrollIntoView?.({ block: "nearest" });
+    }
+  }, [expanded, active]);
+
   function choose(name: string) {
     onChange(name);
     setOpen(false);

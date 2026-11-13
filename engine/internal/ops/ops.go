@@ -38,15 +38,20 @@ const (
 	OpDrop    = "drop"
 )
 
-// The access operations (access.go) are OpGrant, OpRevoke and OpFixOrphan.
+// The access operations (access.go) are OpGrant, OpRevoke and OpFixOrphan;
+// the collation operations (collation.go) OpSetCollation and
+// OpConvertColumns.
 
 // Operations are the operations Build knows.
-var Operations = []string{OpRestore, OpExport, OpFinish, OpCancel, OpDrop, OpGrant, OpRevoke, OpFixOrphan}
+var Operations = []string{OpRestore, OpExport, OpFinish, OpCancel, OpDrop, OpGrant, OpRevoke, OpFixOrphan,
+	OpSetCollation, OpConvertColumns}
 
 // SQL is what the operations read and run on the SQL Server of a target.
 // mssql.Session implements it; tests replace it.
 type SQL interface {
 	mssql.TaskReader
+	// The reads of the collation views and operations (collation.go).
+	CollationSQL
 	DatabaseState(ctx context.Context, db string) (string, error)
 	ActiveTasks(ctx context.Context, db string) (int, error)
 	// ActiveSessions counts the other sessions working in db.
@@ -135,6 +140,16 @@ type Params struct {
 	CreateLogin bool
 	// Remove is what a revoke takes away: level, backup or user.
 	Remove string
+
+	// The collation operations (collation.go). Collation is the target
+	// collation: required by set-collation; for convert-columns "" is the
+	// default collation of the database (resolved in Prepared.Params).
+	Collation string
+	// Tables limits convert-columns to these tables (none: every table).
+	Tables []mssql.TableRef
+	// SkipDataChecks skips the data checks of convert-columns (uniqueness,
+	// references, code page).
+	SkipDataChecks bool
 }
 
 // Validate checks the parameters of op against the target without reaching
@@ -142,6 +157,12 @@ type Params struct {
 func Validate(op string, p Params, t config.Target) error {
 	if IsAccess(op) {
 		return validateAccess(op, p, t.SQL.User)
+	}
+	if IsCollation(op) {
+		return validateCollation(op, p)
+	}
+	if err := collationFields(op, p); err != nil {
+		return err
 	}
 	if p.Login != "" || p.User != "" || p.Level != "" || p.Backup || p.CreateLogin || p.Remove != "" {
 		return fmt.Errorf("login, user, level, backup, createLogin and remove are for grant, revoke and fix-orphan, not %s", op)
@@ -232,6 +253,10 @@ func (s *Session) Build(ctx context.Context, op string, p Params) (*Prepared, er
 		return s.Revoke(ctx, p)
 	case OpFixOrphan:
 		return s.FixOrphan(ctx, p)
+	case OpSetCollation:
+		return s.SetCollation(ctx, p)
+	case OpConvertColumns:
+		return s.ConvertColumns(ctx, p)
 	}
 	return nil, Validate(op, p, s.Target)
 }
@@ -253,6 +278,11 @@ type Prepared struct {
 	// the password of its create-login step, only set while Execute runs.
 	access        []AccessStep
 	loginPassword string
+	// collation are the steps of a collation plan (CollationSteps).
+	collation []CollationStep
+
+	// Collation summarizes a collation plan; nil otherwise.
+	Collation *CollationPlan
 
 	// Replace is how a restore replaces the existing database; nil otherwise.
 	Replace *Replacement
