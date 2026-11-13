@@ -328,7 +328,7 @@ func TestRunSetCollation(t *testing.T) {
 		c := newCollFake()
 		// the cancelled context must not stop the reopening
 		cctx, cancel := context.WithCancel(ctx)
-		c.fakeSQL.onExec = func(_ *fakeSQL, stmt string) error {
+		c.onExec = func(_ *fakeSQL, stmt string) error {
 			if strings.HasPrefix(stmt, "USE [master]") {
 				cancel()
 				return errors.New("Msg 5075")
@@ -345,7 +345,7 @@ func TestRunSetCollation(t *testing.T) {
 	})
 	t.Run("failure and the reopening fails", func(t *testing.T) {
 		c := newCollFake()
-		c.fakeSQL.execErr = errors.New("connection lost")
+		c.execErr = errors.New("connection lost")
 		_, err := c.session().RunCollationStep(ctx, step)
 		if err == nil || !strings.Contains(err.Error(), "could not be reopened") || !strings.Contains(err.Error(), "SET MULTI_USER") {
 			t.Fatalf("%v", err)
