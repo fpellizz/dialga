@@ -101,6 +101,8 @@ export function PlanDialog({
   // The password of a new login (grant). Only here: it goes into the execute call, never a preview.
   const [secret, setSecret] = useState("");
   const [copied, setCopied] = useState(false);
+  // "Another collation" is selected in convert-columns (an empty picker is not the default).
+  const [anotherCollation, setAnotherCollation] = useState(false);
   const {
     run,
     announcement,
@@ -231,7 +233,7 @@ export function PlanDialog({
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    if (formComplete(fields, params, secret, engine, target)) {
+    if (!loading && formComplete(fields, params, secret, engine, target, anotherCollation)) {
       void doPreview(params);
     }
   }
@@ -344,8 +346,13 @@ export function PlanDialog({
           <button
             type="button"
             className="btn btn-ghost"
-            onClick={() => void doPreview(params)}
-            disabled={loading || !formComplete(fields, params, secret, engine, target)}
+            onClick={() => {
+              if (!loading) {
+                void doPreview(params);
+              }
+            }}
+            disabled={!formComplete(fields, params, secret, engine, target, anotherCollation)}
+            aria-disabled={loading}
           >
             <RefreshCw size={16} className={loading ? "spin" : undefined} aria-hidden="true" />
             {t("plan.previewAgain")}
@@ -358,7 +365,13 @@ export function PlanDialog({
             type="submit"
             form={`${ids}-form`}
             className="btn btn-primary"
-            disabled={loading || !formComplete(fields, params, secret, engine, target)}
+            disabled={!formComplete(fields, params, secret, engine, target, anotherCollation)}
+            aria-disabled={loading}
+            onClick={(e) => {
+              if (loading) {
+                e.preventDefault();
+              }
+            }}
           >
             {t("plan.preview")}
           </button>
@@ -431,6 +444,8 @@ export function PlanDialog({
               operation={fields}
               params={params}
               onChange={(patch) => setParams((p) => ({ ...p, ...patch }))}
+              customTarget={anotherCollation}
+              onCustomTarget={setAnotherCollation}
               disabled={loading}
             />
           )}
@@ -636,9 +651,15 @@ function formComplete(
   secret: string,
   engine: EngineInfo,
   target: string,
+  anotherCollation: boolean,
 ): boolean {
   if (fields === "set-collation" || fields === "convert-columns") {
-    return collationComplete(fields, p, knownCollation(engine, target, p.collation ?? ""));
+    return collationComplete(
+      fields,
+      p,
+      knownCollation(engine, target, p.collation ?? ""),
+      anotherCollation,
+    );
   }
   if (fields === "grant") {
     return grantComplete(p, secret);

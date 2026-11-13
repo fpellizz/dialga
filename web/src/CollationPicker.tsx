@@ -65,9 +65,9 @@ export function CollationPicker({
 
   const loading = list === null && loadError === null;
   const needle = value.trim().toLowerCase();
-  const options = useMemo(() => {
+  const { options, total } = useMemo(() => {
     if (!list) {
-      return [];
+      return { options: [], total: 0 };
     }
     const byName = new Map(list.map((c) => [c.name, c]));
     const top: { info: CollationInfo; kind?: Suggestion["kind"] }[] = [];
@@ -86,11 +86,20 @@ export function CollationPicker({
           !top.some((o) => o.info.name === c.name),
       )
       .map((info) => ({ info, kind: undefined }));
-    return [...top, ...rest].slice(0, MAX_OPTIONS);
+    const all = [...top, ...rest];
+    return { options: all.slice(0, MAX_OPTIONS), total: all.length };
   }, [list, filtering, needle, suggestions]);
 
   const expanded = open && options.length > 0;
   const optionId = (index: number) => `${listId}-${index}`;
+
+  // The highlighted option stays visible while the arrows move through the list.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: optionId is stable per render of listId.
+  useEffect(() => {
+    if (expanded && active >= 0) {
+      document.getElementById(optionId(active))?.scrollIntoView?.({ block: "nearest" });
+    }
+  }, [expanded, active]);
   const known = list ? list.some((c) => c.name.toLowerCase() === needle) : true;
   const invalid = !!list && needle !== "" && !known;
 
@@ -148,10 +157,14 @@ export function CollationPicker({
   let status: string | undefined;
   if (loading) {
     status = t("collation.picker.loading");
+  } else if (list && open && filtering && options.length > 0) {
+    // While matches are listed, the count is the news; a name nothing matches is flagged below.
+    status =
+      total > options.length
+        ? t("collation.picker.foundCapped", { shown: options.length, count: total })
+        : t("collation.picker.found", { count: total });
   } else if (invalid) {
     status = t("collation.picker.none");
-  } else if (list && open && filtering) {
-    status = t("collation.picker.found", { count: options.length });
   }
 
   const described = [hint && `${id}-hint`, `${id}-status`].filter(Boolean).join(" ");

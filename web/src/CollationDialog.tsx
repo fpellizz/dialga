@@ -1,5 +1,5 @@
 import { LoaderCircle, Lock, RefreshCw, TriangleAlert } from "lucide-react";
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   type CollationColumn,
   type DatabaseCollationView,
@@ -36,17 +36,22 @@ export function CollationDialog({
   engine: EngineInfo;
   target: string;
   database: string;
-  onClose: () => void;
+  /** `changed`: a run started from here, so the page behind may show something else. */
+  onClose: (changed: boolean) => void;
 }) {
   const { t } = useI18n();
   const { epoch } = usePassword();
-  const ids = useId();
   const [view, setView] = useState<DatabaseCollationView | null>(null);
   const [error, setError] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
   const [operation, setOperation] = useState<Operation | null>(null);
   const [filter, setFilter] = useState("");
+  const changedAny = useRef(false);
+  const convertButton = useRef<HTMLButtonElement>(null);
+  const changeButton = useRef<HTMLButtonElement>(null);
+  // The button that opened the plan: the focus goes back to it when the plan closes.
+  const opener = useRef<HTMLButtonElement | null>(null);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reload and epoch are the refresh triggers.
   useEffect(() => {
@@ -86,32 +91,37 @@ export function CollationDialog({
   function operationClosed(result: PlanResult) {
     setOperation(null);
     if (result.changed) {
+      changedAny.current = true;
       setReload((n) => n + 1);
     }
-    setTimeout(() => {
-      document
-        .querySelector<HTMLElement>(`[data-collation="${ids}"] [data-action="change"]`)
-        ?.focus();
-    }, 0);
+    setTimeout(() => opener.current?.focus(), 0);
   }
 
   return (
     <>
       <Modal
         title={t("collation.title", { database })}
-        onClose={onClose}
+        onClose={() => onClose(changedAny.current)}
         busy={loading}
         className="collation-dialog"
         footer={
           <>
-            <button type="button" className="btn btn-outline" onClick={onClose}>
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={() => onClose(changedAny.current)}
+            >
               {t("plan.close")}
             </button>
             <button
               type="button"
               className="btn btn-ghost"
-              disabled={loading}
-              onClick={() => setReload((n) => n + 1)}
+              aria-disabled={loading}
+              onClick={() => {
+                if (!loading) {
+                  setReload((n) => n + 1);
+                }
+              }}
             >
               <RefreshCw size={16} className={loading ? "spin" : undefined} aria-hidden="true" />
               {t("collation.refresh")}
@@ -119,25 +129,31 @@ export function CollationDialog({
             <button
               type="button"
               className="btn btn-outline"
-              data-action="convert"
+              ref={convertButton}
               disabled={!view}
-              onClick={() => setOperation({ kind: "convert" })}
+              onClick={() => {
+                opener.current = convertButton.current;
+                setOperation({ kind: "convert" });
+              }}
             >
               {t("collation.convert")}
             </button>
             <button
               type="button"
               className="btn btn-primary"
-              data-action="change"
+              ref={changeButton}
               disabled={!view}
-              onClick={() => setOperation({ kind: "set" })}
+              onClick={() => {
+                opener.current = changeButton.current;
+                setOperation({ kind: "set" });
+              }}
             >
               {t("collation.change")}
             </button>
           </>
         }
       >
-        <div data-collation={ids}>
+        <div>
           <p className="lead">{t("collation.lead", { target })}</p>
           {!view && loading && (
             <div className="plan-loading" role="status">
@@ -266,7 +282,10 @@ export function CollationDialog({
                       </thead>
                       <tbody>
                         {columns.slice(0, MAX_ROWS).map((c) => (
-                          <ColumnLine key={`${c.schema}.${c.table}.${c.column}`} column={c} />
+                          <ColumnLine
+                            key={JSON.stringify([c.schema, c.table, c.column])}
+                            column={c}
+                          />
                         ))}
                       </tbody>
                     </table>
@@ -295,7 +314,9 @@ export function CollationDialog({
           onClose={operationClosed}
           onConvertColumns={() => {
             // The new collation is the default of the database now: that is the target.
+            changedAny.current = true;
             setReload((n) => n + 1);
+            opener.current = convertButton.current;
             setOperation({ kind: "convert" });
           }}
         />

@@ -440,6 +440,7 @@ const en = {
   "plan.previewing": "Running the pre-flight checks…",
   "plan.checks": "Pre-flight checks",
   "plan.actions": "What runs",
+  "plan.nothingToDo": "Nothing to do: the plan has no actions, so there is nothing to run.",
   "plan.details": "Details",
   "plan.destructive": "Destructive",
   "plan.protected": "Protected target",
@@ -982,6 +983,7 @@ const en = {
   "collation.summary.hideOf": "Hide collation of {target}",
   "collation.summary.differ": "Databases that differ from the server: {count}",
   "collation.summary.risk": "at risk with temporary tables: {count}",
+  "collation.summary.loaded": "Collations of {target} loaded.",
   "collation.summary.allMatch": "All match the server",
   "collation.picker.label": "Collation",
   "collation.picker.placeholder": "Type to search, for example Latin1_General_100_CI_AS",
@@ -989,6 +991,7 @@ const en = {
   "collation.picker.none": "No collation of the instance has this name.",
   "collation.picker.loading": "Reading the collations of the instance…",
   "collation.picker.found": "Matching collations: {count}",
+  "collation.picker.foundCapped": "Showing {shown} of {count} matching collations",
   "collation.picker.suggestServer": "Server",
   "collation.picker.suggestDatabase": "Database",
   "collation.trait.cs": "Case-sensitive",
@@ -1001,6 +1004,8 @@ const en = {
   "collation.fields.newDefault": "New default collation",
   "collation.fields.newDefaultHint":
     "New columns, literals and variables of the database use it. Pick one of the collations of the instance.",
+  "collation.fields.keepsColumnsUnknown":
+    "Existing columns keep their collation until you convert them.",
   "collation.fields.keepsColumns":
     "Existing columns keep their collation (now {collation}) until you convert them.",
   "collation.fields.target": "Collation of the columns",
@@ -1009,6 +1014,12 @@ const en = {
   "collation.fields.targetOtherHint":
     "The columns get this collation; the default of the database does not change.",
   "collation.fields.tables": "Tables",
+  "collation.fields.tablesOutside": "Tables with columns outside the database default",
+  "collation.fields.customNote":
+    "With another collation every table is converted: the columns already at the default of the database are not listed, so you cannot pick tables here.",
+  "collation.fields.unsupportedTable": "Not offered: it has a column that cannot be converted.",
+  "collation.fields.truncatedTables":
+    "The engine lists at most 2,000 columns: some tables may be missing here. Use all tables to include them.",
   "collation.fields.allTables": "All tables",
   "collation.fields.someTables": "Only the tables I tick",
   "collation.fields.noTables": "No table has a convertible column that differs from the default.",
@@ -1037,6 +1048,9 @@ const en = {
   "plancheck.permission": "Permission",
   "plancheck.server": "Server collation",
   "plancheck.columns": "Existing columns",
+  "plancheck.convertColumns": "Columns to convert",
+  "plancheck.data-checks": "Data checks",
+  "plancheck.storage": "Free space",
   "plancheck.utf8": "UTF-8",
   "plancheck.tables": "Tables",
   "plancheck.scope": "Scope",
@@ -1047,14 +1061,12 @@ const en = {
   "plancheck.references": "References",
   "plancheck.code-page": "Code page",
   "plancheck.size": "Size of the rebuild",
-  "step.set-collation": "Change the default collation",
-  "step.convert": "Convert columns",
   "hint.collationDependent":
     "Something in the database depends on its collation (a schema-bound view or function, a computed column, a CHECK constraint). Drop or change it, then try again.",
   "hint.lockTimeout":
-    "Other sessions held the tables for 30 seconds. Nothing changed: retry when they are quiet, or in a maintenance window.",
+    "Other sessions held the tables for 30 seconds. Nothing changed: retry when they are no longer active, or in a maintenance window.",
   "hint.multiAz":
-    "A Multi-AZ database cannot be set to single-user, which this change needs. Run it on a Single-AZ instance.",
+    "A Multi-AZ database cannot be set to single-user, which this change needs, so it cannot run here. Ask whoever manages the instance, or plan a maintenance window for a different setup.",
 } as const;
 
 export type MessageKey = keyof typeof en;
@@ -1503,6 +1515,7 @@ const it: Record<MessageKey, string> = {
   "plan.previewing": "Controlli preliminari in corso…",
   "plan.checks": "Controlli preliminari",
   "plan.actions": "Cosa viene eseguito",
+  "plan.nothingToDo": "Niente da fare: il piano non ha azioni, quindi non c'è nulla da eseguire.",
   "plan.details": "Dettagli",
   "plan.destructive": "Distruttiva",
   "plan.protected": "Target protetto",
@@ -2056,6 +2069,7 @@ const it: Record<MessageKey, string> = {
   "collation.summary.hideOf": "Nascondi collation di {target}",
   "collation.summary.differ": "Database diversi dal server: {count}",
   "collation.summary.risk": "a rischio con le tabelle temporanee: {count}",
+  "collation.summary.loaded": "Collation di {target} caricate.",
   "collation.summary.allMatch": "Tutti uguali al server",
   "collation.picker.label": "Collation",
   "collation.picker.placeholder": "Scrivi per cercare, ad esempio Latin1_General_100_CI_AS",
@@ -2063,6 +2077,7 @@ const it: Record<MessageKey, string> = {
   "collation.picker.none": "Nessuna collation dell'istanza ha questo nome.",
   "collation.picker.loading": "Lettura delle collation dell'istanza…",
   "collation.picker.found": "Collation corrispondenti: {count}",
+  "collation.picker.foundCapped": "Mostrate {shown} di {count} collation corrispondenti",
   "collation.picker.suggestServer": "Server",
   "collation.picker.suggestDatabase": "Database",
   "collation.trait.cs": "Distingue maiuscole e minuscole",
@@ -2075,6 +2090,8 @@ const it: Record<MessageKey, string> = {
   "collation.fields.newDefault": "Nuova collation predefinita",
   "collation.fields.newDefaultHint":
     "Le nuove colonne, i letterali e le variabili del database la usano. Scegli una delle collation dell'istanza.",
+  "collation.fields.keepsColumnsUnknown":
+    "Le colonne esistenti mantengono la loro collation finché non le converti.",
   "collation.fields.keepsColumns":
     "Le colonne esistenti mantengono la loro collation (ora {collation}) finché non le converti.",
   "collation.fields.target": "Collation delle colonne",
@@ -2083,6 +2100,14 @@ const it: Record<MessageKey, string> = {
   "collation.fields.targetOtherHint":
     "Le colonne ricevono questa collation; quella predefinita del database non cambia.",
   "collation.fields.tables": "Tabelle",
+  "collation.fields.tablesOutside":
+    "Tabelle con colonne diverse dalla collation predefinita del database",
+  "collation.fields.customNote":
+    "Con un'altra collation si convertono tutte le tabelle: le colonne già alla collation predefinita del database non sono elencate, quindi qui non si possono scegliere le tabelle.",
+  "collation.fields.unsupportedTable":
+    "Non selezionabile: ha una colonna che non si può convertire.",
+  "collation.fields.truncatedTables":
+    "L'engine elenca al massimo 2.000 colonne: alcune tabelle potrebbero mancare qui. Usa tutte le tabelle per includerle.",
   "collation.fields.allTables": "Tutte le tabelle",
   "collation.fields.someTables": "Solo le tabelle che seleziono",
   "collation.fields.noTables": "Nessuna tabella ha colonne convertibili diverse dalla predefinita.",
@@ -2111,6 +2136,9 @@ const it: Record<MessageKey, string> = {
   "plancheck.permission": "Permesso",
   "plancheck.server": "Collation del server",
   "plancheck.columns": "Colonne esistenti",
+  "plancheck.convertColumns": "Colonne da convertire",
+  "plancheck.data-checks": "Controlli sui dati",
+  "plancheck.storage": "Spazio libero",
   "plancheck.utf8": "UTF-8",
   "plancheck.tables": "Tabelle",
   "plancheck.scope": "Ambito",
@@ -2121,14 +2149,12 @@ const it: Record<MessageKey, string> = {
   "plancheck.references": "Riferimenti",
   "plancheck.code-page": "Code page",
   "plancheck.size": "Dimensione della ricostruzione",
-  "step.set-collation": "Cambio della collation predefinita",
-  "step.convert": "Conversione delle colonne",
   "hint.collationDependent":
     "Qualcosa nel database dipende dalla sua collation (una vista o funzione con schemabinding, una colonna calcolata, un vincolo CHECK). Eliminalo o modificalo, poi riprova.",
   "hint.lockTimeout":
-    "Altre sessioni hanno tenuto le tabelle per 30 secondi. Non è cambiato nulla: riprova quando sono tranquille, o in una finestra di manutenzione.",
+    "Altre sessioni hanno tenuto le tabelle per 30 secondi. Non è cambiato nulla: riprova quando non sono più attive, o in una finestra di manutenzione.",
   "hint.multiAz":
-    "Un database Multi-AZ non può passare a single-user, cosa che questo cambio richiede. Eseguilo su un'istanza Single-AZ.",
+    "Un database Multi-AZ non può passare a single-user, cosa che questo cambio richiede, quindi qui non si può eseguire. Contatta chi gestisce l'istanza o pianifica una finestra di manutenzione con una configurazione diversa.",
 };
 
 export const messages: Record<Lang, Record<MessageKey, string>> = { en, it };

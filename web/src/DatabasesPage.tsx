@@ -456,9 +456,11 @@ export function DatabasesPage({
           engine={engine}
           target={target}
           database={dialog.database}
-          onClose={() => {
+          onClose={(changed) => {
             // The default collation may have changed: the column shows the new one.
-            setReload((n) => n + 1);
+            if (changed) {
+              setReload((n) => n + 1);
+            }
             setDialog(null);
           }}
         />

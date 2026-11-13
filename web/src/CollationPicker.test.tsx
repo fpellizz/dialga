@@ -1,10 +1,10 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CollationPicker } from "./CollationPicker";
 import { clearCollationCache } from "./collation";
-import { COLLATIONS } from "./test/collation";
+import { COLLATIONS, info } from "./test/collation";
 import { renderWithPassword } from "./test/fixtures";
 import { ENGINE, json, mockFetch } from "./test/http";
 
@@ -83,5 +83,24 @@ describe("CollationPicker", () => {
     await userEvent.clear(box);
     await userEvent.type(box, "latin1_general_bin2");
     expect(box).not.toHaveAttribute("aria-invalid");
+  });
+});
+
+describe("CollationPicker, long lists", () => {
+  it("keeps the active option in view and says when the list is capped", async () => {
+    const many = Array.from({ length: 130 }, (_, i) => info(`Test_Collation_${i}_CI_AS`));
+    mockFetch({ [LIST]: () => json({ collations: many }) });
+    clearCollationCache();
+    const scroll = vi.fn();
+    Element.prototype.scrollIntoView = scroll;
+    renderWithPassword(<Harness />);
+    const box = await screen.findByRole("combobox", { name: "Collation" });
+    await screen.findByRole("button", { name: "Show the collations" });
+    await userEvent.type(box, "Test_Collation");
+    expect(screen.getByText("Showing 100 of 130 matching collations")).toBeInTheDocument();
+    await userEvent.keyboard("{ArrowDown}{ArrowDown}");
+    expect(scroll).toHaveBeenLastCalledWith({ block: "nearest" });
+    // @ts-expect-error: the stub is removed again
+    delete Element.prototype.scrollIntoView;
   });
 });

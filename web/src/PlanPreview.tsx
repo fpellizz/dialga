@@ -50,6 +50,8 @@ const COLLATION_CHECK: Record<string, MessageKey> = {
   sessions: "plancheck.sessions",
   server: "plancheck.server",
   columns: "plancheck.columns",
+  "data-checks": "plancheck.data-checks",
+  storage: "plancheck.storage",
   utf8: "plancheck.utf8",
   tables: "plancheck.tables",
   scope: "plancheck.scope",
@@ -79,7 +81,11 @@ export function stepLabel(
   const id = s.step.slice(s.step.lastIndexOf("/") + 1).replace(/#[0-9]+$/, "");
   if ((operation && isCollationOperation(operation)) || isCollationRequest(request)) {
     // The actions (set-collation, convert) keep the engine's title: it names the tables.
-    const key = COLLATION_CHECK[id];
+    // "columns" is the existing columns of a new default, but the columns to convert in a conversion.
+    const key =
+      id === "columns" && operation === "convert-columns"
+        ? "plancheck.convertColumns"
+        : COLLATION_CHECK[id];
     return key ? t(key) : s.label;
   }
   if (isAccessRequest(request)) {
@@ -221,6 +227,11 @@ export function PlanPreviewView({
         <Heading id={`${ids}-actions`} className="plan-heading">
           {t("plan.actions")}
         </Heading>
+        {preview.plan.actions.length === 0 && (
+          <p className="hint" role="status">
+            {t("plan.nothingToDo")}
+          </p>
+        )}
         <ol className="plan-actions">
           {preview.plan.actions.map((a, i) => (
             <li key={actionKeys[i]} className="plan-action">

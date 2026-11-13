@@ -64,7 +64,7 @@ describe("DatabasesPage actions", () => {
     expect(names()).toEqual(["Finish restore of staged", "Drop staged"]);
   });
 
-  it("opens the collation panel from the menu and reads the databases again on close", async () => {
+  it("opens the collation panel from the menu and reads the databases again only when something ran", async () => {
     const fetch = serve({
       "GET /api/v1/targets/dev-sql/databases/sales/collation": () => json(COLLATION_VIEW),
     });
@@ -79,7 +79,8 @@ describe("DatabasesPage actions", () => {
     expect(await dialog.findByText("Fixed on RDS")).toBeInTheDocument();
     await userEvent.click(dialog.getByRole("button", { name: "Close" }));
     expect(screen.queryByRole("dialog")).toBeNull();
-    await waitFor(() => expect(requestsTo(fetch, DATABASES)).toHaveLength(2));
+    // Nothing ran from the panel: the list is not read again.
+    expect(requestsTo(fetch, DATABASES)).toHaveLength(1);
   });
 
   it("drops a database, then reloads the list and gives the focus back", async () => {

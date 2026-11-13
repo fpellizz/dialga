@@ -21,13 +21,16 @@ export function collationComplete(
   operation: "set-collation" | "convert-columns",
   p: PlanRequest,
   known: boolean | undefined,
+  /** "Another collation" is selected: an empty picker is not "the database default". */
+  customTarget = false,
 ): boolean {
   const collation = p.collation?.trim() ?? "";
   if (operation === "set-collation") {
     return validCollationName(collation) && known !== false;
   }
-  // "" = the default of the database.
-  const collationOk = collation === "" || (validCollationName(collation) && known !== false);
+  // "" = the default of the database, unless "Another collation" is selected.
+  const collationOk =
+    collation === "" ? !customTarget : validCollationName(collation) && known !== false;
   // tables: [] = "some tables" with none ticked yet.
   const tablesOk = p.tables === undefined || (p.tables.length > 0 && p.tables.length <= MAX_TABLES);
   return collationOk && tablesOk;
@@ -35,6 +38,11 @@ export function collationComplete(
 
 function sameTable(a: TableRef, b: TableRef): boolean {
   return a.schema === b.schema && a.name === b.name;
+}
+
+/** A key for a table: names may hold dots, so they are not joined with one. */
+function tableKey(r: TableRef): string {
+  return `${r.schema}\u0000${r.name}`;
 }
 
 /**
@@ -51,6 +59,8 @@ export function CollationFields({
   operation,
   params,
   onChange,
+  customTarget: customProp,
+  onCustomTarget,
   disabled,
 }: {
   engine: EngineInfo;
@@ -59,6 +69,9 @@ export function CollationFields({
   operation: "set-collation" | "convert-columns";
   params: PlanRequest;
   onChange: (patch: Partial<PlanRequest>) => void;
+  /** "Another collation" is selected; the dialog keeps it to know the form is incomplete. */
+  customTarget?: boolean;
+  onCustomTarget?: (custom: boolean) => void;
   disabled?: boolean;
 }) {
   const { t } = useI18n();
@@ -67,7 +80,28 @@ export function CollationFields({
   const [view, setView] = useState<DatabaseCollationView | null>(null);
   const [loadError, setLoadError] = useState<unknown>(null);
   const [tableFilter, setTableFilter] = useState("");
-  const [customTarget, setCustomTarget] = useState(false);
+  const [customLocal, setCustomLocal] = useState(false);
+  const customTarget = customProp ?? customLocal;
+  const setCustomTarget = (custom: boolean) => {
+    setCustomLocal(custom);
+    onCustomTarget?.(custom);
+  };
+  // Another collation than the default of the database: every table is converted.
+  const collationNow = (params.collation ?? "").trim();
+  const customDiffers =
+    operation === "convert-columns" &&
+    (customTarget || collationNow !== "") &&
+    !(view && collationNow !== "" && collationNow.toLowerCase() === view.collation.toLowerCase());
+  const scopedNow = params.tables !== undefined;
+
+  // The checklist lists only the columns that differ from the default, so it cannot
+  // scope a conversion to another collation: back to every table.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: onChange is a setter of the parent.
+  useEffect(() => {
+    if (customDiffers && scopedNow) {
+      onChange({ tables: undefined });
+    }
+  }, [customDiffers, scopedNow]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: epoch is the retry trigger (the SQL password was saved).
   useEffect(() => {
@@ -107,14 +141,23 @@ export function CollationFields({
           disabled={disabled}
         />
         <p className="hint collation-keeps">
-          {t("collation.fields.keepsColumns", { collation: view?.collation ?? "" })}
+          {view
+            ? t("collation.fields.keepsColumns", { collation: view.collation })
+            : t("collation.fields.keepsColumnsUnknown")}
         </p>
       </div>
     );
   }
 
   const custom = customTarget || (params.collation ?? "") !== "";
-  const tables = tablesOf(view?.columns.filter((c) => !c.unsupported) ?? []);
+  const tables = tablesOf(view?.columns ?? []);
+  // A table with a column the engine never converts is refused as a whole: it cannot be ticked.
+  const blocked = new Map<string, string>();
+  for (const c of view?.columns ?? []) {
+    if (c.unsupported && !blocked.has(tableKey({ schema: c.schema, name: c.table }))) {
+      blocked.set(tableKey({ schema: c.schema, name: c.table }), c.unsupported);
+    }
+  }
   const needle = tableFilter.trim().toLowerCase();
   const shown = tables.filter((r) => !needle || plainTableRef(r).toLowerCase().includes(needle));
   const picked = params.tables ?? [];
@@ -169,7 +212,9 @@ export function CollationFields({
       </fieldset>
 
       <fieldset className="form-section collation-fieldset">
-        <legend>{t("collation.fields.tables")}</legend>
+        <legend>
+          {customDiffers ? t("collation.fields.tables") : t("collation.fields.tablesOutside")}
+        </legend>
         <div className="check">
           <input
             id={`${ids}-all`}
@@ -187,13 +232,21 @@ export function CollationFields({
             type="radio"
             name={`${ids}-scope`}
             checked={scoped}
-            disabled={disabled || tables.length === 0}
+            disabled={disabled || tables.length === 0 || customDiffers}
             onChange={() => onChange({ tables: [] })}
           />
           <label htmlFor={`${ids}-some`}>{t("collation.fields.someTables")}</label>
         </div>
-        {tables.length === 0 && view && <p className="hint">{t("collation.fields.noTables")}</p>}
-        {scoped && (
+        {customDiffers && <p className="hint">{t("collation.fields.customNote")}</p>}
+        {!customDiffers && tables.length === 0 && view && (
+          <p className="hint">{t("collation.fields.noTables")}</p>
+        )}
+        {!customDiffers && view?.truncated && (
+          <p className="hint" role="status">
+            {t("collation.fields.truncatedTables")}
+          </p>
+        )}
+        {scoped && !customDiffers && (
           <>
             <label className="field-inline">
               <span>{t("collation.columns.filter")}</span>
@@ -209,14 +262,19 @@ export function CollationFields({
             <fieldset className="collation-tables">
               <legend className="sr-only">{t("collation.fields.tablesList")}</legend>
               {shown.map((r) => {
+                const key = tableKey(r);
+                const dom = `${ids}-${tables.indexOf(r)}`;
                 const on = picked.some((p) => sameTable(p, r));
+                const why = blocked.get(key);
                 return (
-                  <label key={plainTableRef(r)} className="check">
+                  <div key={key} className="check">
                     <input
+                      id={`${dom}-t`}
                       type="checkbox"
                       name="table"
                       checked={on}
-                      disabled={disabled}
+                      disabled={disabled || why !== undefined}
+                      aria-describedby={why !== undefined ? `${dom}-w` : undefined}
                       onChange={(e) => {
                         const checked = e.currentTarget.checked;
                         onChange({
@@ -224,8 +282,22 @@ export function CollationFields({
                         });
                       }}
                     />
-                    <span className="mono">{plainTableRef(r)}</span>
-                  </label>
+                    <label htmlFor={`${dom}-t`} className="mono">
+                      {plainTableRef(r)}
+                    </label>
+                    {why !== undefined && (
+                      <span
+                        id={`${dom}-w`}
+                        className="badge badge-warning"
+                        title={`${t("collation.fields.unsupportedTable")} ${why}`}
+                      >
+                        {t("collation.unsupported")}
+                        <span className="sr-only">
+                          : {t("collation.fields.unsupportedTable")} {why}
+                        </span>
+                      </span>
+                    )}
+                  </div>
                 );
               })}
             </fieldset>

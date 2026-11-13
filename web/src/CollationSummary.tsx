@@ -62,6 +62,11 @@ export function CollationSummary({ engine, target }: { engine: EngineInfo; targe
       >
         {t(shown ? "collation.summary.hide" : "collation.summary.show")}
       </button>
+      <span className="sr-only" aria-live="polite">
+        {shown && overview && !loading && error === null
+          ? t("collation.summary.loaded", { target })
+          : ""}
+      </span>
       <div id={id} aria-busy={loading} hidden={!shown}>
         {shown && loading && !overview && (
           <div aria-hidden="true">

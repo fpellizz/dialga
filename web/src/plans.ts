@@ -334,9 +334,17 @@ export function replaceStrategy(ids: readonly string[]): string {
   return plain.includes("drop") && plain.includes("restore") ? "drop" : "";
 }
 
-/** The plan can run: no check failed, the values were not edited, the confirmation matches. */
+/**
+ * The plan can run: it has actions, no check failed, the values were not
+ * edited, the confirmation matches.
+ */
 export function canExecute(preview: PlanPreview, typed: string, stale: boolean): boolean {
-  return preview.ready && !stale && (!preview.confirmation || typed === preview.confirmation);
+  return (
+    preview.plan.actions.length > 0 &&
+    preview.ready &&
+    !stale &&
+    (!preview.confirmation || typed === preview.confirmation)
+  );
 }
 
 /** The operation changes collations: set-collation or convert-columns. */

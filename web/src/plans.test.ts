@@ -103,6 +103,14 @@ describe("plan helpers", () => {
     expect(canExecute(DROP_PREVIEW, "sales", true)).toBe(false);
     expect(canExecute({ ...DROP_PREVIEW, ready: false }, "sales", false)).toBe(false);
     expect(canExecute({ ...DROP_PREVIEW, confirmation: undefined }, "", false)).toBe(true);
+    // A plan without actions has nothing to run.
+    expect(
+      canExecute(
+        { ...DROP_PREVIEW, plan: { ...DROP_PREVIEW.plan, actions: [] }, confirmation: undefined },
+        "",
+        false,
+      ),
+    ).toBe(false);
   });
 
   it("compares requests without blanks and empty fields", () => {

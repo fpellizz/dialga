@@ -52,9 +52,10 @@ describe("PlanDialog, convert-columns", () => {
     await userEvent.click(w.getByRole("radio", { name: "Only the tables I tick" }));
     // Some tables with none ticked is not a plan yet.
     expect(w.getByRole("button", { name: "Preview" })).toBeDisabled();
-    // The ntext table cannot be converted: it is not offered.
+    // The ntext table cannot be converted: it is listed, marked, and cannot be ticked.
     const list = within(await w.findByRole("group", { name: "Tables to convert" }));
-    expect(list.queryByRole("checkbox", { name: "sales.orders" })).toBeNull();
+    expect(list.getByRole("checkbox", { name: "sales.orders" })).toBeDisabled();
+    expect(list.getByText("Not convertible")).toBeInTheDocument();
     await userEvent.click(list.getByRole("checkbox", { name: "sales.refunds" }));
     await userEvent.click(list.getByRole("checkbox", { name: "dbo.customers" }));
     expect(w.getByText("Tables ticked: 2")).toBeInTheDocument();
@@ -125,5 +126,62 @@ describe("PlanDialog, convert-columns", () => {
       database: "sales",
       collation: "Cyrillic_General_CI_AS",
     });
+  });
+});
+
+describe("PlanDialog, convert-columns tables", () => {
+  it("words the checklist honestly and warns when the engine truncated the columns", async () => {
+    mockFetch({
+      [VIEW]: () => json({ ...COLLATION_VIEW, truncated: true }),
+      [LIST]: () => json({ collations: COLLATIONS }),
+    });
+    const { dialog } = open();
+    const w = within(dialog());
+    expect(
+      await w.findByText("Tables with columns outside the database default"),
+    ).toBeInTheDocument();
+    expect(w.getByText(/lists at most 2,000 columns/)).toBeInTheDocument();
+  });
+
+  it("converts every table when the target is another collation", async () => {
+    const fetch = mockFetch({
+      [VIEW]: () => json(COLLATION_VIEW),
+      [LIST]: () => json({ collations: COLLATIONS }),
+      [CONVERT]: () => json(CONVERT_PREVIEW),
+    });
+    const { dialog } = open();
+    const w = within(dialog());
+    await userEvent.click(await w.findByRole("radio", { name: "Only the tables I tick" }));
+    await userEvent.click(w.getByRole("radio", { name: "Another collation" }));
+    // The list only has the columns that differ from the default: no checklist.
+    expect(w.queryByRole("group", { name: "Tables to convert" })).toBeNull();
+    expect(w.getByRole("radio", { name: "Only the tables I tick" })).toBeDisabled();
+    expect(w.getByRole("radio", { name: "All tables" })).toBeChecked();
+    expect(w.getByText(/every table is converted/)).toBeInTheDocument();
+    // An empty picker is not the database default.
+    expect(w.getByRole("button", { name: "Preview" })).toBeDisabled();
+    await userEvent.type(w.getByRole("combobox", { name: "Collation" }), "Cyrillic_General_CI_AS");
+    await userEvent.click(w.getByRole("button", { name: "Preview" }));
+    await w.findByText("What changes");
+    expect(body(requestsTo(fetch, CONVERT)[0]).tables).toBeUndefined();
+  });
+
+  it("does not run a plan without actions and says there is nothing to do", async () => {
+    mockFetch({
+      [VIEW]: () => json(COLLATION_VIEW),
+      [LIST]: () => json({ collations: COLLATIONS }),
+      [CONVERT]: () =>
+        json({
+          ...CONVERT_PREVIEW,
+          plan: { ...CONVERT_PREVIEW.plan, actions: [] },
+          confirmation: undefined,
+        }),
+    });
+    const { dialog } = open();
+    const w = within(dialog());
+    await w.findByRole("radio", { name: /Database default/ });
+    await userEvent.click(w.getByRole("button", { name: "Preview" }));
+    expect(await w.findByText(/Nothing to do/)).toBeInTheDocument();
+    expect(w.getByRole("button", { name: "Convert columns" })).toBeDisabled();
   });
 });

@@ -80,7 +80,7 @@ export function filterDatabases(list: Database[], query: string): Database[] {
     return list;
   }
   return list.filter((db) =>
-    [db.name, db.owner ?? "", db.state, db.recovery].some((field) =>
+    [db.name, db.owner ?? "", db.state, db.recovery, db.collation ?? ""].some((field) =>
       field.toLowerCase().includes(q),
     ),
   );
