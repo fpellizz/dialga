@@ -10,7 +10,7 @@
 
 > **Sintesi**
 > - Dialga importa ed esporta database SQL Server su istanze **Amazon RDS** passando per **S3** (backup e restore nativi `rds_*`). Ha un'**app desktop** e una **CLI** (`dialga`), che usano lo stesso engine.
-> - Oggi fa: **controlli preliminari** (`check`, `doctor`), **configurazione guidata** (`config init`), **upload e download su S3** (`upload`, `download`), **operazioni native** (`restore`, `export`, `finish`, `cancel`, `drop`, `post`), **task nativi** (`status`, `wait`), **tunnel SSM integrato** (`tunnel`), **elenco dei database** (`databases`) e **ispezione dei `.bak`** (`inspect`).
+> - Oggi fa: **controlli preliminari** (`check`, `doctor`), **configurazione guidata** (`config init`), **upload e download su S3** (`upload`, `download`), **operazioni native** (`restore`, `export`, `finish`, `cancel`, `drop`, `post`), **task nativi** (`status`, `wait`), **tunnel SSM integrato** (`tunnel`), **elenco dei database** (`databases`), **ispezione dei `.bak`** (`inspect`) e **gestione delle collation** (`collation`).
 > - Ogni comando che modifica qualcosa mostra prima un'**anteprima** (dry-run) e cambia lo stato solo con `--apply`; i target protetti e le azioni distruttive chiedono di riscrivere un testo di conferma.
 > - Nell'app desktop ci sono le azioni sui database (Export, Report, Drop, Finish, Restore from S3), l'aggiunta guidata di un'istanza e il tunnel condiviso. Ci sono anche i **wizard Import ed Export**, la schermata **Activity** (coda dei job) e la **ripresa dei job**.
 > - La password SQL **non è mai nel file di configurazione**: il file dice solo da dove leggerla.
@@ -34,6 +34,9 @@
 | Import di più database come un solo job | `dialga import`, `dialga run` (piano YAML) | Wizard Import | Disponibile |
 | Export di più database come un solo job | `dialga run` (piano YAML) | Wizard Export, *Export selected* in Databases | Disponibile |
 | Elenco, dettaglio e ripresa dei job | `dialga jobs`, `dialga jobs show`, `dialga jobs resume` | Activity | Disponibile |
+| Collation: vedere quelle di server, tempdb, database e colonne | `dialga collation show`, `db`, `list` | Databases → *Collation…*; Instances → *Show collation* | Disponibile |
+| Cambiare la collation di default di un database | `dialga collation set` | *Collation…* → *Change default collation…* | Disponibile |
+| Convertire le colonne a una collation | `dialga collation convert` | *Collation…* → *Convert columns…* | Disponibile |
 
 ## 2. Installazione
 
@@ -844,6 +847,118 @@ dialga access fix-orphan <db> <user> --apply -t <target>
 
 Exit code come in §5.1. `access list` esce con `2` se il database non esiste.
 
+### 5.16 `dialga collation`
+
+Mostra le collation dell'istanza e permette di cambiare quella di default di un database o di convertirne le colonne. Le viste sono in sola lettura; i cambi sono una **dry run** finché non c'è `--apply` e girano come job (§5.14, Activity).
+
+#### Cos'è una collation e perché conta su RDS
+
+Una collation decide come SQL Server confronta e ordina il testo (maiuscole, accenti, code page dei `varchar`). Ne esistono tre livelli: quella del **server**, quella di ogni **database** (il default per colonne nuove, letterali e nomi degli oggetti) e quella di ogni **colonna**, che resta com'è anche se cambia il default del database.
+
+- **Su RDS la collation del server si sceglie alla creazione dell'istanza e non si cambia più.** L'unica strada è una nuova istanza e la migrazione dei database (il backup e restore nativo conserva la collation del database). Dialga la mostra in sola lettura.
+- **tempdb ha sempre la collation del server.** Le tabelle temporanee (`#t`) la ereditano: se il database ha una collation diversa, un confronto tra una colonna del database e una `#t` fallisce con `Msg 468: Cannot resolve the collation conflict`. Si evita scrivendo `COLLATE DATABASE_DEFAULT` sulle colonne della `#t`, oppure allineando la collation del database. I database *parzialmente contenuti* (`containment = PARTIAL`) non hanno il problema.
+- Dialga segnala i database con collation diversa dal server (`≠ server`) e quelli a rischio con le `#t` (`temp-table risk`).
+
+#### Vedere: `show`, `db`, `list`
+
+| Comando | Cosa fa |
+|---|---|
+| `dialga collation show [target]` | Collation del server, di tempdb e di ogni database utente, con le note |
+| `dialga collation db <db> [--columns]` | Default del database e colonne `char`/`varchar`/`nchar`/`nvarchar` raggruppate per collation. Con `--columns`, anche le colonne diverse dal default e il motivo per cui `convert` non le tocca. Exit `2` se il database non esiste o non è `ONLINE` |
+| `dialga collation list [--filter TEXT]` | Collation note all'istanza con code page e sensibilità; `--filter` cerca nel nome (senza distinguere le maiuscole) |
+
+Esempio (nomi di fantasia):
+
+```text
+$ dialga collation show dev-sql
+Collations on dev-sql (instance dev-sql-instance):
+  server  SQL_Latin1_General_CP1_CI_AS (fixed at instance creation on RDS)
+  tempdb  SQL_Latin1_General_CP1_CI_AS
+  NAME   STATE   COLLATION                    NOTE
+  sales  ONLINE  Latin1_General_100_CI_AS     ≠ server, temp-table risk
+  hr     ONLINE  SQL_Latin1_General_CP1_CI_AS
+
+$ dialga collation db sales -t dev-sql --columns
+Collation of sales on dev-sql (instance dev-sql-instance):
+  database  Latin1_General_100_CI_AS
+  server    SQL_Latin1_General_CP1_CI_AS
+  tempdb    SQL_Latin1_General_CP1_CI_AS
+  The database collation differs from the server's.
+  Temp-table risk: #temp tables take the tempdb collation unless COLLATE DATABASE_DEFAULT is used.
+3 character columns by collation:
+  COLLATION                    COLUMNS  TABLES  CODE PAGE  NOTE
+  Latin1_General_100_CI_AS     1        1       1252       database default
+  SQL_Latin1_General_CP1_CI_AS 2        2       1252
+Columns that differ from the database default:
+  TABLE            COLUMN  TYPE          COLLATION                     NOTE
+  dbo.Customers    Name    nvarchar(100) SQL_Latin1_General_CP1_CI_AS
+  dbo.Notes        Body    text          SQL_Latin1_General_CP1_CI_AS  text/ntext: change it to varchar(max)/nvarchar(max) first
+```
+
+(Gli spazi delle tabelle reali sono allineati da `tabwriter`; qui l'allineamento è indicativo. Con `-o json` si ottiene lo stesso contenuto strutturato.)
+
+#### Cambiare il default del database: `set`
+
+```bash
+dialga collation set sales Latin1_General_100_CI_AS -t dev-sql          # dry run
+dialga collation set sales Latin1_General_100_CI_AS -t dev-sql --apply  # chiede di riscrivere il nome del database
+```
+
+- Il database passa a `SINGLE_USER WITH ROLLBACK IMMEDIATE` per il tempo del cambio: **le altre sessioni vengono disconnesse e le loro transazioni annullate**. A fine operazione, anche se fallisce, il database torna `MULTI_USER`. Eseguilo in una finestra di manutenzione.
+- **Le colonne esistenti non cambiano**: cambia solo il default per colonne nuove, letterali, variabili e i nomi degli oggetti. Per le colonne serve `convert` (sotto). Il pre-flight dice quante colonne mantengono la vecchia collation.
+- **Cosa lo blocca** (SQL Server rifiuta con `Msg 5075`): qualsiasi vista o funzione con `SCHEMABINDING`, qualsiasi vincolo `CHECK`, qualsiasi colonna calcolata, le funzioni a tabella (`TF`) che restituiscono colonne di testo; e i nomi che collidono con la nuova collation (per esempio `T` e `t` passando da CS a CI). Il pre-flight elenca gli oggetti (fino a 10): vanno eliminati e ricreati a mano.
+- Rifiutato anche se: il database non è `ONLINE`, è in sola lettura, `SINGLE_USER` o `RESTRICTED_USER`; il master user non ha `ALTER` sul database; ci sono task nativi in corso; il database è **Multi-AZ** (`SINGLE_USER` non è ammesso). Il Multi-AZ si riconosce dal catalogo (`sys.databases`), senza `VIEW SERVER STATE`; senza quel permesso il conteggio delle sessioni nel pre-flight può essere in difetto. `TODO: confermare` su RDS reale il comportamento di permessi e Multi-AZ (se il rilevamento non scattasse, SQL Server rifiuta comunque `SINGLE_USER` e non cambia nulla).
+- Se la collation è già quella voluta, il piano non ha azioni: con `--apply` Dialga stampa `Nothing to do.` ed esce con 0, senza creare job. Un database `SINGLE_USER` che Dialga non ha lasciato così (per esempio perché qualcuno lo sta manutenendo) non viene riaperto.
+- Conferma: il nome del database (il nome del target se è protetto).
+
+#### Convertire le colonne: `convert`
+
+```bash
+dialga collation convert sales -t dev-sql                                   # tutte le colonne -> default del DB (dry run)
+dialga collation convert sales -t dev-sql --to Latin1_General_100_CI_AS --table dbo.Customers --apply
+```
+
+| Opzione | Significato |
+|---|---|
+| `--to COLLATION` | Collation di arrivo (default: quella del database) |
+| `--table SCHEMA.TABLE` | Solo queste tabelle; ripetibile; `[a.b].[c]` per nomi con punti; senza schema vale `dbo` |
+| `--skip-data-checks` | Salta i controlli sui dati (sotto) |
+| `--apply`, `--confirm TEXT` | Come le altre operazioni |
+
+**Come lavora.** Le chiavi esterne (FK) vogliono la stessa collation su entrambi i lati: le tabelle legate si convertono insieme, come **un'unità**, anche se non le hai indicate (il pre-flight lo dice). Ogni unità è **una transazione**: elimina FK, `CHECK`, `DEFAULT`, statistiche e indici che toccano le colonne, cambia le colonne, e ricrea tutto con le stesse opzioni (anche i vincoli disabilitati e le proprietà estese). Se qualcosa fallisce (qualsiasi errore: il T-SQL è in `TRY/CATCH`), l'unità torna com'era. Subito prima di eseguire un'unità Dialga la ripianifica dallo stato vivo del database: se le tabelle sono cambiate dopo l'anteprima (tipo, lunghezza, nullabilità, definizione di vincoli e indici, nuovi rifiuti) non tocca nulla e chiede di rifare l'anteprima. Le statistiche create automaticamente nel frattempo vengono eliminate e non contano come cambiamento. Il limite è di 200 tabelle per piano.
+
+**Finestra di manutenzione.** Durante l'unità l'applicazione resta bloccata su quelle tabelle e il log delle transazioni cresce di quanto è grande l'unità (avviso oltre 1 GB o 10 milioni di righe). Un'unità aspetta al massimo **30 secondi** le tabelle: se altre sessioni le tengono, fallisce senza cambiare nulla e si può riprovare.
+
+**Cosa viene rifiutato** (con il motivo; con `--table` il piano fallisce, senza `--table` quelle tabelle restano come sono e il resto procede):
+
+| Rifiutato | Perché |
+|---|---|
+| Colonne `text`/`ntext` | Vanno prima portate a `varchar(max)`/`nvarchar(max)` |
+| Tipi definiti dall'utente, colonne sparse, Always Encrypted, con data masking | Non ricostruibili con certezza |
+| Colonne calcolate, viste/funzioni `SCHEMABINDING` sulla colonna | La loro collation segue l'espressione o l'oggetto: vanno ricreati a mano |
+| Tabelle memory-optimized, temporali, replicate, CDC, FileTable, graph, ledger | Non supportate |
+| Indici XML, spaziali, columnstore, hash, disabilitati, partizionati; full-text | Non ricostruibili esattamente |
+| Statistiche incrementali, definizioni non leggibili (manca `VIEW DEFINITION`) | Non ricostruibili |
+| Tabelle con change tracking la cui chiave primaria andrebbe ricostruita | Disattiva prima il change tracking sulla tabella |
+| Filtro di un indice o di una statistica non leggibile (manca `VIEW DEFINITION`) | Potrebbe nominare una colonna da convertire |
+| Tabelle legate da FK a una tabella rifiutata | L'unità si converte intera o per niente |
+
+**Controlli sui dati** (pre-flight, ciascuno con timeout di 60 s; un timeout è un avviso «not verified»):
+
+| Controllo | Fallisce se |
+|---|---|
+| `uniqueness` | Valori che differiscono solo per maiuscole/accenti collidono in una chiave unica (tipico passando da CI a CS e ritorno) |
+| `references` | Righe figlie che perderebbero il padre con la nuova collation |
+| `code-page` | Un `varchar` contiene caratteri che la code page di arrivo non rappresenta (es. `é` verso una collation cirillica diventa `e`) o non entra più nella lunghezza |
+
+**Avvisi del piano.** *Options not kept*: ricreando gli oggetti non si conservano `OPTIMIZE_FOR_SEQUENTIAL_KEY`, il campione persistente e `AUTO_DROP` delle statistiche, e i valori `varchar` delle proprietà estese tornano come `nvarchar`. Il controllo *Names* fallisce se un nome non si può usare nella ricostruzione. Gli indici e le statistiche con filtro che nomina una colonna convertita vengono eliminati e ricreati.
+
+`--skip-data-checks` li salta: se un controllo avrebbe fallito, fallisce l'unità a runtime e torna indietro. I controlli leggono dati vivi: se cambiano tra anteprima ed esecuzione l'unità può fallire comunque (e tornare indietro).
+
+**Dopo un'interruzione.** Il job compare in Activity: se l'app è stata chiusa è `interrupted` e si **riprende** con *Resume* (§6.9) o `dialga jobs resume <id>` (§5.14). Le unità già convertite restano e vengono saltate; per l'unità interrotta Dialga riguarda lo stato: se è tutta com'era la rifà, se è tutta convertita la salta, se è a metà per cause esterne si ferma senza toccare nulla.
+
+Exit code come in §5.1 (`2` = controlli preliminari non superati).
+
 ## 6. App desktop
 
 ### 6.1 Avvio
@@ -915,8 +1030,8 @@ Se la parte AWS fallisce (credenziali, account) la panoramica mostra l'errore e 
 ### 6.4 Databases
 
 - In alto il selettore **Instance** (*Istanza*): l'app ricorda l'ultimo target scelto. Pulsante *Refresh* (*Aggiorna*).
-- Tabella: *Name*, *State*, *Size* (dati + log; il tooltip li separa), *Compatibility* (livello e versione SQL Server corrispondente), *Recovery*, *Owner*. Clic sull'intestazione per ordinare (ancora per invertire; *Size* parte dal più grande).
-- **Filter** (*Filtra*): cerca in nome, owner, stato e recovery model; il contatore dice *N of M databases*.
+- Tabella: *Name*, *State*, *Size* (dati + log; il tooltip li separa), *Compatibility* (livello e versione SQL Server corrispondente), *Recovery*, *Owner*, *Collation* (ordinabile). Clic sull'intestazione per ordinare (ancora per invertire; *Size* parte dal più grande).
+- **Filter** (*Filtra*): cerca in nome, owner, stato, recovery model e collation; il contatore dice *N of M databases*.
 - Badge accanto allo stato: *Read-only* (*Sola lettura*), *Single user* (*Utente singolo*), *Restricted* (*Accesso limitato*). Owner in grigio: nessun login ha il SID dell'owner.
 - Stati vuoti: *No user databases* (solo database di sistema), *No databases match the filter* (con *Clear filter*), *No instances configured* (con *Go to Instances*).
 - **Azioni** (colonna *Actions*, *Azioni*), una per riga, dipendono dallo stato:
@@ -927,6 +1042,7 @@ Se la parte AWS fallisce (credenziali, account) la panoramica mostra l'errore e 
   | *Export* (*Esporta*) | Database `ONLINE` | Il piano di `dialga export` |
   | *Finish restore* (*Concludi ripristino*) | Database `RESTORING` | Il piano di `dialga finish` |
   | *Access…* (*Accessi…*) | Database `ONLINE` | Il pannello degli accessi: concedere, revocare, *Fix orphan* (sotto) |
+  | *Collation…* | Database `ONLINE` | Il pannello delle collation (sotto) |
   | *Drop* (*Elimina*) | Sempre | Il piano di `dialga drop`, distruttivo |
 
   In alto, il pulsante *Restore from S3* (*Ripristina da S3*) apre il piano di `dialga restore`: nome del database, chiave S3 del backup (con il suggerimento sulla ricerca sotto il prefisso `import`), *Differential backup* e *Leave the database restoring*.
@@ -943,6 +1059,21 @@ Il pulsante *Access…* (*Accessi…*) di ogni riga è disponibile solo per i da
 - *Revoke…* chiede prima cosa togliere (livello, backup o utente) e poi apre la finestra del piano. Togliere l'utente chiede di riscrivere il nome del login.
 
 Il piano segue le stesse quattro fasi degli altri (§6.4, *La finestra del piano*). Alla chiusura del pannello gli accessi vengono riletti.
+
+#### Collation
+
+*Collation…* (nel menu *Actions* della riga, solo database `ONLINE`) apre il pannello *Collation of <database>* (§5.16 spiega i concetti):
+
+- In alto *Server* (badge *Fixed on RDS*), *tempdb* e *Database default*. Gli avvisi *Differs from the server* e *Temporary table risk* spiegano il `Msg 468` e il rimedio `COLLATE DATABASE_DEFAULT`.
+- La tabella dei gruppi dice quante colonne e tabelle usano ogni collation (*Default* segna quella del database).
+- La tabella *Columns that do not use the default collation* ha il filtro; le colonne che `convert` non può toccare hanno il badge *Not convertible* (il tooltip dà il motivo). L'engine ne elenca al massimo 2000.
+- **Change default collation…** apre la finestra del piano (§6.4, *La finestra del piano*) con un campo di ricerca sulle collation dell'istanza: si scrive il nome e si sceglie solo tra quelle esistenti (sono suggerite quella del server e quella del database; se i risultati sono troppi compare *Showing 100 of N*; ogni voce mostra le sensibilità, per esempio *Case-insensitive*, *UTF-8*). L'anteprima mostra i controlli (oggetti bloccanti, sessioni che verranno disconnesse, Multi-AZ…) e il T-SQL; la conferma chiede il nome del database.
+- **Convert columns…** apre la finestra con la collation di arrivo (*Database default (X)* o un'altra), l'elenco delle tabelle (*All tables* o *Only the tables I tick*, al massimo 200). Con *Only the tables I tick* l'elenco è *Tables with columns outside the database default*: le tabelle con colonne non convertibili sono disabilitate e ne mostrano il motivo, e un avviso segnala se l'elenco è troncato. Con una collation di arrivo diversa dal default l'elenco non c'è (resta *All tables*) e *Skip the data checks* con il suo avviso. L'anteprima riassume *What changes* (unità, tabelle, colonne, indici, FK, MB di dati) e le tabelle lasciate com'erano, con il motivo.
+- Dopo un `set` riuscito che lascia colonne con la vecchia collation compare **Convert the columns (N)…**, che apre il piano di conversione: sono due operazioni separate, la seconda non parte da sola.
+- Se il piano non ha azioni, *Run* è disabilitato e compare *Nothing to do*.
+- A fine esecuzione il pannello rilegge le collation alla chiusura. Il job compare in Activity.
+
+In **Instances**, il pulsante *Show collation* della scheda (non carica da solo, per non aprire una sessione SQL per ogni scheda) mostra server, tempdb e quanti database differiscono dal server o rischiano con le tabelle temporanee, con il link a *Databases*.
 
 #### La finestra del piano
 
@@ -1210,6 +1341,35 @@ Se capita spesso, valuta con l'amministratore un aggiornamento di major version 
 | `a prefix is for imports` / `database <db> is in the job twice` / `<n> databases: a job takes 50 at most` | Piano non valido | Correggi il piano (`docs/piani-job.md`) |
 | `apiVersion is "<x>", this build reads "v1"` / `invalid YAML: …` | Piano YAML con versione o chiave sbagliata (lettura stretta) | Correggi il file |
 | `the plan is for target <A>, -t says <B>` | `-t` in contrasto con il `target` del piano | Togli `-t` o usa il target giusto |
+
+### 7.10 Collation
+
+| Messaggio | Causa | Cosa fare |
+|---|---|---|
+| `Cannot resolve the collation conflict … (Msg 468)` (nelle tue query) | Il database ha una collation diversa da tempdb/server e una `#t` eredita quella di tempdb | `COLLATE DATABASE_DEFAULT` sulle colonne della `#t`, o allinea il database con `collation set` |
+| `... is dependent on database collation` (`Msg 5075`) / *Objects that depend on the collation* | Viste/funzioni `SCHEMABINDING`, `CHECK`, colonne calcolate o funzioni a tabella con testo | Elimina o modifica gli oggetti elencati, esegui `set`, ricreali |
+| `these names would collide under <collation>` | Con la nuova collation due nomi (oggetti, colonne, indici, utenti) risultano uguali | Rinomina uno dei due, poi riprova |
+| `SINGLE_USER is not allowed on a Multi-AZ database` | Il database è Multi-AZ: il cambio richiede `SINGLE_USER` | Eseguilo su un'istanza Single-AZ. `TODO: confermare` su RDS reale |
+| `the master user cannot ALTER <db>` | L'utente del target non è owner né `db_owner` del database | Usa un target con un utente che lo sia |
+| `<db> is SINGLE_USER/RESTRICTED_USER: someone is maintaining it` / `is read-only` | Il database è in manutenzione o in sola lettura | Aspetta o riporta il database a `MULTI_USER`/scrivibile |
+| `N native task(s) of <db> running or queued: wait for them` | Un backup/restore nativo è in corso sul database | `dialga wait <id>` (§5.4), poi riprova |
+| `<db> already uses <collation>: nothing to do` | Il database ha già quella collation | Niente da fare; per le colonne usa `convert` |
+| `the collation of <db> changed since the plan … preview again` | Qualcuno ha cambiato la collation tra anteprima ed esecuzione | Rifai l'anteprima |
+| `<db> … is open to all sessions again` (dopo un errore di `set`) | `ALTER DATABASE` è fallito; il database è tornato `MULTI_USER` | Leggi l'errore (di solito `Msg 5075`) e correggi la causa |
+| `… could not be reopened: run ALTER DATABASE [<db>] SET MULTI_USER` | Dopo l'errore non è stato possibile riaprire il database | Lancia tu il comando indicato, poi riprova |
+| `cannot convert <tabelle>` / `left as they are: …` | Tabelle rifiutate (§5.16): il motivo è accanto al nome | Con `--table` il piano fallisce: togli la tabella o risolvi il motivo; senza `--table` sono solo un avviso |
+| `values that differ only by case or accent would collide` | Convertendo, due valori diventerebbero uguali in una chiave unica | Correggi i dati duplicati oppure scegli una collation che li distingua |
+| `rows would lose their parent under the new collation` | Valori di FK che non troverebbero più il padre | Correggi i dati |
+| `values the code page of <collation> cannot hold` | Caratteri non rappresentabili nella code page di arrivo (o testo che non entra più) | Scegli una collation `_UTF8` o con la code page giusta, oppure correggi i dati |
+| `not verified (timeout or error)` | Un controllo sui dati ha superato i 60 s | Avviso: puoi procedere (se i dati sono incompatibili l'unità torna indietro) o restringere con `--table` |
+| `<n> tables to convert, at most 200 per plan` | Troppe tabelle in un piano | Restringi con `--table` e ripeti per gruppi |
+| `blocked by other sessions for 30 s: nothing changed, retry or resume` / *Lock request time out* | Altre sessioni tengono le tabelle | Riprova in una finestra di manutenzione, o riprendi il job da Activity |
+| `unit in an unexpected state (partly converted outside Dialga): nothing done` | Le tabelle dell'unità sono state cambiate da altri dopo il piano | Rifai l'anteprima: il nuovo piano parte dallo stato attuale |
+| `the tables changed since the plan: nothing done, preview again` | Tra anteprima ed esecuzione le tabelle dell'unità sono cambiate (tipo, lunghezza, indici, vincoli) | Rifai l'anteprima: nulla è stato modificato |
+| `change tracking needs the primary key <pk>: disable change tracking on the table first` | La conversione ricostruirebbe la chiave primaria di una tabella con change tracking | Disattiva il change tracking sulla tabella, converti, poi riattivalo |
+| `filter not readable (VIEW DEFINITION)` | Il master user non legge il filtro di un indice o di una statistica | Concedi `VIEW DEFINITION` o lascia fuori la tabella |
+| `Nothing to do.` (CLI) / *Nothing to do* (app) | Il piano non ha azioni: già alla collation voluta o niente da convertire | Niente da fare: nessun job creato, exit 0 |
+| `no SQL password …` (428 in app) | Manca la password SQL del target | §7.2 |
 
 ## 8. Riferimenti
 
