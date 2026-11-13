@@ -9,6 +9,8 @@ Rilascio: `docs/release.md`. Uso: `docs/guida-utente.md`.
 
 ## [Non rilasciato]
 
+## [0.8.0] - 2026-11-13
+
 ### Aggiunto
 
 - Gestione delle collation, in sola lettura: `dialga collation show`, `db [--columns]` e `list [--filter]` e rotte `GET /api/v1/targets/{name}/collation`, `…/collations`, `…/databases/{db}/collation`. Mostrano collation del server (fissa su RDS) e di tempdb, quella di ogni database, le colonne raggruppate per collation, i database diversi dal server e quelli a rischio con le tabelle temporanee (`Msg 468`).
