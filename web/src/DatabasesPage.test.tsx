@@ -107,7 +107,7 @@ describe("DatabasesPage", () => {
     const noOwner = hr.getByText("No login has the owner SID");
     expect(noOwner).toHaveClass("sr-only");
     expect(noOwner.parentElement).toHaveAttribute("title", "No login has the owner SID");
-    expect(hr.getByText("—")).toHaveAttribute("aria-hidden", "true");
+    expect(noOwner.parentElement?.querySelector("[aria-hidden]")).toHaveTextContent("—");
 
     const archive = within(row("archive"));
     expect(archive.getByText("Offline")).toHaveClass("badge-skipped");

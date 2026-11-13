@@ -141,3 +141,17 @@ describe("stepHint", () => {
     ).toBeUndefined();
   });
 });
+
+describe("collation hints", () => {
+  it("explains what to do about the errors of a collation change", () => {
+    expect(
+      hintFor(
+        "The object 'v' is dependent on database collation. The database collation cannot be changed",
+      )?.key,
+    ).toBe("hint.collationDependent");
+    expect(hintFor("Lock request time out period exceeded.")?.key).toBe("hint.lockTimeout");
+    expect(hintFor("SINGLE_USER is not allowed on a Multi-AZ database: sales")?.key).toBe(
+      "hint.multiAz",
+    );
+  });
+});

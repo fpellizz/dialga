@@ -10,6 +10,8 @@ import {
 } from "react";
 import { grantComplete, passwordProblem } from "./access";
 import { isActive, passwordNeeded, type Task } from "./api";
+import { CollationFields, collationComplete } from "./CollationFields";
+import { firstNumber, knownCollation } from "./collation";
 import type { EngineInfo } from "./engine";
 import { ErrorBanner } from "./Feedback";
 import { GrantFields } from "./GrantFields";
@@ -22,6 +24,7 @@ import {
   canExecute,
   cleanRequest,
   databaseExists,
+  isCollationOperation,
   isDestructive,
   type Operation,
   type PlanPreview,
@@ -63,12 +66,13 @@ export function PlanDialog({
   onClose,
   onShowReport,
   onDropOld,
+  onConvertColumns,
 }: {
   engine: EngineInfo;
   target: string;
   operation: Operation;
   request: PlanRequest;
-  fields?: "export" | "restore" | "grant";
+  fields?: FormFields;
   /** The databases of the target, when the page knows them: a restore over one offers to replace it. */
   existing?: readonly string[];
   /** The bucket of the target: names the S3 URI of the safety backup of a replace. */
@@ -78,6 +82,11 @@ export function PlanDialog({
   onShowReport?: (database: string) => void;
   /** Offered after a swap: drop the old database it kept. */
   onDropOld?: (database: string) => void;
+  /**
+   * Offered after a set-collation whose preview warned that columns keep the
+   * old collation: the plan to convert them (a separate plan, never chained).
+   */
+  onConvertColumns?: (collation: string, columns: number) => void;
 }) {
   const { t } = useI18n();
   const [params, setParams] = useState<PlanRequest>(request);
@@ -148,7 +157,10 @@ export function PlanDialog({
   useEffect(() => {
     // A form first: the grant always, the restore until it has a database and a key.
     const waitsForForm =
-      fields === "grant" || (fields === "restore" && !(request.database && request.key));
+      fields === "grant" ||
+      fields === "set-collation" ||
+      fields === "convert-columns" ||
+      (fields === "restore" && !(request.database && request.key));
     if (!waitsForForm) {
       void doPreview(request);
     }
@@ -219,7 +231,7 @@ export function PlanDialog({
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    if (formComplete(fields, params, secret)) {
+    if (formComplete(fields, params, secret, engine, target)) {
       void doPreview(params);
     }
   }
@@ -230,7 +242,16 @@ export function PlanDialog({
     user: request.user ?? "",
   });
   // Known before the preview for a drop: the button does not change colour when it arrives.
-  const destructive = preview ? isDestructive(preview.plan) : operation === "drop";
+  const destructive = preview
+    ? isDestructive(preview.plan)
+    : operation === "drop" || isCollationOperation(operation);
+  // Columns left in the old collation after a set-collation: the way on is a plan of its own.
+  const leftColumns =
+    run?.status === "done" && operation === "set-collation"
+      ? firstNumber(
+          preview?.checks.find((c) => c.step === "columns" && c.status === "warning")?.detail,
+        )
+      : 0;
   // "Cancel" next to "Cancel task" would read as the same thing.
   const dismiss = operation === "cancel" ? t("plan.close") : t("plan.cancel");
   const database = preview?.request.database ?? params.database ?? "";
@@ -246,10 +267,22 @@ export function PlanDialog({
         !preview.request.replace &&
         preview.checks.some((c) => c.step === "database" && c.status === "failed")));
 
+  const collationForm = fields === "set-collation" || fields === "convert-columns";
   let footer: ReactNode;
   if (run && run.status !== "running") {
     footer = (
       <>
+        {leftColumns > 0 && onConvertColumns && (
+          <button
+            type="button"
+            className="btn btn-outline"
+            onClick={() =>
+              onConvertColumns(preview?.request.collation ?? params.collation ?? "", leftColumns)
+            }
+          >
+            {t("collation.convertN", { count: leftColumns })}
+          </button>
+        )}
         {run.status === "done" &&
           operation === "restore" &&
           !preview?.request.noRecovery &&
@@ -312,18 +345,20 @@ export function PlanDialog({
             type="button"
             className="btn btn-ghost"
             onClick={() => void doPreview(params)}
-            disabled={loading || !formComplete(fields, params, secret)}
+            disabled={loading || !formComplete(fields, params, secret, engine, target)}
           >
             <RefreshCw size={16} className={loading ? "spin" : undefined} aria-hidden="true" />
             {t("plan.previewAgain")}
           </button>
         )}
-        {(fields === "restore" || fields === "grant") && !preview && !previewError ? (
+        {(fields === "restore" || fields === "grant" || collationForm) &&
+        !preview &&
+        !previewError ? (
           <button
             type="submit"
             form={`${ids}-form`}
             className="btn btn-primary"
-            disabled={loading || !formComplete(fields, params, secret)}
+            disabled={loading || !formComplete(fields, params, secret, engine, target)}
           >
             {t("plan.preview")}
           </button>
@@ -388,7 +423,18 @@ export function PlanDialog({
               />
             </label>
           )}
-          {fields !== "grant" && (
+          {(fields === "set-collation" || fields === "convert-columns") && (
+            <CollationFields
+              engine={engine}
+              target={target}
+              database={request.database ?? ""}
+              operation={fields}
+              params={params}
+              onChange={(patch) => setParams((p) => ({ ...p, ...patch }))}
+              disabled={loading}
+            />
+          )}
+          {(fields === "export" || fields === "restore") && (
             <div className="field-inline">
               <label className="field-inline">
                 <span>{t("plan.field.key")}</span>
@@ -582,11 +628,18 @@ export function PlanDialog({
   );
 }
 
+type FormFields = "export" | "restore" | "grant" | "set-collation" | "convert-columns";
+
 function formComplete(
-  fields: "export" | "restore" | "grant" | undefined,
+  fields: FormFields | undefined,
   p: PlanRequest,
   secret: string,
+  engine: EngineInfo,
+  target: string,
 ): boolean {
+  if (fields === "set-collation" || fields === "convert-columns") {
+    return collationComplete(fields, p, knownCollation(engine, target, p.collation ?? ""));
+  }
   if (fields === "grant") {
     return grantComplete(p, secret);
   }

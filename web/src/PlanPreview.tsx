@@ -1,9 +1,12 @@
 import { ShieldAlert } from "lucide-react";
 import { useId, useLayoutEffect, useRef } from "react";
 import type { StepEvent } from "./api";
+import { CollationPlanSummary } from "./CollationPlanSummary";
 import { type MessageKey, messages, type Translate, useI18n } from "./i18n";
 import {
   isAccessRequest,
+  isCollationOperation,
+  isCollationRequest,
   isDestructive,
   type PlanPreview,
   type PlanRequest,
@@ -34,12 +37,38 @@ const ACCESS_CHECK: Record<string, MessageKey> = {
   "msdb-user": "plancheck.msdbUser",
 };
 
+/** The checks of set-collation and convert-columns: "names" and "access" mean other things there. */
+const COLLATION_CHECK: Record<string, MessageKey> = {
+  database: "plancheck.database",
+  access: "plancheck.collationAccess",
+  collation: "plancheck.collation",
+  permission: "plancheck.permission",
+  availability: "plancheck.availability",
+  dependents: "plancheck.dependents",
+  names: "plancheck.collationNames",
+  tasks: "plancheck.tasks",
+  sessions: "plancheck.sessions",
+  server: "plancheck.server",
+  columns: "plancheck.columns",
+  utf8: "plancheck.utf8",
+  tables: "plancheck.tables",
+  scope: "plancheck.scope",
+  "fk-closure": "plancheck.fk-closure",
+  refused: "plancheck.refused",
+  limit: "plancheck.limit",
+  uniqueness: "plancheck.uniqueness",
+  references: "plancheck.references",
+  "code-page": "plancheck.code-page",
+  size: "plancheck.size",
+};
+
 /** The label of a check, an action or the wait, in the user's language. */
 export function stepLabel(
   t: Translate,
   s: StepEvent,
   request: PlanRequest,
   strategy?: string,
+  operation?: string,
 ): string {
   const vars = {
     database: request.database ?? "",
@@ -48,6 +77,11 @@ export function stepLabel(
   };
   // The steps of a job are prefixed with the database (<db>/restore); repeats have a "#n".
   const id = s.step.slice(s.step.lastIndexOf("/") + 1).replace(/#[0-9]+$/, "");
+  if ((operation && isCollationOperation(operation)) || isCollationRequest(request)) {
+    // The actions (set-collation, convert) keep the engine's title: it names the tables.
+    const key = COLLATION_CHECK[id];
+    return key ? t(key) : s.label;
+  }
   if (isAccessRequest(request)) {
     // "backup" is also the safety backup of a drop: not here. The actions
     // (add-role, create-user...) keep the engine's title, which names the role and the user.
@@ -77,6 +111,20 @@ export function stepLabel(
   }
   const key = planStepKey(id);
   return key ? t(key) : s.label;
+}
+
+/** What the confirmation of a destructive plan warns about. */
+function confirmWarning(t: Translate, operation: string, database: string, target: string): string {
+  switch (operation) {
+    case "revoke":
+      return t("plan.confirm.dropUser", { database, target });
+    case "set-collation":
+      return t("plan.confirm.setCollation", { database, target });
+    case "convert-columns":
+      return t("plan.confirm.convertColumns", { database, target });
+    default:
+      return t("plan.confirm.drop", { database, target });
+  }
 }
 
 /** Every failed check is one the caller expects: the plan is ready for it. */
@@ -132,7 +180,8 @@ export function PlanPreviewView({
   const actionKeys = stepKeys(preview.plan.actions.map((a) => ({ step: a.id })));
   const asking = showConfirm && !!onConfirmChange && !!preview.confirmation;
   const Heading = title ? "h4" : "h3";
-  const label = (s: StepEvent) => stepLabel(t, s, preview.request, preview.replace?.strategy);
+  const label = (s: StepEvent) =>
+    stepLabel(t, s, preview.request, preview.replace?.strategy, preview.plan.operation);
   const [confirmBefore, confirmAfter] = messages[lang]["plan.confirm.label"].split("{text}");
 
   // The plan asks to retype something: that is what the user does next
@@ -167,6 +216,7 @@ export function PlanPreviewView({
           <span className="banner-text">{t("plan.notReady")}</span>
         </div>
       )}
+      {preview.collation && <CollationPlanSummary plan={preview.collation} Heading={Heading} />}
       <section aria-labelledby={`${ids}-actions`}>
         <Heading id={`${ids}-actions`} className="plan-heading">
           {t("plan.actions")}
@@ -194,9 +244,7 @@ export function PlanPreviewView({
         <div className="plan-confirm">
           {destructive && !preview.plan.protected && (
             <p id={`${ids}-warning`} className="plan-warning">
-              {preview.plan.operation === "revoke"
-                ? t("plan.confirm.dropUser", { database, target: preview.plan.target })
-                : t("plan.confirm.drop", { database, target: preview.plan.target })}
+              {confirmWarning(t, preview.plan.operation, database, preview.plan.target)}
             </p>
           )}
           <label className="field-inline">
