@@ -39,6 +39,10 @@ func TestStatementsMatchMssqlImport(t *testing.T) {
 		{"access-drop-user.sql", DropUser("golden_db", "golden_user")},
 		{"access-backup-grants.sql", BackupGrants("golden_user")},
 		{"access-backup-revokes.sql", BackupRevokes("golden_user")},
+		// Collation of a database: written by hand too.
+		{"collation-set-database.sql", SetDatabaseCollation("golden_db", "Latin1_General_100_CI_AS")},
+		{"collation-set-database-quote.sql", SetDatabaseCollation("o-neil_db", "Latin1_General_100_CI_AS")},
+		{"collation-multi-user-if-single.sql", MultiUserIfSingle("golden_db")},
 	}
 	for _, tc := range tests {
 		t.Run(tc.golden, func(t *testing.T) {
