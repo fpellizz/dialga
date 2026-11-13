@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 var (
@@ -23,6 +25,9 @@ var (
 	// SQL logins and database users: the pattern of the OpenAPI contract
 	// (login, user), with "." for names like first.last.
 	principalPattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
+	// collations: a name as sys.fn_helpcollations gives it. It is
+	// interpolated in COLLATE clauses, so nothing else is accepted.
+	collationPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,127}$`)
 
 	// System databases of SQL Server plus the RDS administration database.
 	systemDatabases = map[string]bool{
@@ -63,6 +68,36 @@ func DerivedDBName(name string) error {
 func PrincipalName(name string) error {
 	if !principalPattern.MatchString(name) {
 		return fmt.Errorf("invalid login or user name %q: use letters, digits, _ . and -, max 128 characters, not starting with . or -", name)
+	}
+	return nil
+}
+
+// CollationName reports whether name can be a collation name as
+// sys.fn_helpcollations gives it: a letter, then letters, digits and "_", at
+// most 128 characters. Collations are interpolated in COLLATE clauses (they
+// cannot be quoted), so nothing else is accepted; whether the instance knows
+// the collation is checked on the instance.
+func CollationName(name string) error {
+	if !collationPattern.MatchString(name) {
+		return fmt.Errorf("invalid collation name %q: use letters, digits and _, starting with a letter, max 128 characters", name)
+	}
+	return nil
+}
+
+// ObjectName reports whether name can be a schema, table or column name the
+// user typed: 1 to 128 characters, no control characters. Such names are
+// always quoted as identifiers, never interpolated as they are.
+func ObjectName(name string) error {
+	n := utf8.RuneCountInString(name)
+	switch {
+	case !utf8.ValidString(name):
+		return fmt.Errorf("invalid object name %q: not valid UTF-8", name)
+	case n == 0:
+		return fmt.Errorf("invalid object name: it is empty")
+	case n > 128:
+		return fmt.Errorf("invalid object name %q: max 128 characters", name)
+	case strings.ContainsFunc(name, unicode.IsControl):
+		return fmt.Errorf("invalid object name %q: no control characters allowed", name)
 	}
 	return nil
 }

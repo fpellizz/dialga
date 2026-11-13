@@ -195,6 +195,9 @@ func checkUserName(user, master string) error {
 
 // validateAccess is Validate for the access operations.
 func validateAccess(op string, p Params, master string) error {
+	if err := collationFields(op, p); err != nil {
+		return err
+	}
 	if p.Key != "" || p.TaskID != 0 || p.Restore != (mssql.RestoreOptions{}) || p.Replace != (ReplaceOptions{}) {
 		return fmt.Errorf("%s takes a database and a login, not a backup key, task or restore options", op)
 	}

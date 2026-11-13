@@ -75,16 +75,16 @@ func OperationSpec(env Env, prep *ops.Prepared, noWait bool) (jobs.Spec, error) 
 				return jobs.Spec{}, err
 			}
 		}
-		// The ids of the steps of a job are unique; the plan repeats add-role
-		// and drop-role, so the repeats get a "#n" (OperationEvents drops it).
-		seen := map[string]int{}
+		ids := uniqueIDs(plan.Actions)
 		for i, st := range prep.AccessSteps() {
 			a := plan.Actions[i]
-			id := a.ID
-			if seen[id]++; seen[id] > 1 {
-				id = fmt.Sprintf("%s#%d", id, seen[id])
-			}
-			steps = append(steps, AccessParams{AccessStep: st, Statement: a.Statement}.Step(env, id, a.Title))
+			steps = append(steps, AccessParams{AccessStep: st, Statement: a.Statement}.Step(env, ids[i], a.Title))
+		}
+	case ops.OpSetCollation, ops.OpConvertColumns:
+		ids := uniqueIDs(plan.Actions)
+		for i, st := range prep.CollationSteps() {
+			a := plan.Actions[i]
+			steps = append(steps, CollationParams{CollationStep: st, Statement: a.Statement}.Step(env, ids[i], a.Title))
 		}
 	default:
 		return jobs.Spec{}, fmt.Errorf("operation %q cannot run as a job", plan.Operation)
@@ -97,7 +97,23 @@ func OperationSpec(env Env, prep *ops.Prepared, noWait bool) (jobs.Spec, error) 
 	}, nil
 }
 
-// repeatedID is the "#n" the steps of an access plan get when an id repeats.
+// uniqueIDs are the ids of the steps of a job made of actions: the ids of a
+// job are unique, and a plan may repeat one (add-role and drop-role in an
+// access plan, convert in a collation plan), so the repeats get a "#n"
+// (OperationEvents drops it): add-role, add-role#2, add-role#3.
+func uniqueIDs(actions []core.Action) []string {
+	ids := make([]string, len(actions))
+	seen := map[string]int{}
+	for i, a := range actions {
+		ids[i] = a.ID
+		if seen[a.ID]++; seen[a.ID] > 1 {
+			ids[i] = fmt.Sprintf("%s#%d", a.ID, seen[a.ID])
+		}
+	}
+	return ids
+}
+
+// repeatedID is the "#n" the steps of a plan get when an id repeats.
 var repeatedID = regexp.MustCompile(`#[0-9]+$`)
 
 // OperationEvents turns the events of an operation job into what the plan

@@ -21,6 +21,9 @@ const (
 	KindDownload = "pipeline.download"
 	KindSQL      = "pipeline.sql"
 	KindAccess   = "pipeline.access"
+	// KindCollation is a step of set-collation or convert-columns
+	// (collation.go).
+	KindCollation = "pipeline.collation"
 )
 
 func init() {
@@ -31,6 +34,7 @@ func init() {
 	jobs.Register(KindDownload, rebuildDownload)
 	jobs.Register(KindSQL, rebuildSQL)
 	jobs.Register(KindAccess, rebuildAccess)
+	jobs.Register(KindCollation, rebuildCollation)
 }
 
 // envOf is the Env a resume hands to the factories (ResumeOptions.Env).

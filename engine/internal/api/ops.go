@@ -61,6 +61,13 @@ type PlanRequest struct {
 	Backup      bool   `json:"backup,omitempty"`
 	CreateLogin bool   `json:"createLogin,omitempty"`
 	Remove      string `json:"remove,omitempty"`
+	// Collations (set-collation, convert-columns): Collation is the target
+	// collation (convert-columns: "" is the default of the database, which
+	// the preview resolves), Tables limits convert-columns to those tables,
+	// SkipDataChecks skips its data checks.
+	Collation      string           `json:"collation,omitempty"`
+	Tables         []mssql.TableRef `json:"tables,omitempty"`
+	SkipDataChecks bool             `json:"skipDataChecks,omitempty"`
 }
 
 // ExecuteRequest is the body of POST .../plans/{operation}/execute: the
@@ -87,6 +94,13 @@ type ExecuteRequest struct {
 	Backup      bool   `json:"backup,omitempty"`
 	CreateLogin bool   `json:"createLogin,omitempty"`
 	Remove      string `json:"remove,omitempty"`
+	// Collations (set-collation, convert-columns): Collation is the target
+	// collation (convert-columns: "" is the default of the database, which
+	// the preview resolves), Tables limits convert-columns to those tables,
+	// SkipDataChecks skips its data checks.
+	Collation      string           `json:"collation,omitempty"`
+	Tables         []mssql.TableRef `json:"tables,omitempty"`
+	SkipDataChecks bool             `json:"skipDataChecks,omitempty"`
 	// LoginPassword is the password of the login a grant creates: for the
 	// execution only, never in a preview, plan, event, journal or log.
 	LoginPassword string `json:"loginPassword,omitempty"`
@@ -102,14 +116,16 @@ type ExecuteRequest struct {
 func (r ExecuteRequest) plan() PlanRequest {
 	return PlanRequest{Database: r.Database, Key: r.Key, Differential: r.Differential, NoRecovery: r.NoRecovery, TaskID: r.TaskID,
 		Replace: r.Replace, BackupFirst: r.BackupFirst, Stamp: r.Stamp,
-		Login: r.Login, User: r.User, Level: r.Level, Backup: r.Backup, CreateLogin: r.CreateLogin, Remove: r.Remove}
+		Login: r.Login, User: r.User, Level: r.Level, Backup: r.Backup, CreateLogin: r.CreateLogin, Remove: r.Remove,
+		Collation: r.Collation, Tables: r.Tables, SkipDataChecks: r.SkipDataChecks}
 }
 
 func (r PlanRequest) params() ops.Params {
 	return ops.Params{Database: r.Database, Key: r.Key, TaskID: r.TaskID,
 		Restore: mssql.RestoreOptions{Differential: r.Differential, NoRecovery: r.NoRecovery},
 		Replace: ops.ReplaceOptions{Mode: r.Replace, BackupFirst: r.BackupFirst, Stamp: r.Stamp},
-		Login:   r.Login, User: r.User, Level: r.Level, Backup: r.Backup, CreateLogin: r.CreateLogin, Remove: r.Remove}
+		Login:   r.Login, User: r.User, Level: r.Level, Backup: r.Backup, CreateLogin: r.CreateLogin, Remove: r.Remove,
+		Collation: r.Collation, Tables: r.Tables, SkipDataChecks: r.SkipDataChecks}
 }
 
 // PlanPreview is the answer of POST .../plans/{operation}. Nothing is changed.
@@ -129,6 +145,9 @@ type PlanPreview struct {
 	// Replace says how a restore over an existing database goes: the strategy
 	// auto resolved to, the names it uses, what it keeps.
 	Replace *ops.Replacement `json:"replace,omitempty"`
+	// Collation summarizes a set-collation or a convert-columns: the
+	// collations, what a conversion rebuilds, the tables it refuses.
+	Collation *ops.CollationPlan `json:"collation,omitempty"`
 }
 
 // JobRef is the data of the first event of an execution, "job".
@@ -275,12 +294,16 @@ func (s *Server) previewPlan(w http.ResponseWriter, r *http.Request) {
 	_ = prep.Plan.Preview(&text)
 	resolved := req
 	resolved.Key = prep.Params.Key
+	// convert-columns: "" is the default collation of the database; the
+	// execute call sends back the one resolved, like the export key.
+	resolved.Collation = prep.Params.Collation
 	if prep.Replace != nil {
 		resolved.Stamp = prep.Replace.Stamp
 	}
 	writeJSON(w, PlanPreview{
 		Plan: prep.Plan, Checks: prep.Checks, Ready: prep.Ready(), Confirmation: prep.Plan.Confirmation(),
 		Digest: prep.Digest(), Preview: text.String(), Request: resolved, Replace: prep.Replace,
+		Collation: prep.Collation,
 	})
 }
 

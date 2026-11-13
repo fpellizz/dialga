@@ -64,9 +64,16 @@ func TestOpenAPIRoutesMatchTheServer(t *testing.T) {
 }
 
 // jsonFields returns the JSON names of a struct and those without omitempty.
+// The fields of an embedded struct without a JSON name are flattened, as
+// encoding/json does.
 func jsonFields(typ reflect.Type) (all, required []string) {
 	for f := range typ.Fields() {
 		name, opts, _ := strings.Cut(f.Tag.Get("json"), ",")
+		if f.Anonymous && name == "" && f.Type.Kind() == reflect.Struct {
+			a, r := jsonFields(f.Type)
+			all, required = append(all, a...), append(required, r...)
+			continue
+		}
 		if name == "-" || !f.IsExported() {
 			continue
 		}
@@ -124,6 +131,17 @@ func TestOpenAPISchemasMatchTheGoTypes(t *testing.T) {
 		"LoginList":      {LoginList{}},
 		"DatabaseUser":   {mssql.DatabaseUser{}},
 		"DatabaseAccess": {ops.AccessView{}},
+		// Collations (collation.go, ops.go)
+		"TableRef":                 {mssql.TableRef{}},
+		"CollationInfo":            {mssql.CollationInfo{}},
+		"CollationList":            {CollationList{}},
+		"DatabaseCollationSummary": {ops.DatabaseCollationSummary{}},
+		"CollationOverview":        {ops.CollationOverview{}},
+		"CollationGroup":           {ops.CollationGroup{}},
+		"CollationColumn":          {ops.ColumnView{}},
+		"DatabaseCollationView":    {ops.DatabaseCollationView{}},
+		"RefusedTable":             {ops.RefusedTable{}},
+		"CollationPlan":            {ops.CollationPlan{}},
 		// First run and configuration (firstrun.go).
 		"InstallHint":        {discover.InstallHint{}},
 		"Prerequisite":       {discover.Prerequisite{}},

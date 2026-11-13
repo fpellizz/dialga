@@ -73,3 +73,29 @@ func TestPrincipalName(t *testing.T) {
 		}
 	}
 }
+
+func TestCollationName(t *testing.T) {
+	for name, ok := range map[string]bool{
+		"SQL_Latin1_General_CP1_CI_AS": true, "Latin1_General_100_CI_AS_SC_UTF8": true, "Japanese_XJIS_140_BIN2": true,
+		"x": true, "a" + strings.Repeat("b", 127): true,
+		"": false, "_Latin1": false, "1Latin": false, "Latin1 General": false, "Latin1-General": false,
+		"Latin1;DROP": false, "Latin1'": false, "[Latin1]": false, "a" + strings.Repeat("b", 128): false, "Latin1_é": false,
+	} {
+		if err := CollationName(name); (err == nil) != ok {
+			t.Errorf("CollationName(%q) = %v, want ok=%v", name, err, ok)
+		}
+	}
+}
+
+func TestObjectName(t *testing.T) {
+	for name, ok := range map[string]bool{
+		"dbo": true, "Order Details": true, "a]b": true, "o'neil": true, "a.b": true, "é": true, "表": true,
+		strings.Repeat("a", 128): true, strings.Repeat("表", 128): true,
+		"": false, strings.Repeat("a", 129): false, "a\nb": false, "a\x00b": false, "tab\there": false, "a\x7f": false,
+		string([]byte{0xff, 0xfe}): false,
+	} {
+		if err := ObjectName(name); (err == nil) != ok {
+			t.Errorf("ObjectName(%q) = %v, want ok=%v", name, err, ok)
+		}
+	}
+}
