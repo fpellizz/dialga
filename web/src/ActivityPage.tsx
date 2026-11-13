@@ -86,6 +86,8 @@ const OPERATION_LABEL = {
   finish: "activity.op.finish",
   cancel: "activity.op.cancel",
   post: "activity.op.post",
+  "set-collation": "activity.op.set-collation",
+  "convert-columns": "activity.op.convert-columns",
 } as const;
 
 /** Import, Export, or the operation of a single job: Restore, Drop, Cancel task... */

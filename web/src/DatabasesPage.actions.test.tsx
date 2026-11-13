@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 import type { Database } from "./api";
 import { DatabasesPage } from "./DatabasesPage";
+import { COLLATION_VIEW } from "./test/collation";
 import { CONFIG_PATH, DEV, renderI18n } from "./test/fixtures";
 import { ENGINE, json, mockFetch, type Route, requestsTo, sseStream } from "./test/http";
 import { chooseAction, openActions } from "./test/menu";
@@ -50,12 +51,35 @@ describe("DatabasesPage actions", () => {
     expect(row("sales").queryByRole("button", { name: "Drop sales" })).toBeNull();
     await openActions("sales");
     const names = () => screen.getAllByRole("menuitem").map((i) => i.getAttribute("aria-label"));
-    expect(names()).toEqual(["Export sales", "Access to sales", "Drop sales"]);
+    expect(names()).toEqual([
+      "Export sales",
+      "Access to sales",
+      "Collation of sales",
+      "Drop sales",
+    ]);
     await userEvent.keyboard("{Escape}");
 
     expect(row("staged").getByRole("button", { name: "Report of staged" })).toBeInTheDocument();
     await openActions("staged");
     expect(names()).toEqual(["Finish restore of staged", "Drop staged"]);
+  });
+
+  it("opens the collation panel from the menu and reads the databases again on close", async () => {
+    const fetch = serve({
+      "GET /api/v1/targets/dev-sql/databases/sales/collation": () => json(COLLATION_VIEW),
+    });
+    renderI18n(<DatabasesPage engine={ENGINE} engineError="" />);
+    await screen.findByRole("columnheader", { name: "Actions" });
+    // The column shows the default collation of each database, and sorts.
+    expect(row("sales").getByText("SQL_Latin1_General_CP1_CI_AS")).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Collation" })).toBeInTheDocument();
+
+    await chooseAction("sales", "Collation of sales");
+    const dialog = within(await screen.findByRole("dialog", { name: "Collation of sales" }));
+    expect(await dialog.findByText("Fixed on RDS")).toBeInTheDocument();
+    await userEvent.click(dialog.getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    await waitFor(() => expect(requestsTo(fetch, DATABASES)).toHaveLength(2));
   });
 
   it("drops a database, then reloads the list and gives the focus back", async () => {

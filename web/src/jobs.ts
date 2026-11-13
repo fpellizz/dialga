@@ -99,7 +99,15 @@ export interface JobEvent {
 export type JobKind = "import" | "export" | "operation";
 
 /** What a job of kind "operation" does. */
-export type JobOperation = "restore" | "export" | "drop" | "finish" | "cancel" | "post";
+export type JobOperation =
+  | "restore"
+  | "export"
+  | "drop"
+  | "finish"
+  | "cancel"
+  | "post"
+  | "set-collation"
+  | "convert-columns";
 
 /** Where the job started: this app or the dialga CLI. */
 export type JobOrigin = "app" | "cli";

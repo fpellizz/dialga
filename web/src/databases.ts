@@ -24,7 +24,14 @@ export function databaseBytes(db: Database): number {
   return (db.dataMB + db.logMB) * MIB;
 }
 
-export type SortKey = "name" | "state" | "size" | "compatibility" | "recovery" | "owner";
+export type SortKey =
+  | "name"
+  | "state"
+  | "size"
+  | "compatibility"
+  | "recovery"
+  | "collation"
+  | "owner";
 /** The values of aria-sort, so the header can use them as they are. */
 export type SortDir = "ascending" | "descending";
 

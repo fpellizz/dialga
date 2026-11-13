@@ -12,6 +12,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { AccessDialog } from "./AccessDialog";
 import { type Database as DatabaseRow, listDatabases, listTargets, type TargetList } from "./api";
+import { CollationDialog } from "./CollationDialog";
 import {
   compatRelease,
   DEFAULT_SORT,
@@ -47,6 +48,7 @@ const COLUMNS: { key: SortKey; label: MessageKey; numeric?: boolean }[] = [
   { key: "size", label: "databases.col.size", numeric: true },
   { key: "compatibility", label: "databases.col.compatibility", numeric: true },
   { key: "recovery", label: "databases.col.recovery" },
+  { key: "collation", label: "databases.col.collation" },
   { key: "owner", label: "databases.col.owner" },
 ];
 
@@ -56,7 +58,8 @@ const MIB = 1024 * 1024;
 type Dialog =
   | { kind: "plan"; operation: Operation; database?: string }
   | { kind: "report"; database: string }
-  | { kind: "access"; database: string };
+  | { kind: "access"; database: string }
+  | { kind: "collation"; database: string };
 
 /** The databases read for one target; another target shows the skeleton until its own arrive. */
 interface Loaded {
@@ -448,6 +451,18 @@ export function DatabasesPage({
           onClose={() => setDialog(null)}
         />
       )}
+      {engine && target && dialog?.kind === "collation" && (
+        <CollationDialog
+          engine={engine}
+          target={target}
+          database={dialog.database}
+          onClose={() => {
+            // The default collation may have changed: the column shows the new one.
+            setReload((n) => n + 1);
+            setDialog(null);
+          }}
+        />
+      )}
       {engine && target && dialog?.kind === "report" && (
         <ReportDialog
           engine={engine}
@@ -528,6 +543,14 @@ function DatabaseLine({
       onSelect: () => onOpen({ kind: "access", database: db.name }),
     });
   }
+  if (db.state === "ONLINE") {
+    menuItems.push({
+      key: "collation",
+      label: t("dbaction.collation"),
+      ariaLabel: t("dbaction.collationOf", { database: db.name }),
+      onSelect: () => onOpen({ kind: "collation", database: db.name }),
+    });
+  }
   menuItems.push({
     key: "drop",
     label: t("dbaction.drop"),
@@ -575,6 +598,14 @@ function DatabaseLine({
         {release && <span className="muted"> · {release}</span>}
       </td>
       <td className="mono">{db.recovery}</td>
+      <td className="mono">
+        {db.collation ?? (
+          <span className="muted" title={t("databases.noCollation")}>
+            <span aria-hidden="true">—</span>
+            <span className="sr-only">{t("databases.noCollation")}</span>
+          </span>
+        )}
+      </td>
       <td>
         {db.owner ?? (
           // A screen reader reads the reason, not "em dash".

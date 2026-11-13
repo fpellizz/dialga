@@ -5,6 +5,7 @@
  * plan dialog live here too.
  */
 import { ApiError, authHeaders, failure, type Lifecycle, type StepEvent, type Task } from "./api";
+import type { CollationPlan, TableRef } from "./collation";
 import type { EngineInfo } from "./engine";
 import type { Hint } from "./hints";
 import type { MessageKey } from "./i18n";
@@ -18,7 +19,9 @@ export type Operation =
   | "drop"
   | "grant"
   | "revoke"
-  | "fix-orphan";
+  | "fix-orphan"
+  | "set-collation"
+  | "convert-columns";
 
 /** The level of access a grant gives (the roles of the database). */
 export type AccessLevel = "read" | "readwrite" | "owner";
@@ -80,6 +83,16 @@ export interface PlanRequest {
   createLogin?: boolean;
   /** revoke: what to take away. */
   remove?: RemoveWhat;
+  /**
+   * set-collation: the new default collation of the database. convert-columns:
+   * the collation the columns get ("" = the default of the database; the
+   * preview resolves it and its request carries the name).
+   */
+  collation?: string;
+  /** convert-columns: only these tables (and those linked to them by foreign keys); none = all. */
+  tables?: TableRef[];
+  /** convert-columns: skip the data checks (a single warning instead). */
+  skipDataChecks?: boolean;
 }
 
 /** The body of .../execute: the previewed request, the confirmation and the digest. */
@@ -123,6 +136,8 @@ export interface PlanPreview {
   preview: string;
   /** How a restore over an existing database resolved. */
   replace?: ReplacePlan;
+  /** set-collation, convert-columns: what the plan changes and the tables it refuses. */
+  collation?: CollationPlan;
   /** The request with the defaults resolved (the export key): what execute sends back. */
   request: PlanRequest;
 }
@@ -324,6 +339,18 @@ export function canExecute(preview: PlanPreview, typed: string, stale: boolean):
   return preview.ready && !stale && (!preview.confirmation || typed === preview.confirmation);
 }
 
+/** The operation changes collations: set-collation or convert-columns. */
+export function isCollationOperation(operation: string): boolean {
+  return operation === "set-collation" || operation === "convert-columns";
+}
+
+/** The request of set-collation or convert-columns (a collation, tables or the data checks). */
+export function isCollationRequest(request: PlanRequest): boolean {
+  return (
+    request.collation !== undefined || !!request.tables || request.skipDataChecks !== undefined
+  );
+}
+
 /** The request of a database access operation (grant, revoke, fix-orphan). */
 export function isAccessRequest(request: PlanRequest): boolean {
   return !!(request.login || request.user || request.level || request.remove);
@@ -373,6 +400,16 @@ export function cleanRequest(request: PlanRequest): PlanRequest {
   if (request.remove) {
     out.remove = request.remove;
   }
+  const collation = request.collation?.trim();
+  if (collation) {
+    out.collation = collation;
+  }
+  if (request.tables && request.tables.length > 0) {
+    out.tables = request.tables;
+  }
+  if (request.skipDataChecks) {
+    out.skipDataChecks = true;
+  }
   // The engine refuses a replace with a differential or a restore left restoring.
   if (request.replace && !request.differential && !request.noRecovery) {
     out.replace = request.replace;
@@ -381,6 +418,14 @@ export function cleanRequest(request: PlanRequest): PlanRequest {
     }
   }
   return out;
+}
+
+/** The same tables, in any order. */
+function sameTables(a: TableRef[] = [], b: TableRef[] = []): boolean {
+  const keys = (list: TableRef[]) => list.map((r) => `${r.schema}\n${r.name}`).sort();
+  const x = keys(a);
+  const y = keys(b);
+  return x.length === y.length && x.every((k, i) => k === y[i]);
 }
 
 /** Same parameters, whatever the order of the fields and the blanks around them. */
@@ -399,6 +444,9 @@ export function sameRequest(a: PlanRequest, b: PlanRequest): boolean {
     !!x.backup === !!y.backup &&
     !!x.createLogin === !!y.createLogin &&
     x.remove === y.remove &&
+    (x.collation ?? "").toLowerCase() === (y.collation ?? "").toLowerCase() &&
+    sameTables(x.tables, y.tables) &&
+    !!x.skipDataChecks === !!y.skipDataChecks &&
     (x.replace ?? "") === (y.replace ?? "") &&
     x.backupFirst === y.backupFirst
   );
