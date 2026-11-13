@@ -95,3 +95,24 @@ func TestSetCollationPreviewAndExecute(t *testing.T) {
 		t.Fatalf("execute: status %d, events %v, ran %v\n%s", rec.Code, names, f.ran, rec.Body)
 	}
 }
+
+// A ready plan with no action (already at the target) answers a completed
+// no-op: the warnings, then done with ok and no job.
+func TestExecuteNothingToDo(t *testing.T) {
+	doc := testConfig
+	f := newCollInstance()
+	srv := newOpsServer(t, &doc, testEnv, f, fakeObjects{})
+	rec := doJSON(srv.h, http.MethodPost, "/api/v1/targets/dev-sql/plans/set-collation/execute",
+		`{"database":"sales","collation":"SQL_Latin1_General_CP1_CI_AS"}`)
+	names, data := events(t, rec.Body.String())
+	if rec.Code != http.StatusOK || strings.Join(names, " ") != "notice done" || len(f.ran) != 0 {
+		t.Fatalf("status %d, events %v, ran %v\n%s", rec.Code, names, f.ran, rec.Body)
+	}
+	var done PlanDone
+	if err := json.Unmarshal([]byte(data[1]), &done); err != nil || !done.OK || done.JobID != "" || done.Result != NothingToDo {
+		t.Fatalf("done %+v %v", done, err)
+	}
+	if n := len(srv.jobs.List()); n != 0 {
+		t.Fatalf("%d job(s) recorded", n)
+	}
+}

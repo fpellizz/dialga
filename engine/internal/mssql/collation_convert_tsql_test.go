@@ -121,8 +121,8 @@ func goldenCodePage() string {
 		ColumnChange{Name: "city", Type: "varchar(40)", Nullable: true, From: goldenFrom, To: "Cyrillic_General_CI_AS"}, 40)
 }
 
-// A unit is one transaction: XACT_ABORT, LOCK_TIMEOUT, BEGIN and COMMIT
-// around everything, foreign keys dropped first and created last.
+// A unit is one transaction: XACT_ABORT, LOCK_TIMEOUT, TRY with BEGIN and
+// COMMIT around everything, a CATCH that rolls back and throws again.
 func TestConvertUnitShape(t *testing.T) {
 	for name, u := range map[string]ConversionUnit{
 		"simple": goldenConvertSimple(), "pk-fk": goldenConvertPKFK(), "index": goldenConvertIndexOptions(),
@@ -131,8 +131,10 @@ func TestConvertUnitShape(t *testing.T) {
 	} {
 		got := ConvertUnit(u)
 		lines := strings.Split(got, "\n")
+		n := len(lines)
 		if lines[0] != "USE "+quoteIdent(u.Database)+";" || lines[1] != "SET XACT_ABORT ON;" || lines[2] != "SET LOCK_TIMEOUT 30000;" ||
-			lines[3] != "BEGIN TRANSACTION;" || lines[len(lines)-1] != "COMMIT TRANSACTION;" {
+			lines[3] != "BEGIN TRY" || lines[4] != "BEGIN TRANSACTION;" ||
+			strings.Join(lines[n-6:], "\n") != "COMMIT TRANSACTION;\nEND TRY\nBEGIN CATCH\nIF XACT_STATE() <> 0 ROLLBACK TRANSACTION;\nTHROW;\nEND CATCH;" {
 			t.Errorf("%s: envelope\n%s", name, got)
 		}
 		if ConvertUnit(u) != got {

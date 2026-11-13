@@ -9,10 +9,6 @@ import (
 // The reads of the collation views and operations that every work package
 // uses (collation design, step 0): frozen.
 
-// errNotYet is what the parts of the collation work that are not written yet
-// answer (the stubs of the work packages).
-var errNotYet = errors.New("collation: not implemented yet")
-
 // ServerCollation reads the collation of the instance, of tempdb and of
 // model, and the version of SQL Server.
 func (s Session) ServerCollation(ctx context.Context) (ServerCollation, error) {
@@ -51,14 +47,15 @@ func (s Session) Collation(ctx context.Context, name string) (CollationInfo, boo
 }
 
 // CollationState reads db as set-collation and convert-columns need it:
-// Exists is false when the instance has no database with that name.
+// Exists is false when the instance has no database with that name. It
+// reads only sys.databases and sys.database_mirroring (catalog views): no
+// VIEW SERVER STATE needed, unlike sys.dm_hadr_database_replica_states.
 func (s Session) CollationState(ctx context.Context, db string) (CollationState, error) {
 	var st CollationState
 	err := s.DB.QueryRowContext(ctx, `SELECT d.name, ISNULL(d.collation_name, N''), d.state_desc, d.containment_desc,
 		d.user_access_desc, d.is_read_only,
 		CONVERT(bit, ISNULL(HAS_PERMS_BY_NAME(d.name, N'DATABASE', N'ALTER'), 0)),
-		CONVERT(bit, CASE WHEN EXISTS (SELECT 1 FROM sys.dm_hadr_database_replica_states r
-			WHERE r.database_id = d.database_id) THEN 1 ELSE 0 END),
+		CONVERT(bit, CASE WHEN d.replica_id IS NOT NULL OR d.group_database_id IS NOT NULL THEN 1 ELSE 0 END),
 		CONVERT(bit, CASE WHEN EXISTS (SELECT 1 FROM sys.database_mirroring m
 			WHERE m.database_id = d.database_id AND m.mirroring_guid IS NOT NULL) THEN 1 ELSE 0 END)
 		FROM sys.databases d WHERE d.name = @db`, sql.Named("db", db)).Scan(

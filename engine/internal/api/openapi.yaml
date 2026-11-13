@@ -1775,7 +1775,7 @@ components:
         error: { type: string }
         jobId: { type: string, description: The job the operation ran as (Activity). }
         task: { $ref: "#/components/schemas/Task" }
-        result: { type: string, description: What a replace kept - the old database or the safety backup. }
+        result: { type: string, description: "What a replace kept - the old database or the safety backup. For a ready plan with no action (nothing to do) it says so: no job is started, so jobId is absent." }
         replace: { $ref: "#/components/schemas/ReplaceOutcome" }
     DatabaseInfo:
       type: object

@@ -1,6 +1,7 @@
 USE [golden_db];
 SET XACT_ABORT ON;
 SET LOCK_TIMEOUT 30000;
+BEGIN TRY
 BEGIN TRANSACTION;
 ALTER TABLE [dbo].[accounts] DROP CONSTRAINT [CK_accounts_status];
 ALTER TABLE [dbo].[accounts] DROP CONSTRAINT [DF_accounts_status];
@@ -12,3 +13,8 @@ CREATE STATISTICS [st_accounts_region] ON [dbo].[accounts] ([region], [status]) 
 ALTER TABLE [dbo].[accounts] ADD CONSTRAINT [DF_accounts_status] DEFAULT ('open') FOR [status];
 ALTER TABLE [dbo].[accounts] WITH CHECK ADD CONSTRAINT [CK_accounts_status] CHECK ([status]='closed' OR [status]='open');
 COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+THROW;
+END CATCH;

@@ -153,9 +153,11 @@ const ConvertLockTimeoutMS = 30000
 // the foreign keys are dropped, then per table what depends on the columns
 // (CHECK, DEFAULT, statistics, non-clustered and clustered indexes); the
 // columns are altered; everything is created again in the reverse order,
-// each object followed by its extended properties. XACT_ABORT makes any
-// error roll the whole unit back; LOCK_TIMEOUT keeps it from waiting for
-// the tables more than ConvertLockTimeoutMS. Names and types are validated
+// each object followed by its extended properties. The body is in TRY ...
+// CATCH: any error, also those XACT_ABORT does not abort on (the
+// RAISERROR of sp_addextendedproperty), rolls the whole unit back and is
+// thrown again; LOCK_TIMEOUT keeps it from waiting for the tables more than
+// ConvertLockTimeoutMS. Names and types are validated
 // by the caller (CollationStep.Validate); the collation is never quoted.
 func ConvertUnit(u ConversionUnit) string {
 	var b strings.Builder
@@ -168,6 +170,7 @@ func ConvertUnit(u ConversionUnit) string {
 	line("USE ", quoteIdent(u.Database), ";")
 	line("SET XACT_ABORT ON;")
 	line("SET LOCK_TIMEOUT ", strconv.Itoa(ConvertLockTimeoutMS), ";")
+	line("BEGIN TRY")
 	line("BEGIN TRANSACTION;")
 	for _, fk := range u.ForeignKeys {
 		line("ALTER TABLE ", tableName(fk.Schema, fk.Table), " DROP CONSTRAINT ", quoteIdent(fk.Name), ";")
@@ -280,7 +283,12 @@ func ConvertUnit(u ConversionUnit) string {
 			}
 		}
 	}
-	b.WriteString("COMMIT TRANSACTION;")
+	line("COMMIT TRANSACTION;")
+	line("END TRY")
+	line("BEGIN CATCH")
+	line("IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;")
+	line("THROW;")
+	b.WriteString("END CATCH;")
 	return b.String()
 }
 

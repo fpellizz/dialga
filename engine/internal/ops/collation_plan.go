@@ -25,6 +25,20 @@ import (
 // not asked for (or, for the whole database, that only have foreign keys
 // rebuilt).
 func planUnits(cat mssql.ConversionCatalog, target string, tables []mssql.TableRef) (units []mssql.ConversionUnit, refused []RefusedTable, notes []string) {
+	cp := planConversion(cat, target, tables)
+	return cp.units, cp.refused, cp.notes
+}
+
+// conversionPlan is planUnits with lost: the options of the objects the
+// units create again that they do not keep (a warning of the plan).
+type conversionPlan struct {
+	units   []mssql.ConversionUnit
+	refused []RefusedTable
+	notes   []string
+	lost    []string
+}
+
+func planConversion(cat mssql.ConversionCatalog, target string, tables []mssql.TableRef) conversionPlan {
 	pl := newPlanner(cat, target)
 	selected := map[int64]bool{}
 	for _, ref := range tables {
@@ -39,15 +53,77 @@ func planUnits(cat mssql.ConversionCatalog, target string, tables []mssql.TableR
 	pl.affectIndexes()
 	pl.dropForeignKeys()
 	pl.dependents()
-	for id := range pl.scope {
-		pl.refuseTable(id)
-	}
+	pl.analyse()
 	return pl.units(func(id int64) bool {
 		if len(tables) > 0 {
 			return selected[id]
 		}
 		return pl.hasColumns(id)
 	})
+}
+
+// analyse is what follows the choice of the columns: the foreign keys to
+// the other side, the indexes, constraints and statistics to rebuild, the
+// tables to refuse.
+func (pl *planner) analyse() {
+	pl.closeOverForeignKeys()
+	pl.affectIndexes()
+	pl.dropForeignKeys()
+	pl.dependents()
+	for id := range pl.scope {
+		pl.refuseTable(id)
+	}
+}
+
+// replanUnit plans u again on cat, seeded with exactly its columns: what
+// the unit must be now. reason says why it no longer is one unit.
+func replanUnit(cat mssql.ConversionCatalog, u mssql.ConversionUnit) (mssql.ConversionUnit, string) {
+	pl := newPlanner(cat, u.Collation)
+	for _, t := range u.Tables {
+		id, ok := tableID(cat, t.Schema, t.Name)
+		if !ok {
+			return u, "table " + t.Schema + "." + t.Name + " is gone"
+		}
+		for _, c := range t.Columns {
+			i := slices.IndexFunc(cat.Columns, func(cc mssql.CharColumn) bool { return cc.ObjectID == id && cc.Column == c.Name })
+			if i < 0 {
+				return u, "column " + c.Name + " of " + t.Schema + "." + t.Name + " is gone"
+			}
+			if !pl.add(mssql.ColumnKey{ObjectID: id, ColumnID: cat.Columns[i].ColumnID}) {
+				return u, "column " + c.Name + " of " + t.Schema + "." + t.Name + " can no longer be converted"
+			}
+		}
+	}
+	pl.analyse()
+	cp := pl.units(func(int64) bool { return true })
+	switch {
+	case len(cp.refused) > 0:
+		r := cp.refused[0]
+		return u, r.Schema + "." + r.Name + ": " + r.Reason
+	case len(cp.units) != 1:
+		return u, fmt.Sprintf("the tables now form %d units", len(cp.units))
+	}
+	now := cp.units[0]
+	now.Database = u.Database
+	return now, ""
+}
+
+// sameUnit reports whether a and b convert the same columns and drop and
+// create the same objects, with the same definitions: their statements are
+// the same, but for the auto-created statistics they only drop (SQL Server
+// creates and drops them at any time).
+func sameUnit(a, b mssql.ConversionUnit) bool {
+	return mssql.ConvertUnit(withoutAutoStats(a)) == mssql.ConvertUnit(withoutAutoStats(b))
+}
+
+func withoutAutoStats(u mssql.ConversionUnit) mssql.ConversionUnit {
+	tables := make([]mssql.TableConversion, len(u.Tables))
+	for i, t := range u.Tables {
+		t.Stats = slices.DeleteFunc(slices.Clone(t.Stats), func(s mssql.StatsDef) bool { return !s.Recreate })
+		tables[i] = t
+	}
+	u.Tables = tables
+	return u
 }
 
 type planner struct {
@@ -165,7 +241,9 @@ func (pl *planner) converted(obj int64, ids []int) bool {
 func (pl *planner) affectIndexes() {
 	clustered := map[int64]bool{}
 	for _, ix := range pl.cat.Indexes {
-		if pl.converted(ix.ObjectID, ix.KeyIDs) || pl.converted(ix.ObjectID, ix.IncludedIDs) {
+		// A filter that names a converted column blocks ALTER COLUMN too.
+		if pl.converted(ix.ObjectID, ix.KeyIDs) || pl.converted(ix.ObjectID, ix.IncludedIDs) ||
+			(ix.Def.Filter != "" && pl.mentions(ix.ObjectID, ix.Def.Filter)) {
 			pl.affected[[2]int64{ix.ObjectID, int64(ix.IndexID)}] = true
 			if ix.IndexID == 1 {
 				clustered[ix.ObjectID] = true
@@ -178,10 +256,14 @@ func (pl *planner) affectIndexes() {
 		}
 	}
 	for _, ix := range pl.cat.Indexes {
+		name := "index " + ix.Def.Name
+		if ix.FilterUnreadable && pl.hasColumns(ix.ObjectID) {
+			// It may name a converted column: it cannot be told nor rebuilt.
+			pl.refuse(ix.ObjectID, name+": filter not readable (VIEW DEFINITION)")
+		}
 		if !pl.affected[[2]int64{ix.ObjectID, int64(ix.IndexID)}] {
 			continue
 		}
-		name := "index " + ix.Def.Name
 		switch {
 		case ix.Type != 1 && ix.Type != 2:
 			if clustered[ix.ObjectID] && !pl.converted(ix.ObjectID, ix.KeyIDs) && !pl.converted(ix.ObjectID, ix.IncludedIDs) {
@@ -199,6 +281,8 @@ func (pl *planner) affectIndexes() {
 			pl.refuse(ix.ObjectID, name+" is not on a filegroup: not supported")
 		case ix.Compressions > 1 || !slices.Contains([]string{"NONE", "ROW", "PAGE"}, ix.Def.Compression):
 			pl.refuse(ix.ObjectID, name+" has a compression that cannot be kept ("+ix.Def.Compression+")")
+		case ix.Def.Kind == mssql.IndexPrimaryKey && pl.cat.Tables[ix.ObjectID].ChangeTracking:
+			pl.refuse(ix.ObjectID, "change tracking needs the primary key "+ix.Def.Name+": disable change tracking on the table first")
 		}
 	}
 }
@@ -280,7 +364,10 @@ func (pl *planner) dependents() {
 		}
 	}
 	for _, s := range pl.cat.Stats {
-		if !pl.converted(s.ObjectID, s.ColumnIDs) {
+		if s.FilterUnreadable && pl.hasColumns(s.ObjectID) {
+			pl.refuse(s.ObjectID, "statistic "+s.Def.Name+": filter not readable (VIEW DEFINITION)")
+		}
+		if !pl.converted(s.ObjectID, s.ColumnIDs) && (s.Def.Filter == "" || !pl.mentions(s.ObjectID, s.Def.Filter)) {
 			continue
 		}
 		pl.stats[[2]int64{s.ObjectID, int64(s.StatsID)}] = true
@@ -374,7 +461,7 @@ func tableKey(t mssql.CatalogTable) string { return t.Schema + "\x00" + t.Name }
 
 // units groups the scope by the dropped foreign keys (union-find) and builds
 // the units; asked reports whether a table was asked for (notes).
-func (pl *planner) units(asked func(int64) bool) (units []mssql.ConversionUnit, refused []RefusedTable, notes []string) {
+func (pl *planner) units(asked func(int64) bool) (cp conversionPlan) {
 	parent := map[int64]int64{}
 	var find func(int64) int64
 	find = func(x int64) int64 {
@@ -432,27 +519,28 @@ func (pl *planner) units(asked func(int64) bool) (units []mssql.ConversionUnit, 
 				if !ok {
 					reason = "linked by foreign key to " + bt.Schema + "." + bt.Name + ": " + pl.reasons[bad]
 				}
-				refused = append(refused, RefusedTable{Schema: t.Schema, Name: t.Name, Reason: reason})
+				cp.refused = append(cp.refused, RefusedTable{Schema: t.Schema, Name: t.Name, Reason: reason})
 			}
 			continue
 		}
-		u := pl.unit(group)
+		u := pl.unit(group, &cp.lost)
 		if len(u.Tables) == 0 {
 			continue
 		}
-		units = append(units, u)
+		cp.units = append(cp.units, u)
 		for _, id := range group {
 			if !asked(id) {
 				t := pl.cat.Tables[id]
-				notes = append(notes, t.Schema+"."+t.Name)
+				cp.notes = append(cp.notes, t.Schema+"."+t.Name)
 			}
 		}
 	}
-	return units, refused, notes
+	return cp
 }
 
-// unit builds the unit of a group of tables (in name order).
-func (pl *planner) unit(group []int64) mssql.ConversionUnit {
+// unit builds the unit of a group of tables (in name order); lost gets the
+// options of its objects that it does not keep.
+func (pl *planner) unit(group []int64, lost *[]string) mssql.ConversionUnit {
 	u := mssql.ConversionUnit{Collation: pl.target}
 	in := map[int64]bool{}
 	for _, id := range group {
@@ -469,6 +557,9 @@ func (pl *planner) unit(group []int64) mssql.ConversionUnit {
 		for _, ix := range pl.cat.Indexes {
 			if ix.ObjectID == id && pl.affected[[2]int64{id, int64(ix.IndexID)}] {
 				tc.Indexes = append(tc.Indexes, ix.Def)
+				if ix.OptimizeSequentialKey {
+					*lost = append(*lost, "OPTIMIZE_FOR_SEQUENTIAL_KEY of index "+t.Schema+"."+t.Name+"."+ix.Def.Name)
+				}
 			}
 		}
 		for _, c := range pl.cat.Checks {
@@ -484,6 +575,12 @@ func (pl *planner) unit(group []int64) mssql.ConversionUnit {
 		for _, s := range pl.cat.Stats {
 			if s.ObjectID == id && pl.stats[[2]int64{id, int64(s.StatsID)}] {
 				tc.Stats = append(tc.Stats, s.Def)
+				if s.Def.Recreate && s.PersistedSample {
+					*lost = append(*lost, "the persisted sample of statistic "+t.Schema+"."+t.Name+"."+s.Def.Name)
+				}
+				if s.Def.Recreate && s.AutoDrop {
+					*lost = append(*lost, "AUTO_DROP of statistic "+t.Schema+"."+t.Name+"."+s.Def.Name)
+				}
 			}
 		}
 		for _, e := range pl.cat.ExtendedProperties {
@@ -493,6 +590,9 @@ func (pl *planner) unit(group []int64) mssql.ConversionUnit {
 					level2 = mssql.Level2Index
 				}
 				tc.ExtendedProperties = append(tc.ExtendedProperties, mssql.ExtendedPropertyDef{Target: name, Level2: level2, Name: e.Name, Value: e.Value})
+				if b := strings.ToLower(e.BaseType); b == "char" || b == "varchar" {
+					*lost = append(*lost, "the "+b+" type of extended property "+e.Name+" of "+t.Schema+"."+t.Name+"."+name+" (added again as nvarchar)")
+				}
 			}
 		}
 		slices.SortFunc(tc.Indexes, func(a, b mssql.IndexDef) int { return strings.Compare(a.Name, b.Name) })

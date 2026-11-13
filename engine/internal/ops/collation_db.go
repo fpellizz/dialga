@@ -98,7 +98,7 @@ func (s *Session) SetCollation(ctx context.Context, in Params) (*Prepared, error
 	if st.AvailabilityReplica || st.Mirrored {
 		p.fail(mstep, mlabel, "SINGLE_USER is not allowed on a Multi-AZ database: "+db+" is in a mirroring or availability group")
 	} else {
-		p.ok(mstep, mlabel, db+" is not mirrored")
+		p.ok(mstep, mlabel, db+" is not mirrored nor in an availability group (if it were, SQL Server would refuse SINGLE_USER and nothing would change)")
 	}
 
 	blockers, err := s.SQL.CollationBlockers(ctx, db)
@@ -212,7 +212,14 @@ func (s *Session) runSetCollation(ctx context.Context, st CollationStep) (string
 		return "", fmt.Errorf("%s not found on the instance", st.Database)
 	}
 	if strings.EqualFold(cur.Collation, st.Collation) {
+		// A SINGLE_USER database is reopened only when this step plausibly
+		// left it so (an interrupted run that changed the collation): the
+		// plan read another collation. Otherwise someone else is maintaining
+		// it: leave it as it is.
 		if cur.UserAccess == "SINGLE_USER" {
+			if st.From == "" || strings.EqualFold(st.From, st.Collation) {
+				return st.Database + " already uses " + st.Collation + " (left SINGLE_USER: not by this step)", nil
+			}
 			if err := s.SQL.Exec(ctx, mssql.MultiUserIfSingle(st.Database)); err != nil {
 				return "", fmt.Errorf("%s already uses %s but could not be reopened to every session: %w", st.Database, st.Collation, err)
 			}

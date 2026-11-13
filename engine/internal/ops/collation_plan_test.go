@@ -281,6 +281,33 @@ func TestPlanUnits(t *testing.T) {
 		{name: "included column affects the index", cat: newCatalog().table("a", "int:id", "code").
 			index("a", "IX_a_id", 2, []string{"id"}, func(ix *mssql.CatalogIndex) { ix.IncludedIDs, ix.Def.Included = []int{2}, []string{"code"} }),
 			units: "a[code ix:IX_a_id]"},
+		{name: "filter naming a converted column affects the index", cat: newCatalog().table("a", "int:id", "status").
+			index("a", "IX_a_id", 2, []string{"id"}, func(ix *mssql.CatalogIndex) { ix.Def.Filter = "([status]='A')" }),
+			units: "a[status ix:IX_a_id]"},
+		{name: "filter naming another column leaves the index", cat: newCatalog().table("a", "int:id", "status", "int:n").
+			index("a", "IX_a_id", 2, []string{"id"}, func(ix *mssql.CatalogIndex) { ix.Def.Filter = "([n]>(0))" }),
+			units: "a[status]"},
+		{name: "filter naming a converted column affects the statistic", cat: func() *catBuilder {
+			b := newCatalog().table("a", "int:id", "status").stat("a", "ST_a_id", false, false, "id")
+			b.cat.Stats[0].Def.Filter = "([status]='A')"
+			return b
+		}(), units: "a[status st:ST_a_id/r]"},
+		{name: "unreadable index filter refuses the table", cat: newCatalog().table("a", "int:id", "status").
+			index("a", "IX_a_id", 2, []string{"id"}, func(ix *mssql.CatalogIndex) { ix.FilterUnreadable = true }),
+			refused: []string{"a: index IX_a_id: filter not readable"}},
+		{name: "unreadable statistic filter refuses the table", cat: func() *catBuilder {
+			b := newCatalog().table("a", "int:id", "status").stat("a", "ST_a_id", false, false, "id")
+			b.cat.Stats[0].FilterUnreadable = true
+			return b
+		}(), refused: []string{"a: statistic ST_a_id: filter not readable"}},
+		{name: "change tracking refuses a rebuilt primary key", cat: newCatalog().
+			tableWith("a", flag(func(t *mssql.CatalogTable) { t.ChangeTracking = true }), "code").
+			index("a", "PK_a", 1, []string{"code"}, pk),
+			refused: []string{"a: change tracking needs the primary key PK_a"}},
+		{name: "change tracking with the primary key kept", cat: newCatalog().
+			tableWith("a", flag(func(t *mssql.CatalogTable) { t.ChangeTracking = true }), "int:id", "name").
+			index("a", "PK_a", 1, []string{"id"}, pk),
+			units: "a[name]"},
 		{name: "foreign key through a rebuilt unique index", cat: newCatalog().
 			table("parent", "int:id", "name").table("child", "int:pid").
 			index("parent", "CX_parent", 1, []string{"name"}).

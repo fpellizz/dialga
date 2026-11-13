@@ -4,6 +4,9 @@ package mssql
 
 import (
 	"context"
+	"crypto/rand"
+	"database/sql"
+	"net/url"
 	"testing"
 )
 
@@ -56,5 +59,30 @@ func TestCollationCommonOnSQLServer(t *testing.T) {
 	}
 	if st, err := s.CollationState(ctx, "missing"); err != nil || st.Exists {
 		t.Fatalf("CollationState(missing) = %+v, %v", st, err)
+	}
+
+	// A login without VIEW SERVER STATE (the review of the collation work:
+	// sys.dm_hadr_database_replica_states refused it) reads the database it
+	// owns.
+	password := "Dg1!" + rand.Text()
+	execAll(t, db,
+		`CREATE LOGIN plain WITH PASSWORD = '`+password+`', CHECK_POLICY = OFF`,
+		`CREATE DATABASE coll0_own COLLATE Latin1_General_100_CS_AS`,
+		`ALTER AUTHORIZATION ON DATABASE::coll0_own TO plain`,
+	)
+	u := catalogURL
+	u.User = url.UserPassword("plain", password)
+	plain, err := sql.Open("sqlserver", u.String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = plain.Close() }()
+	var perm int
+	if err := plain.QueryRowContext(ctx, `SELECT HAS_PERMS_BY_NAME(NULL, NULL, 'VIEW SERVER STATE')`).Scan(&perm); err != nil || perm != 0 {
+		t.Fatalf("the login has VIEW SERVER STATE: %d %v", perm, err)
+	}
+	st, err = Session{DB: plain}.CollationState(ctx, "coll0_own")
+	if err != nil || !st.Exists || !st.CanAlter || st.AvailabilityReplica || st.Mirrored || st.Collation != "Latin1_General_100_CS_AS" {
+		t.Fatalf("CollationState without VIEW SERVER STATE = %+v, %v", st, err)
 	}
 }

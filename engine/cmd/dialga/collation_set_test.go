@@ -117,3 +117,20 @@ func TestCollationSetBadArguments(t *testing.T) {
 		}
 	}
 }
+
+// A ready plan with no action (already at the target) is a completed no-op:
+// no job, no confirmation, exit 0.
+func TestCollationSetNothingToDo(t *testing.T) {
+	a, _, _ := testApp(t, testConfig)
+	c := newCollInstance()
+	withSetCollation(a, c)
+	code, out, _ := run(a, "collation", "set", "sales", "SQL_Latin1_General_CP1_CI_AS", "--apply")
+	if code != 0 || len(c.ran) != 0 || !strings.Contains(out, "Nothing to do.") {
+		t.Fatalf("code %d, ran %v:\n%s", code, c.ran, out)
+	}
+	code, out, _ = run(a, "collation", "set", "sales", "SQL_Latin1_General_CP1_CI_AS", "--apply", "-o", "json")
+	var doc opResult
+	if err := json.Unmarshal([]byte(out), &doc); err != nil || code != 0 || doc.Applied || doc.JobID != "" || doc.Result != "Nothing to do" {
+		t.Fatalf("code %d, doc %+v, %v:\n%s", code, doc, err, out)
+	}
+}

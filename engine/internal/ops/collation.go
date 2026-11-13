@@ -42,10 +42,6 @@ func IsCollation(op string) bool { return op == OpSetCollation || op == OpConver
 // columns cannot be read.
 var ErrNotOnline = errors.New("the database is not online")
 
-// errNotYet is what the parts of the collation work that are not written yet
-// answer (the stubs of the work packages).
-var errNotYet = errors.New("collation: not implemented yet")
-
 // CollationSQL is the SQL side of the collation views and operations.
 // mssql.Session implements it; SQL embeds it.
 type CollationSQL interface {
@@ -78,8 +74,13 @@ type CollationStep struct {
 	Unit *mssql.ConversionUnit `json:"unit,omitempty"`
 }
 
-// Statement is the T-SQL of the step.
+// Statement is the T-SQL of the step. It validates the step first (names
+// are quoted, the collation is not): a step from a journal or a plan never
+// builds a statement from names that are not valid.
 func (st CollationStep) Statement() (string, error) {
+	if err := st.Validate(config.Target{}); err != nil {
+		return "", err
+	}
 	switch st.ID {
 	case CollSetDatabase:
 		return mssql.SetDatabaseCollation(st.Database, st.Collation), nil
@@ -273,10 +274,6 @@ func (s *Session) addCollation(p *Prepared, st CollationStep, title string) erro
 	})
 	return nil
 }
-
-// addCollation is used by set-collation and convert-columns (work packages
-// B and C); until they land nothing calls it.
-var _ = (*Session).addCollation
 
 // CollationPlan is the summary of a collation plan (also PlanPreview.collation).
 type CollationPlan struct {

@@ -51,8 +51,11 @@ type CatalogTable struct {
 	FileTable       bool
 	Graph           bool
 	Ledger          bool
-	Rows            int64
-	ReservedMB      float64
+	// ChangeTracking: the table is in sys.change_tracking_tables (it needs
+	// its primary key).
+	ChangeTracking bool
+	Rows           int64
+	ReservedMB     float64
 }
 
 // CatalogIndex is an index of a user table.
@@ -75,6 +78,12 @@ type CatalogIndex struct {
 	// IncludedIDs are the included columns, and any other column the index
 	// lists (partitioning, columnstore).
 	IncludedIDs []int
+	// FilterUnreadable: has_filter is set but filter_definition is NULL (no
+	// VIEW DEFINITION): it cannot be created again.
+	FilterUnreadable bool
+	// OptimizeSequentialKey: OPTIMIZE_FOR_SEQUENTIAL_KEY is on (SQL Server
+	// 2019+), which IndexDef does not keep.
+	OptimizeSequentialKey bool
 }
 
 // CatalogFK is a foreign key between user tables.
@@ -114,6 +123,11 @@ type CatalogStats struct {
 	Incremental bool
 	ColumnIDs   []int
 	Def         StatsDef
+	// FilterUnreadable: has_filter is set but filter_definition is NULL.
+	FilterUnreadable bool
+	// PersistedSample and AutoDrop are options StatsDef does not keep.
+	PersistedSample bool
+	AutoDrop        bool
 }
 
 // CatalogComputed is a computed column and the columns it reads.
@@ -164,6 +178,18 @@ func (s Session) ConversionCatalog(ctx context.Context, db string) (ConversionCa
 		return cat, err
 	}
 	cat.Major = int(major.Int64)
+	// Columns that only some versions (or updates) have.
+	var seqKey, persisted, autoDrop sql.NullInt64
+	if err := s.DB.QueryRowContext(ctx, `SELECT COL_LENGTH('sys.indexes', 'optimize_for_sequential_key'),
+		COL_LENGTH('sys.stats', 'has_persisted_sample'), COL_LENGTH('sys.stats', 'auto_drop')`).Scan(&seqKey, &persisted, &autoDrop); err != nil {
+		return cat, err
+	}
+	optional := func(ok sql.NullInt64, expr string) string {
+		if ok.Valid {
+			return expr
+		}
+		return "CAST(0 AS bit)"
+	}
 	read := func(what, query string, row func(*sql.Rows) error) error {
 		rows, err := s.DB.QueryContext(ctx, query)
 		if err != nil {
@@ -189,13 +215,14 @@ func (s Session) ConversionCatalog(ctx context.Context, db string) (ConversionCa
 		ledger = "CAST(CASE WHEN t.ledger_type <> 0 THEN 1 ELSE 0 END AS bit)"
 	}
 	if err := read("tables", `SELECT t.object_id, s.name, t.name, t.is_memory_optimized, t.temporal_type,
-		CAST(t.is_replicated | t.is_merge_published AS bit), t.is_tracked_by_cdc, t.is_filetable, `+graph+`, `+ledger+`
+		CAST(t.is_replicated | t.is_merge_published AS bit), t.is_tracked_by_cdc, t.is_filetable, `+graph+`, `+ledger+`,
+		CAST(CASE WHEN EXISTS (SELECT 1 FROM `+q+`.sys.change_tracking_tables ct WHERE ct.object_id = t.object_id) THEN 1 ELSE 0 END AS bit)
 		FROM `+q+`.sys.tables t JOIN `+q+`.sys.schemas s ON s.schema_id = t.schema_id WHERE t.is_ms_shipped = 0`,
 		func(r *sql.Rows) error {
 			var id int64
 			var t CatalogTable
 			var temporal int
-			if err := r.Scan(&id, &t.Schema, &t.Name, &t.MemoryOptimized, &temporal, &t.Replicated, &t.CDC, &t.FileTable, &t.Graph, &t.Ledger); err != nil {
+			if err := r.Scan(&id, &t.Schema, &t.Name, &t.MemoryOptimized, &temporal, &t.Replicated, &t.CDC, &t.FileTable, &t.Graph, &t.Ledger, &t.ChangeTracking); err != nil {
 				return err
 			}
 			t.Temporal = temporal
@@ -221,9 +248,12 @@ func (s Session) ConversionCatalog(ctx context.Context, db string) (ConversionCa
 		return cat, err
 	}
 
+	encrypted := "CAST(0 AS bit)" // Always Encrypted: SQL Server 2016+
+	if cat.Major >= 13 {
+		encrypted = "CAST(CASE WHEN c.encryption_type IS NULL THEN 0 ELSE 1 END AS bit)"
+	}
 	if err := read("columns", `SELECT t.object_id, c.column_id, s.name, t.name, c.name, ut.name, bt.name, c.max_length, c.is_nullable,
-		c.collation_name, c.is_computed, CAST(c.is_sparse | c.is_column_set AS bit), ut.is_user_defined,
-		CAST(CASE WHEN c.encryption_type IS NULL THEN 0 ELSE 1 END AS bit)
+		c.collation_name, c.is_computed, CAST(c.is_sparse | c.is_column_set AS bit), ut.is_user_defined, `+encrypted+`
 		FROM `+q+`.sys.columns c
 		JOIN `+q+`.sys.tables t ON t.object_id = c.object_id AND t.is_ms_shipped = 0
 		JOIN `+q+`.sys.schemas s ON s.schema_id = t.schema_id
@@ -250,7 +280,7 @@ func (s Session) ConversionCatalog(ctx context.Context, db string) (ConversionCa
 		i.filter_definition, ds.name, ds.type, ISNULL(st.no_recompute, 0),
 		(SELECT MIN(p.data_compression_desc) FROM `+q+`.sys.partitions p WHERE p.object_id = i.object_id AND p.index_id = i.index_id),
 		(SELECT COUNT(DISTINCT p.data_compression) FROM `+q+`.sys.partitions p WHERE p.object_id = i.object_id AND p.index_id = i.index_id),
-		ISNULL(kc.object_id, 0)
+		ISNULL(kc.object_id, 0), i.has_filter, `+optional(seqKey, "i.optimize_for_sequential_key")+`
 		FROM `+q+`.sys.indexes i JOIN `+q+`.sys.tables t ON t.object_id = i.object_id AND t.is_ms_shipped = 0
 		LEFT JOIN `+q+`.sys.data_spaces ds ON ds.data_space_id = i.data_space_id
 		LEFT JOIN `+q+`.sys.stats st ON st.object_id = i.object_id AND st.stats_id = i.index_id
@@ -260,12 +290,13 @@ func (s Session) ConversionCatalog(ctx context.Context, db string) (ConversionCa
 		var ix CatalogIndex
 		var name, filter, fg, dsType, compression sql.NullString
 		var typ, fill uint8
-		var pk, uq bool
+		var pk, uq, hasFilter bool
 		if err := r.Scan(&ix.ObjectID, &ix.IndexID, &name, &typ, &ix.Def.Unique, &pk, &uq, &ix.Disabled, &ix.Hypothetical, &fill,
 			&ix.Def.PadIndex, &ix.Def.IgnoreDupKey, &ix.Def.AllowRowLocks, &ix.Def.AllowPageLocks, &filter, &fg, &dsType,
-			&ix.Def.NoRecompute, &compression, &ix.Compressions, &ix.ConstraintID); err != nil {
+			&ix.Def.NoRecompute, &compression, &ix.Compressions, &ix.ConstraintID, &hasFilter, &ix.OptimizeSequentialKey); err != nil {
 			return err
 		}
+		ix.FilterUnreadable = hasFilter && !filter.Valid
 		ix.Type, ix.DataSpaceType = int(typ), strings.TrimSpace(dsType.String)
 		ix.Def.Name, ix.Def.Filter, ix.Def.FileGroup, ix.Def.FillFactor = name.String, filter.String, fg.String, int(fill)
 		ix.Def.Clustered = ix.Type == 1
@@ -375,20 +406,22 @@ func (s Session) ConversionCatalog(ctx context.Context, db string) (ConversionCa
 	}); err != nil {
 		return cat, err
 	}
-	// deps[referencing id, minor] are the columns of the same table an
-	// expression reads (checks: the constraint, minor 0; computed columns:
-	// the table and the column).
-	deps := map[[2]int64][]int{}
-	refTable := map[[2]int64]int64{}
-	if err := read("dependencies", `SELECT d.referencing_id, d.referencing_minor_id, d.referenced_id, d.referenced_minor_id
+	// deps[referencing class, id, minor] are the columns of the same table
+	// an expression reads (checks: class 1, the constraint, minor 0;
+	// computed columns: class 1, the table and the column). The class keeps
+	// a DDL trigger (12, 13) with the same id from mixing in.
+	deps := map[[3]int64][]int{}
+	refTable := map[[3]int64]int64{}
+	if err := read("dependencies", `SELECT d.referencing_class, d.referencing_id, d.referencing_minor_id, d.referenced_id, d.referenced_minor_id
 		FROM `+q+`.sys.sql_expression_dependencies d WHERE d.referenced_minor_id > 0 AND d.referenced_id IS NOT NULL`,
 		func(r *sql.Rows) error {
+			var class uint8
 			var from, to int64
 			var fromMinor, toMinor int
-			if err := r.Scan(&from, &fromMinor, &to, &toMinor); err != nil {
+			if err := r.Scan(&class, &from, &fromMinor, &to, &toMinor); err != nil {
 				return err
 			}
-			k := [2]int64{from, int64(fromMinor)}
+			k := [3]int64{int64(class), from, int64(fromMinor)}
 			deps[k] = append(deps[k], toMinor)
 			refTable[k] = to
 			return nil
@@ -396,7 +429,7 @@ func (s Session) ConversionCatalog(ctx context.Context, db string) (ConversionCa
 		return cat, err
 	}
 	for i := range cat.Checks {
-		k := [2]int64{cat.Checks[i].ObjectID, 0}
+		k := [3]int64{1, cat.Checks[i].ObjectID, 0}
 		if refTable[k] == cat.Checks[i].ParentID {
 			cat.Checks[i].ColumnIDs = deps[k]
 		}
@@ -419,19 +452,20 @@ func (s Session) ConversionCatalog(ctx context.Context, db string) (ConversionCa
 	}
 
 	if err := read("statistics", `SELECT s.object_id, s.stats_id, s.name, s.auto_created, s.user_created, s.no_recompute,
-		s.filter_definition, s.is_incremental, sc.column_id, c.name
+		s.filter_definition, s.is_incremental, sc.column_id, c.name, s.has_filter,
+		`+optional(persisted, "s.has_persisted_sample")+`, `+optional(autoDrop, "s.auto_drop")+`
 		FROM `+q+`.sys.stats s JOIN `+q+`.sys.stats_columns sc ON sc.object_id = s.object_id AND sc.stats_id = s.stats_id
 		JOIN `+q+`.sys.columns c ON c.object_id = sc.object_id AND c.column_id = sc.column_id
 		JOIN `+q+`.sys.tables t ON t.object_id = s.object_id AND t.is_ms_shipped = 0
 		WHERE NOT EXISTS (SELECT 1 FROM `+q+`.sys.indexes i WHERE i.object_id = s.object_id AND i.index_id = s.stats_id)
 		ORDER BY s.object_id, s.stats_id, sc.stats_column_id`, func(r *sql.Rows) error {
 		var st CatalogStats
-		var user bool
+		var user, hasFilter bool
 		var filter sql.NullString
 		var col int
 		var name string
 		if err := r.Scan(&st.ObjectID, &st.StatsID, &st.Def.Name, &st.AutoCreated, &user, &st.Def.NoRecompute, &filter,
-			&st.Incremental, &col, &name); err != nil {
+			&st.Incremental, &col, &name, &hasFilter, &st.PersistedSample, &st.AutoDrop); err != nil {
 			return err
 		}
 		if n := len(cat.Stats); n > 0 && cat.Stats[n-1].ObjectID == st.ObjectID && cat.Stats[n-1].StatsID == st.StatsID {
@@ -441,6 +475,7 @@ func (s Session) ConversionCatalog(ctx context.Context, db string) (ConversionCa
 			return nil
 		}
 		st.Def.Filter, st.Def.Recreate = filter.String, !st.AutoCreated
+		st.FilterUnreadable = hasFilter && !filter.Valid
 		st.ColumnIDs, st.Def.Columns = []int{col}, []string{name}
 		cat.Stats = append(cat.Stats, st)
 		return nil
@@ -454,7 +489,7 @@ func (s Session) ConversionCatalog(ctx context.Context, db string) (ConversionCa
 		if err := r.Scan(&c.ObjectID, &c.ColumnID, &c.Name, &c.Definition); err != nil {
 			return err
 		}
-		k := [2]int64{c.ObjectID, int64(c.ColumnID)}
+		k := [3]int64{1, c.ObjectID, int64(c.ColumnID)}
 		if refTable[k] == c.ObjectID {
 			c.ColumnIDs = deps[k]
 		}

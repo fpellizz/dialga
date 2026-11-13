@@ -294,6 +294,21 @@ func TestRunSetCollation(t *testing.T) {
 			t.Fatalf("ran %v", c.ran)
 		}
 	})
+	t.Run("already and single user, not by this step", func(t *testing.T) {
+		c := newCollFake()
+		c.state.Collation, c.state.UserAccess = collNew, "SINGLE_USER"
+		noFrom := step
+		noFrom.From = ""
+		for _, st := range []CollationStep{noFrom, {ID: CollSetDatabase, Database: "sales", Collation: collNew, From: collNew}} {
+			detail, err := c.session().RunCollationStep(ctx, st)
+			if err != nil || !strings.Contains(detail, "not by this step") {
+				t.Fatalf("%q %v", detail, err)
+			}
+		}
+		if len(c.ran) != 0 {
+			t.Fatalf("ran %v", c.ran)
+		}
+	})
 	t.Run("changed since the plan", func(t *testing.T) {
 		c := newCollFake()
 		c.state.Collation = "Other_CS_AS"

@@ -129,7 +129,8 @@ func (s *Session) ConvertColumns(ctx context.Context, in Params) (*Prepared, err
 		p.fail("tables", "Tables", "not found in "+db+": "+listSome(missing, 10))
 		return p, nil
 	}
-	units, refused, notes := planUnits(cat, target, refs)
+	cp := planConversion(cat, target, refs)
+	units, refused, notes := cp.units, cp.refused, cp.notes
 	for i := range units {
 		units[i].Database = db
 	}
@@ -169,6 +170,17 @@ func (s *Session) ConvertColumns(ctx context.Context, in Params) (*Prepared, err
 	if len(units) == 0 {
 		p.warn("columns", "Columns", "nothing to convert: every convertible column is already "+target)
 		return p, nil
+	}
+	// The names the units quote must be valid now: a job journals them and
+	// a resume validates them again (CollationStep.Validate).
+	for _, u := range units {
+		st := CollationStep{ID: CollConvert, Database: db, Collation: target, Unit: &u}
+		if err := st.Validate(s.Target); err != nil {
+			p.fail("names", "Names", "a name in "+u.Tables[0].Schema+"."+u.Tables[0].Name+" cannot be converted: "+err.Error())
+		}
+	}
+	if len(cp.lost) > 0 {
+		p.warn("options", "Options not kept", "created again without "+listSome(cp.lost, 10))
 	}
 	if !p.Ready() {
 		return p, nil
@@ -450,10 +462,16 @@ func columnsOf(u mssql.ConversionUnit, schema, table string) []string {
 // errUnitState means a unit is neither converted nor as the plan read it.
 var errUnitState = errors.New("unit in an unexpected state (partly converted outside Dialga): nothing done")
 
+// errTablesChanged means the tables of a unit are not as the plan read them:
+// running the planned unit would put back what it read (types, lengths,
+// nullability, definitions of the objects it recreates).
+var errTablesChanged = errors.New("the tables changed since the plan: nothing done, preview again")
+
 // runConvert runs one unit of a convert-columns (collation design §6.2). It
 // reads the catalog first: a unit already converted (an interrupted job, a
-// second run) is a no-op; one with every column still as planned runs; any
-// other state is refused.
+// second run) is a no-op; one with every column still in its collation is
+// planned again and runs only if it is the same unit (sameUnit); any other
+// state is refused.
 func (s *Session) runConvert(ctx context.Context, st CollationStep) (string, error) {
 	u := st.Unit
 	if u == nil {
@@ -482,7 +500,7 @@ func (s *Session) runConvert(ctx context.Context, st CollationStep) (string, err
 			allTo = allTo && now == c.To
 			allFrom = allFrom && now == c.From
 		}
-		allTo = allTo && unitObjectsExist(cat, id, t)
+		allTo = allTo && unitObjectsExist(cat, id, t) && unitPropertiesExist(cat, id, t)
 	}
 	for _, fk := range u.ForeignKeys {
 		allTo = allTo && slices.ContainsFunc(cat.ForeignKeys, func(f mssql.CatalogFK) bool {
@@ -499,13 +517,70 @@ func (s *Session) runConvert(ctx context.Context, st CollationStep) (string, err
 	case !allFrom:
 		return "", errUnitState
 	}
-	if err := s.SQL.Exec(ctx, mssql.ConvertUnit(*u)); err != nil {
+	now, why := replanUnit(cat, *u)
+	switch {
+	case why != "":
+		return "", fmt.Errorf("%w (%s)", errTablesChanged, why)
+	case !sameUnit(now, *u):
+		return "", errTablesChanged
+	}
+	// now is the unit as planned, with the auto-created statistics there are
+	// now (SQL Server makes and drops them at any time).
+	if err := s.SQL.Exec(ctx, mssql.ConvertUnit(now)); err != nil {
 		if mssql.IsLockTimeout(err) {
 			return "", fmt.Errorf("blocked by other sessions for %d s: nothing changed, retry or resume (%w)", mssql.ConvertLockTimeoutMS/1000, err)
 		}
 		return "", fmt.Errorf("%w (the unit was rolled back: nothing changed)", err)
 	}
 	return fmt.Sprintf("%d column(s) of %d table(s) converted to %s", cols, tables, u.Collation), nil
+}
+
+// unitPropertiesExist reports whether the extended properties the unit adds
+// again on table id are there.
+func unitPropertiesExist(cat mssql.ConversionCatalog, id int64, t mssql.TableConversion) bool {
+	for _, e := range t.ExtendedProperties {
+		class, major, minor, ok := propertyOwner(cat, id, e)
+		if !ok || !slices.ContainsFunc(cat.ExtendedProperties, func(c mssql.CatalogExtendedProperty) bool {
+			return c.Class == class && c.MajorID == major && c.MinorID == minor && c.Name == e.Name
+		}) {
+			return false
+		}
+	}
+	return true
+}
+
+// propertyOwner finds the ids of the index or constraint of table id an
+// extended property belongs to: class 7 (table, index) or 1 (constraint).
+func propertyOwner(cat mssql.ConversionCatalog, id int64, e mssql.ExtendedPropertyDef) (class int, major int64, minor int, ok bool) {
+	if e.Level2 == mssql.Level2Index {
+		for _, ix := range cat.Indexes {
+			if ix.ObjectID == id && ix.Def.Name == e.Target {
+				return 7, id, ix.IndexID, true
+			}
+		}
+		return 0, 0, 0, false
+	}
+	for _, ix := range cat.Indexes {
+		if ix.ObjectID == id && ix.ConstraintID != 0 && ix.Def.Name == e.Target {
+			return 1, ix.ConstraintID, 0, true
+		}
+	}
+	for _, fk := range cat.ForeignKeys {
+		if fk.ParentID == id && fk.Def.Name == e.Target {
+			return 1, fk.ObjectID, 0, true
+		}
+	}
+	for _, c := range cat.Checks {
+		if c.ParentID == id && c.Def.Name == e.Target {
+			return 1, c.ObjectID, 0, true
+		}
+	}
+	for _, d := range cat.Defaults {
+		if d.ParentID == id && d.Def.Name == e.Target {
+			return 1, d.ObjectID, 0, true
+		}
+	}
+	return 0, 0, 0, false
 }
 
 func tableID(cat mssql.ConversionCatalog, schema, name string) (int64, bool) {

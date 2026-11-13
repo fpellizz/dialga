@@ -316,6 +316,15 @@ func (a *app) runOpWith(cmd *cobra.Command, op string, p ops.Params, f opFlags, 
 			reason: "pre-flight failed, nothing was changed: " + strings.Join(failed, "; "), checks: nonOKChecks(prep.Checks)})
 		return finish(exitCheckFailed)
 	}
+	if len(prep.Plan.Actions) == 0 {
+		// Ready with nothing to run (already at the target, nothing to
+		// convert, access already granted): a completed no-op, no job.
+		res.Result = "Nothing to do"
+		if text {
+			_, _ = fmt.Fprintln(out, "Nothing to do.")
+		}
+		return finish(0)
+	}
 	if _, err := a.confirmation(prep.Plan, f.confirm); err != nil {
 		if errors.Is(err, core.ErrNotConfirmed) {
 			a.recordRefusal(cmd.ErrOrStderr(), refusal{kind: jobs.Operation, operation: op, target: name, instance: t.Instance,

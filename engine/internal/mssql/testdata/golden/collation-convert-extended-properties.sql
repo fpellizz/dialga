@@ -1,6 +1,7 @@
 USE [golden_db];
 SET XACT_ABORT ON;
 SET LOCK_TIMEOUT 30000;
+BEGIN TRY
 BEGIN TRANSACTION;
 ALTER TABLE [dbo].[lines] DROP CONSTRAINT [FK_lines_heads];
 ALTER TABLE [dbo].[lines] DROP CONSTRAINT [CK_lines_code];
@@ -18,3 +19,8 @@ EXEC [golden_db].sys.sp_addextendedproperty @name = N'owner', @value = N'sales',
 ALTER TABLE [dbo].[lines] WITH CHECK ADD CONSTRAINT [FK_lines_heads] FOREIGN KEY ([code]) REFERENCES [dbo].[heads] ([code]) ON DELETE CASCADE ON UPDATE SET DEFAULT;
 EXEC [golden_db].sys.sp_addextendedproperty @name = N'MS_Description', @value = N'the head''s line', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N'lines', @level2type = N'CONSTRAINT', @level2name = N'FK_lines_heads';
 COMMIT TRANSACTION;
+END TRY
+BEGIN CATCH
+IF XACT_STATE() <> 0 ROLLBACK TRANSACTION;
+THROW;
+END CATCH;

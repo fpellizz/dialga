@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
 	mssqldb "github.com/microsoft/go-mssqldb"
 
+	"github.com/decisyon/dialga/engine/internal/check"
 	"github.com/decisyon/dialga/engine/internal/core"
 	"github.com/decisyon/dialga/engine/internal/mssql"
 )
@@ -312,5 +314,103 @@ func TestRunConvertLockTimeout(t *testing.T) {
 	f.execErr = errors.New("Cannot insert duplicate key")
 	if _, err := s.RunCollationStep(ctx, p.CollationSteps()[0]); err == nil || !strings.Contains(err.Error(), "rolled back") {
 		t.Fatalf("err %v", err)
+	}
+}
+
+// The options a unit does not keep are one warning; a name it could not
+// journal fails the preview.
+func TestConvertColumnsOptionsAndNames(t *testing.T) {
+	ctx := context.Background()
+	cat := salesCatalog().stat("customers", "ST_name", false, false, "name").
+		index("customers", "IX_name", 2, []string{"name"}, func(ix *mssql.CatalogIndex) { ix.OptimizeSequentialKey = true }).
+		prop(7, "customers", "IX_name", "MS_Description", "varchar")
+	cat.cat.Stats[0].PersistedSample = true
+	p, err := convertSession(newConvertFake(cat)).ConvertColumns(ctx, Params{Database: "sales", Collation: toColl})
+	if err != nil || !p.Ready() || !strings.Contains(verdicts(p), "options:warning") {
+		t.Fatalf("err %v checks %s", err, verdicts(p))
+	}
+	detail := p.Checks[slices.IndexFunc(p.Checks, func(c check.Event) bool { return c.Step == "options" })].Detail
+	for _, want := range []string{"OPTIMIZE_FOR_SEQUENTIAL_KEY of index dbo.customers.IX_name", "persisted sample of statistic dbo.customers.ST_name",
+		"varchar type of extended property MS_Description"} {
+		if !strings.Contains(detail, want) {
+			t.Fatalf("options %q lacks %q", detail, want)
+		}
+	}
+
+	bad := salesCatalog().column("customers.name", func(c *mssql.CharColumn) { c.Type = "nvarchar"; c.MaxLength = 99999 })
+	p, err = convertSession(newConvertFake(bad)).ConvertColumns(ctx, Params{Database: "sales", Collation: toColl})
+	if err != nil || p.Ready() || !strings.Contains(verdicts(p), "names:failed") || ids(p) != "" {
+		t.Fatalf("err %v checks %s actions %q", err, verdicts(p), ids(p))
+	}
+}
+
+// A unit runs only as planned: a column or a dependent object that changed
+// since the plan refuses it, nothing runs; a new auto-created statistic is
+// dropped with the rest.
+func TestRunConvertRefusesChangedTables(t *testing.T) {
+	ctx := context.Background()
+	plan := func(t *testing.T) (*convertFake, *Session, CollationStep) {
+		t.Helper()
+		f := newConvertFake(salesCatalog().check("customers", "CK_name", "name", nil, "([name]<>N'')"))
+		s := convertSession(f)
+		p, err := s.ConvertColumns(ctx, Params{Database: "sales", Collation: toColl})
+		if err != nil || !p.Ready() {
+			t.Fatalf("err %v checks %s", err, verdicts(p))
+		}
+		return f, s, p.CollationSteps()[0] // customers
+	}
+	for name, change := range map[string]func(*convertFake){
+		"length": func(f *convertFake) { f.cat.column("customers.name", func(c *mssql.CharColumn) { c.MaxLength = 400 }) },
+		"nullable": func(f *convertFake) {
+			f.cat.column("customers.name", func(c *mssql.CharColumn) { c.Nullable = !c.Nullable })
+		},
+		"type": func(f *convertFake) {
+			f.cat.column("customers.name", func(c *mssql.CharColumn) { c.Type, c.BaseType = "varchar", "varchar" })
+		},
+		"check":     func(f *convertFake) { f.cat.cat.Checks[0].Def.Definition = "(len([name])>(1))" },
+		"new index": func(f *convertFake) { f.cat.index("customers", "IX_name", 2, []string{"name"}) },
+		"refused": func(f *convertFake) {
+			f.cat.cat.Masked = []mssql.ColumnKey{{ObjectID: f.cat.ids["customers"], ColumnID: 1}}
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, s, st := plan(t)
+			change(f)
+			_, err := s.RunCollationStep(ctx, st)
+			if !errors.Is(err, errTablesChanged) || len(f.ran) != 0 {
+				t.Fatalf("err %v ran %v", err, f.ran)
+			}
+		})
+	}
+	t.Run("auto statistic", func(t *testing.T) {
+		f, s, st := plan(t)
+		f.cat.stat("customers", "_WA_Sys_name", true, false, "name")
+		if _, err := s.RunCollationStep(ctx, st); err != nil || len(f.ran) != 1 || !strings.Contains(f.ran[0], "DROP STATISTICS [dbo].[customers].[_WA_Sys_name];") {
+			t.Fatalf("err %v ran %v", err, f.ran)
+		}
+	})
+}
+
+// "Already converted" also needs the extended properties the unit adds.
+func TestRunConvertAlreadyNeedsTheProperties(t *testing.T) {
+	ctx := context.Background()
+	f := newConvertFake(salesCatalog().prop(1, "orders", "PK_orders", "MS_Description", "nvarchar"))
+	s := convertSession(f)
+	p, err := s.ConvertColumns(ctx, Params{Database: "sales", Collation: toColl})
+	if err != nil || !p.Ready() {
+		t.Fatalf("err %v checks %s", err, verdicts(p))
+	}
+	st := p.CollationSteps()[1]
+	if len(st.Unit.Tables[1].ExtendedProperties) != 1 {
+		t.Fatalf("unit %+v", st.Unit.Tables[1])
+	}
+	f.cat.column("orders.code", func(c *mssql.CharColumn) { c.Collation = toColl })
+	f.cat.column("lines.order_code", func(c *mssql.CharColumn) { c.Collation = toColl })
+	if out, err := s.RunCollationStep(ctx, st); err != nil || !strings.HasPrefix(out, "already converted") {
+		t.Fatalf("%q %v", out, err)
+	}
+	f.cat.cat.ExtendedProperties = nil
+	if _, err := s.RunCollationStep(ctx, st); !errors.Is(err, errUnitState) || len(f.ran) != 0 {
+		t.Fatalf("property missing: %v ran %v", err, f.ran)
 	}
 }

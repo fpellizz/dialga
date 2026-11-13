@@ -68,9 +68,10 @@ func collDB(t *testing.T, name, collation, script string) {
 
 var grantServerState sync.Once
 
-// collSession is a session as the RDS master user has it: VIEW SERVER STATE
-// (CollationState reads sys.dm_hadr_database_replica_states, the sessions
-// check sys.dm_exec_sessions of other logins) which the mock admin lacks.
+// collSession is a session as the RDS master user has it: VIEW SERVER STATE,
+// which the mock admin lacks. Only the sessions check needs it (without it
+// sys.dm_exec_sessions shows only the session itself): CollationState reads
+// catalog views only.
 func collSession(t *testing.T) *Session {
 	t.Helper()
 	grantServerState.Do(func() {

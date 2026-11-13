@@ -74,11 +74,6 @@ const collTarget = "Latin1_General_100_CS_AS"
 func newCollDB(t *testing.T, db, collation, script string) {
 	t.Helper()
 	ctx := context.Background()
-	// The RDS master user has VIEW SERVER STATE (CollationState reads
-	// sys.dm_hadr_database_replica_states); the admin of the mock does not.
-	if _, err := sa.ExecContext(ctx, `GRANT VIEW SERVER STATE TO admin`); err != nil {
-		t.Fatal(err)
-	}
 	for _, stmt := range []string{`DROP DATABASE IF EXISTS ` + db, `CREATE DATABASE ` + db + ` COLLATE ` + collation} {
 		if _, err := admin.ExecContext(ctx, stmt); err != nil {
 			t.Fatal(err)
@@ -421,5 +416,92 @@ USE master;`)
 	var open int
 	if err := admin.QueryRow(`SELECT @@TRANCOUNT`).Scan(&open); err != nil || open != 0 {
 		t.Fatalf("transaction left open: %d %v", open, err)
+	}
+}
+
+// A filter that names a converted column blocks ALTER COLUMN: the filtered
+// index and statistic are dropped and created again, identical.
+func TestIntegrationConvertColumnsFilteredIndex(t *testing.T) {
+	ctx := context.Background()
+	newCollDB(t, "coll_f", "SQL_Latin1_General_CP1_CI_AS", `USE coll_f;
+GO
+CREATE TABLE dbo.t (id int NOT NULL CONSTRAINT PK_t PRIMARY KEY, [status] varchar(10) NULL);
+CREATE INDEX IX ON dbo.t (id) WHERE [status] = 'A';
+CREATE STATISTICS st_t ON dbo.t (id) WHERE [status] = 'B';
+INSERT dbo.t VALUES (1, 'A'), (2, 'B');
+GO
+USE master;`)
+	before, _ := catalogShape(t, "coll_f")
+	s := convSession()
+	p, err := s.ConvertColumns(ctx, Params{Database: "coll_f", Collation: collTarget})
+	mustReady(t, p, err)
+	if p.Collation.Indexes != 1 || !strings.Contains(statements(p), "DROP INDEX [IX]") || !strings.Contains(statements(p), "DROP STATISTICS [dbo].[t].[st_t]") {
+		t.Fatalf("summary %+v\n%s", p.Collation, statements(p))
+	}
+	if _, err := p.Execute(ctx, ExecOptions{Confirm: "coll_f"}); err != nil {
+		t.Fatalf("execute: %v\n%s", err, statements(p))
+	}
+	after, coll := catalogShape(t, "coll_f")
+	if before != after || coll["dbo.t.status"] != collTarget {
+		t.Fatalf("collation %v\nbefore %s\nafter %s", coll, before, after)
+	}
+}
+
+// Change tracking needs the primary key of its table: a conversion that
+// rebuilds it is refused; one that keeps it converts.
+func TestIntegrationConvertColumnsChangeTracking(t *testing.T) {
+	ctx := context.Background()
+	newCollDB(t, "coll_ct", "SQL_Latin1_General_CP1_CI_AS", `ALTER DATABASE coll_ct SET CHANGE_TRACKING = ON;
+GO
+USE coll_ct;
+GO
+CREATE TABLE dbo.by_code (code varchar(10) NOT NULL CONSTRAINT PK_by_code PRIMARY KEY, name varchar(20) NULL);
+CREATE TABLE dbo.by_id (id int NOT NULL CONSTRAINT PK_by_id PRIMARY KEY, name varchar(20) NULL);
+ALTER TABLE dbo.by_code ENABLE CHANGE_TRACKING;
+ALTER TABLE dbo.by_id ENABLE CHANGE_TRACKING;
+GO
+USE master;`)
+	s := convSession()
+	p, err := s.ConvertColumns(ctx, Params{Database: "coll_ct", Collation: collTarget, Tables: []mssql.TableRef{{Schema: "dbo", Name: "by_code"}}})
+	if err != nil || p.Ready() || len(p.Collation.Refused) != 1 || !strings.Contains(p.Collation.Refused[0].Reason, "change tracking needs the primary key PK_by_code") {
+		t.Fatalf("by_code: %v %+v %s", err, p.Collation, verdicts(p))
+	}
+	p, err = s.ConvertColumns(ctx, Params{Database: "coll_ct", Collation: collTarget, Tables: []mssql.TableRef{{Schema: "dbo", Name: "by_id"}}})
+	mustReady(t, p, err)
+	if _, err := p.Execute(ctx, ExecOptions{Confirm: "coll_ct"}); err != nil {
+		t.Fatalf("by_id: %v", err)
+	}
+	if _, coll := catalogShape(t, "coll_ct"); coll["dbo.by_id.name"] != collTarget || coll["dbo.by_code.code"] == collTarget {
+		t.Fatalf("collations %v", coll)
+	}
+}
+
+// sp_addextendedproperty fails with RAISERROR, which XACT_ABORT does not
+// abort on: the TRY ... CATCH of the unit rolls everything back all the same.
+func TestIntegrationConvertColumnsPropertyFailureRollsBack(t *testing.T) {
+	ctx := context.Background()
+	newCollDB(t, "coll_x", "SQL_Latin1_General_CP1_CI_AS", `USE coll_x;
+GO
+CREATE TABLE dbo.t (code varchar(10) NOT NULL CONSTRAINT CK_t CHECK (code <> ''));
+GO
+EXEC sys.sp_addextendedproperty @name = N'MS_Description', @value = N'not empty', @level0type = N'SCHEMA', @level0name = N'dbo', @level1type = N'TABLE', @level1name = N't', @level2type = N'CONSTRAINT', @level2name = N'CK_t';
+GO
+USE master;`)
+	before, _ := catalogShape(t, "coll_x")
+	p, err := convSession().ConvertColumns(ctx, Params{Database: "coll_x", Collation: collTarget})
+	mustReady(t, p, err)
+	u := *p.CollationSteps()[0].Unit
+	tc := &u.Tables[0]
+	if len(tc.ExtendedProperties) != 1 {
+		t.Fatalf("unit %+v", u)
+	}
+	// the same property twice: the second sp_addextendedproperty fails
+	tc.ExtendedProperties = append(tc.ExtendedProperties, tc.ExtendedProperties[0])
+	err = mssql.Session{DB: admin}.Exec(ctx, mssql.ConvertUnit(u))
+	if err == nil || !strings.Contains(err.Error(), "already exists") {
+		t.Fatalf("exec: %v", err)
+	}
+	if after, coll := catalogShape(t, "coll_x"); after != before || coll["dbo.t.code"] != "SQL_Latin1_General_CP1_CI_AS" {
+		t.Fatalf("not rolled back: %v\nbefore %s\nafter %s", coll, before, after)
 	}
 }

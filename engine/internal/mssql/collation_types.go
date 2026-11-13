@@ -96,7 +96,8 @@ type CollationState struct {
 	// session's login.
 	CanAlter bool
 	// AvailabilityReplica: the database is in an availability group
-	// (Multi-AZ with Always On).
+	// (Multi-AZ with Always On): sys.databases.replica_id or
+	// group_database_id is set.
 	AvailabilityReplica bool
 	// Mirrored: the database is mirrored (Multi-AZ with database mirroring).
 	Mirrored bool
