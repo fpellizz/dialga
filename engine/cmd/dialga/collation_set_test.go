@@ -44,8 +44,8 @@ func (c *collInstance) CharColumns(context.Context, string) ([]mssql.CharColumn,
 	return nil, nil
 }
 
-// withCollation makes a open c as the instance of the target.
-func withCollation(a *app, c *collInstance) {
+// withSetCollation makes a open c as the instance of the target.
+func withSetCollation(a *app, c *collInstance) {
 	a.openOps = func(_ context.Context, name string, t config.Target, _ string) (*ops.Session, func(), error) {
 		return &ops.Session{Name: name, Target: t, SQL: c}, func() {}, nil
 	}
@@ -59,7 +59,7 @@ func newCollInstance() *collInstance {
 func TestCollationSetDryRun(t *testing.T) {
 	a, _, _ := testApp(t, testConfig)
 	c := newCollInstance()
-	withCollation(a, c)
+	withSetCollation(a, c)
 	code, out, _ := run(a, "collation", "set", "sales", "Latin1_General_100_CI_AS")
 	if code != 0 || len(c.ran) != 0 {
 		t.Fatalf("code %d, ran %v:\n%s", code, c.ran, out)
@@ -78,7 +78,7 @@ func TestCollationSetPreflightFailedExits2(t *testing.T) {
 	a, _, _ := testApp(t, testConfig)
 	c := newCollInstance()
 	c.blockers = []mssql.CollationBlocker{{Kind: "check-constraint", Schema: "dbo", Object: "t.ck"}}
-	withCollation(a, c)
+	withSetCollation(a, c)
 	code, out, _ := run(a, "collation", "set", "sales", "Latin1_General_100_CI_AS", "-o", "json")
 	var doc opResult
 	if err := json.Unmarshal([]byte(out), &doc); err != nil || code != exitCheckFailed || doc.Ready || doc.Operation != "set-collation" {
@@ -93,7 +93,7 @@ func TestCollationSetPreflightFailedExits2(t *testing.T) {
 func TestCollationSetApplyNeedsTheDatabaseName(t *testing.T) {
 	a, _, _ := testApp(t, testConfig)
 	c := newCollInstance()
-	withCollation(a, c)
+	withSetCollation(a, c)
 	if code, _, _ := run(a, "collation", "set", "sales", "Latin1_General_100_CI_AS", "--apply"); code == 0 || len(c.ran) != 0 {
 		t.Fatalf("without confirmation: code %d, ran %v", code, c.ran)
 	}
@@ -110,7 +110,7 @@ func TestCollationSetApplyNeedsTheDatabaseName(t *testing.T) {
 
 func TestCollationSetBadArguments(t *testing.T) {
 	a, _, _ := testApp(t, testConfig)
-	withCollation(a, newCollInstance())
+	withSetCollation(a, newCollInstance())
 	for _, args := range [][]string{{"sales"}, {"sales", "x; DROP"}, {"master", "Latin1_General_100_CI_AS"}} {
 		if code, _, _ := run(a, append([]string{"collation", "set"}, args...)...); code == 0 {
 			t.Errorf("%v accepted", args)
