@@ -177,7 +177,7 @@ func TestSetCollationChecks(t *testing.T) {
 		ready  bool
 		detail string
 	}{
-		{"not online", func(c *collFake) { c.fakeSQL.states["sales"] = "OFFLINE" }, collNew, "database:failed", false, "not ONLINE"},
+		{"not online", func(c *collFake) { c.states["sales"] = "OFFLINE" }, collNew, "database:failed", false, "not ONLINE"},
 		{"read only", func(c *collFake) { c.state.ReadOnly = true }, collNew, "access:failed", false, "read-only"},
 		{"single user", func(c *collFake) { c.state.UserAccess = "SINGLE_USER" }, collNew, "access:failed", false, "maintaining"},
 		{"restricted", func(c *collFake) { c.state.UserAccess = "RESTRICTED_USER" }, collNew, "access:failed", false, "RESTRICTED_USER"},
@@ -190,8 +190,8 @@ func TestSetCollationChecks(t *testing.T) {
 			c.blockers = []mssql.CollationBlocker{{Kind: "schema-bound", Schema: "dbo", Object: "v1"}}
 		}, collNew, "dependents:failed", false, "schema-bound dbo.v1"},
 		{"clashes", func(c *collFake) { c.clashes = []string{"object dbo.t"} }, collNew, "names:failed", false, "dbo.t"},
-		{"tasks", func(c *collFake) { c.fakeSQL.active = map[string]int{"sales": 1} }, collNew, "tasks:failed", false, "running or queued"},
-		{"sessions", func(c *collFake) { c.fakeSQL.sessions = map[string]int{"sales": 3} }, collNew, "sessions:warning", true, "3 session"},
+		{"tasks", func(c *collFake) { c.active = map[string]int{"sales": 1} }, collNew, "tasks:failed", false, "running or queued"},
+		{"sessions", func(c *collFake) { c.sessions = map[string]int{"sales": 3} }, collNew, "sessions:warning", true, "3 session"},
 		{"server match", func(c *collFake) { c.server.Server = collNew }, collNew, "server:ok", true, "matches the server"},
 		{"contained", func(c *collFake) { c.state.Containment = "PARTIAL" }, collNew, "server:ok", true, "contained"},
 		{"temp tables", nil, collNew, "server:warning", true, "Msg 468"},
